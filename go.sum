@@ -1,11 +1,13 @@
+github.com/bvkgo/topic/v2 v2.0.0 h1:DTOKk4KU1Nm7iuaNRljvdtOpNBFrEdgJ0OsBP8758a0=
+github.com/bvkgo/topic/v2 v2.0.0/go.mod h1:HfN8K5cstQZFgruNAFly2F6eWndfJmvExAAZpmiTW2A=
+github.com/bvkgo/topic/v2 v2.1.0 h1:QAeRO4h6XpaY43rCm7dBlE+8/K+goY36Y2Cio22Rie8=
+github.com/bvkgo/topic/v2 v2.1.0/go.mod h1:HfN8K5cstQZFgruNAFly2F6eWndfJmvExAAZpmiTW2A=
 github.com/google/subcommands v1.2.0 h1:vWQspBTo2nEqTUFita5/KeEWlUL8kQObDFbub/EN9oE=
 github.com/google/subcommands v1.2.0/go.mod h1:ZjhPrFU+Olkh9WazFPsl27BQ4UPiG37m3yTrtFlrHVk=
 github.com/google/uuid v1.3.1 h1:KjJaJ9iWZ3jOFZIf1Lqf4laDRCasjl0BCmnEGxkdLb4=
 github.com/google/uuid v1.3.1/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/gorilla/websocket v1.4.0 h1:WDFjx/TMzVgy9VdMMQi2K2Emtwi2QcUQsztZ/zLaH/Q=
 github.com/gorilla/websocket v1.4.0/go.mod h1:E7qHFY5m1UJ88s3WnNqhKjPHQ0heANvMoAMk2YaljkQ=
-github.com/preichenberger/go-coinbasepro/v2 v2.1.0 h1:TOJ6zMtlN3KE/Qa0NgI6U6H5FyUNqLfMrVSq/J4Iitk=
-github.com/preichenberger/go-coinbasepro/v2 v2.1.0/go.mod h1:tsiN/OFQ5FiE+T2i3r88GHDVvR/Jxkx+CGKw7JSYLrE=
 github.com/shopspring/decimal v1.3.1 h1:2Usl1nmF/WZucqkFZhnfFYxxxu8LG21F6nPQBE5gKV8=
 github.com/shopspring/decimal v1.3.1/go.mod h1:DKyhrW/HYNuLGql+MJL6WCR6knT2jwCFRcu2hWCYk4o=
 golang.org/x/sys v0.12.0 h1:CM0HF96J0hcLAwsHPJZjfdNzs0gftsLfgKt57wWHJ0o=

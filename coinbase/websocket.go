@@ -167,7 +167,8 @@ func (w *Websocket) readMessage(ctx context.Context) (*MessageType, error) {
 		return nil, err
 	}
 
-	if smsg := string(msg); !strings.Contains(smsg, `"channel":"heartbeats"`) {
+	// Log only user channel messages.
+	if smsg := string(msg); strings.Contains(smsg, `"channel":"user"`) {
 		slog.InfoContext(ctx, smsg)
 	}
 

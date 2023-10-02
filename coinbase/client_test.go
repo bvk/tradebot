@@ -57,7 +57,7 @@ func TestClient(t *testing.T) {
 		return
 	}
 
-	order, err := c.getOrder(c.ctx, orders[0].ServerOrderID)
+	order, err := c.getOrder(c.ctx, string(orders[0].OrderID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,12 +65,26 @@ func TestClient(t *testing.T) {
 	testPrice, _ := decimal.NewFromString("0.01")
 	testSize, _ := decimal.NewFromString("1")
 	testID := uuid.New()
-	testOrder, err := bch.Buy(c.ctx, testID.String(), testSize, testPrice)
+	testOrder, err := bch.LimitBuy(c.ctx, testID.String(), testSize, testPrice)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := bch.Cancel(c.ctx, testOrder.ServerOrderID); err != nil {
+	for {
+		status, at, ok := c.orderStatus(string(testOrder))
+		if !ok {
+			t.Fatalf("order just created has no status")
+		}
+		t.Logf("order %s status is %s", testOrder, status)
+		if status == "OPEN" {
+			break
+		}
+		if err := c.waitForStatusChange(c.ctx, string(testOrder), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := bch.Cancel(c.ctx, testOrder); err != nil {
 		t.Fatal(err)
 	}
 

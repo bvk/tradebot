@@ -39,7 +39,11 @@ type Client struct {
 	// orderIDMap keeps a mapping between client order ids to server order ids.
 	orderIDMap map[string]string
 
-	pollCh chan struct{}
+	// concurrent map[string]*orderData
+	orderDataMap sync.Map
+
+	// concurrent map[string]*orderData
+	oldOrderDataMap sync.Map
 }
 
 // New creates a client for coinbase exchange.
@@ -114,6 +118,45 @@ func (c *Client) listProducts(ctx context.Context) ([]string, error) {
 		ids = append(ids, p.ProductID)
 	}
 	return ids, nil
+}
+
+func (c *Client) orderStatus(id string) (string, time.Time, bool) {
+	value, ok := c.orderDataMap.Load(id)
+	if !ok {
+		v, ok := c.oldOrderDataMap.Load(id)
+		if !ok {
+			return "", time.Time{}, false
+		}
+		value = v
+	}
+	data := value.(*orderData)
+	status, timestamp := data.status()
+	return status, timestamp, true
+}
+
+func (c *Client) waitForStatusChange(ctx context.Context, id string, last time.Time) error {
+	value, ok := c.orderDataMap.Load(id)
+	if !ok {
+		return os.ErrNotExist
+	}
+	data := value.(*orderData)
+
+	sub, subCh, err := data.statusTopic.Subscribe(1)
+	if err != nil {
+		return err
+	}
+	defer sub.Unsubscribe()
+
+	_, timestamp := data.status()
+	for !last.Before(timestamp) {
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case v := <-subCh:
+			timestamp = v.localTime
+		}
+	}
+	return nil
 }
 
 func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
@@ -192,29 +235,122 @@ func (c *Client) watchOrders(ctx context.Context) error {
 	for ctx.Err() == nil {
 		msg, err := ws.NextMessage(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				break
+			}
 			return err
 		}
-		slog.Info("user channel", "msg", msg)
+
+		// All `user` channel messages are important, so we don't enforce sequence
+		// ordering.
+
+		if msg.Channel == "user" {
+			if err := c.handleUserChannelMsg(ctx, msg); err != nil {
+				slog.WarnContext(ctx, "could not handle user channel message (ignored)", "error", err)
+			}
+		}
 	}
 	return nil
+}
+
+func (c *Client) handleUserChannelMsg(ctx context.Context, msg *MessageType) error {
+	serverTime, err := time.Parse(time.RFC3339Nano, msg.Timestamp)
+	if err != nil {
+		return err
+	}
+
+	for _, event := range msg.Events {
+		if event.Type == "snapshot" {
+			for _, order := range event.Orders {
+				data := newOrderData(order.Status, serverTime)
+				if old, ok := c.orderDataMap.LoadOrStore(order.OrderID, data); ok {
+					data.Close()
+					old.(*orderData).setStatus(order.Status, serverTime)
+					continue
+				}
+			}
+		}
+
+		if event.Type == "update" {
+			for _, order := range event.Orders {
+				data := newOrderData(order.Status, serverTime)
+				if old, ok := c.orderDataMap.LoadOrStore(order.OrderID, data); ok {
+					data.Close()
+					old.(*orderData).setStatus(order.Status, serverTime)
+					continue
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Client) retireOldOrders() {
 }
 
 func (c *Client) goPollOrders() {
 	defer c.wg.Done()
 
-	for c.ctx.Err() == nil {
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-c.pollCh:
-			if err := c.pollOrders(c.ctx); err != nil {
-				if c.ctx.Err() == nil {
-					slog.WarnContext(c.ctx, "could not poll for orders", "error", err)
-					c.sleep(c.opts.PollOrdersRetryInterval)
-				}
-			}
-		}
-	}
+	// Question: Are there cases when websocket is down for soo long?
+	//
+	// When a websocket is down, OPEN orders may get FILLED and the corresponding
+	// event may never show up in the new websocket data. Any user waiting on
+	// such order will get stuck without periodic polling logic.
+
+	// When we create an order, coinbase api returns an order-id, but that
+	// doesn't guarantee the order is active. It may take somemore time before
+	// our order becomes active (i.e., status=OPEN).
+	//
+	// If we want to make sure that our order is active, we have two options:
+	//
+	// 1. Use GetOrder api to fetch order status in a "loop" till it is active
+	//
+	//   This requires (a) at least two or more http requests (2) a loop till
+	//   order becomes active, which means, a time.Sleep with arbitrary
+	//   time.Duration between the iterations
+	//
+	// 2. Listen to the "user" channel on the websocket for the status changes
+	//
+	//   This requires us to handle lost notifications when websocket is dropped.
+	//   It may also happen that websocket connection is stuck (not receiving
+	//   data) and is not immediately identified due to tcp timeouts, in which
+	//   case we need to fallback to GetOrder api.
+	//
+	// Given the above mentioned issues, we use a mixed approach. Whenever we
+	// create an order, we hope to receive a notification from the websocket in a
+	// given timeout. If no notification is received from the websocket we poll
+	// for the order status using the GetOrder api.
+	//
+	// POLLING
+	//
+	// Client object maintains status => list of OrderIDs mapping for each kind
+	// of order status. Every order created is placed in a mapping representing
+	// order ids with UNKOWN status. Also, when an order is completed, it will be
+	// removed from all mappings, so that mappings are bounded by number of live
+	// orders.
+	//
+	// An asynchronous goroutine is used to poll for the status of order
+	// ids. This goroutine is awakened whenever we need to use GetOrder api to
+	// fetch for one or more orders' statuses.
+	//
+	// In the healthy case, websocket receives order status notifications and
+	// immediately *moves* order ids into their target status and wakes up any
+	// waiters. If the asynchronous goroutine wakes up it typically finds that no
+	// order ids are present in the UNKNOWN status mapping.
+
+	// for c.ctx.Err() == nil {
+	// 	select {
+	// 	case <-c.ctx.Done():
+	// 		return
+	// 	case <-c.pollCh:
+	// 		if err := c.pollOrders(c.ctx); err != nil {
+	// 			if c.ctx.Err() == nil {
+	// 				slog.WarnContext(c.ctx, "could not poll for orders", "error", err)
+	// 				c.sleep(c.opts.PollOrdersRetryInterval)
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 func (c *Client) pollOrders(ctx context.Context) error {
@@ -272,6 +408,10 @@ func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (
 
 	if resp.Success && len(request.ClientOrderID) > 0 {
 		c.orderIDMap[request.ClientOrderID] = resp.OrderID
+		data := newOrderData("", time.Time{})
+		if _, ok := c.orderDataMap.LoadOrStore(resp.OrderID, data); ok {
+			data.Close()
+		}
 	}
 	return resp, nil
 }

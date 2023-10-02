@@ -25,6 +25,10 @@ type Options struct {
 
 	// Timeout interval to retry list-orders polling operation.
 	PollOrdersRetryInterval time.Duration
+
+	// Max number of out of order websocket messages allowed before restarting
+	// the websocket.
+	MaxWebsocketOutOfOrderAllowance int
 }
 
 func (v *Options) setDefaults() {
@@ -45,5 +49,8 @@ func (v *Options) setDefaults() {
 	}
 	if v.RetryCount == 0 {
 		v.RetryCount = 3
+	}
+	if v.MaxWebsocketOutOfOrderAllowance == 0 {
+		v.MaxWebsocketOutOfOrderAllowance = 10
 	}
 }

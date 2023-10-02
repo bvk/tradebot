@@ -9,23 +9,41 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+type OrderID string
+
 type Order struct {
+	OrderID OrderID
+
 	ClientOrderID string
-	ServerOrderID string
 
-	CreatedAt time.Time
+	Side string
 
-	FilledSize decimal.Decimal
-	FilledFee  decimal.Decimal
+	CreatedTime time.Time
+
+	Fee         decimal.Decimal
+	FilledSize  decimal.Decimal
+	FilledPrice decimal.Decimal
 
 	Status string
+}
+
+type RemoteTime time.Time
+
+type Ticker struct {
+	Timestamp RemoteTime
+	Price     decimal.Decimal
 }
 
 type Product interface {
 	Price() decimal.Decimal
 
+	Ticker() <-chan *Ticker
+
+	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
+	LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
+
+	Get(ctx context.Context, id OrderID) (*Order, error)
 	List(ctx context.Context) ([]*Order, error)
 
-	Buy(ctx context.Context, clientID string, size, price decimal.Decimal) (*Order, error)
-	Sell(ctx context.Context, clientID string, size, price decimal.Decimal) (*Order, error)
+	WaitForDone(ctx context.Context, id OrderID) error
 }

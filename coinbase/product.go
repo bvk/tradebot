@@ -10,9 +10,11 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/bvkgo/topic/v2"
 	"github.com/bvkgo/tradebot/exchange"
 	"github.com/shopspring/decimal"
 )
@@ -26,9 +28,9 @@ type Product struct {
 
 	productID string
 
-	tickerCond  sync.Cond
-	tickerPrice BigFloat
-	tickerTime  time.Time
+	tickerCh    <-chan *exchange.Ticker
+	tickerTopic *topic.Topic[*exchange.Ticker]
+	tickerRecvr *topic.Receiver[*exchange.Ticker]
 }
 
 func (c *Client) NewProduct(product string) (_ *Product, status error) {
@@ -44,34 +46,32 @@ func (c *Client) NewProduct(product string) (_ *Product, status error) {
 	}()
 
 	p := &Product{
-		ctx:       ctx,
-		cancel:    cancel,
-		client:    c,
-		productID: product,
-		tickerCond: sync.Cond{
-			L: new(sync.Mutex),
-		},
+		ctx:         ctx,
+		cancel:      cancel,
+		client:      c,
+		productID:   product,
+		tickerTopic: topic.New[*exchange.Ticker](),
 	}
+
+	recvr, ch, err := p.tickerTopic.Subscribe(1)
+	if err != nil {
+		return nil, err
+	}
+	p.tickerCh = ch
+	p.tickerRecvr = recvr
 
 	p.wg.Add(1)
 	go p.goWatchPrice()
-	defer func() {
-		if status != nil {
-			p.wg.Wait()
-		}
-	}()
 
-	// Wait till ticker price is received.
-	if err := p.waitForPrice(); err != nil {
-		return nil, err
-	}
-
+	// Wait till initial ticker price is received.
+	<-p.tickerCh
 	return p, nil
 }
 
 func (c *Client) CloseProduct(p *Product) error {
 	p.cancel(os.ErrClosed)
 	p.wg.Wait()
+	p.tickerTopic.Close()
 	return nil
 }
 
@@ -106,6 +106,8 @@ func (p *Product) watch(ctx context.Context) (status error) {
 		return err
 	}
 
+	var msgs []*MessageType
+
 	var lastSeq int64 = -1
 	for ctx.Err() == nil {
 		msg, err := ws.NextMessage(ctx)
@@ -114,6 +116,25 @@ func (p *Product) watch(ctx context.Context) (status error) {
 				return nil
 			}
 			return err
+		}
+
+		msgs = append(msgs, msg)
+		sort.Slice(msgs, func(i, j int) bool {
+			return msgs[i].Sequence < msgs[j].Sequence
+		})
+
+		if msgs[0].Sequence != lastSeq+1 {
+			if len(msgs) > p.client.opts.MaxWebsocketOutOfOrderAllowance {
+				slog.ErrorContext(ctx, "out of order websocket message allowance overflow", "last-seq", lastSeq, "next-msg-seq", msgs[0].Sequence)
+				return fmt.Errorf("out of order allowance overflow")
+			}
+			continue
+		}
+
+		msg = msgs[0]
+		msgs = slices.Delete(msgs, 0, 1)
+		if len(msgs) > 0 {
+			slog.Info("resolved an out of order message", "ooo-size", len(msgs))
 		}
 
 		if lastSeq > 0 {
@@ -142,7 +163,11 @@ func (p *Product) watch(ctx context.Context) (status error) {
 			for _, event := range msg.Events {
 				for _, tick := range event.Tickers {
 					if tick.ProductID == p.productID {
-						p.setPrice(tick.Price, timestamp)
+						v := &exchange.Ticker{
+							Price:     tick.Price.Decimal,
+							Timestamp: exchange.RemoteTime(timestamp),
+						}
+						p.tickerTopic.SendCh() <- v
 					}
 				}
 			}
@@ -153,32 +178,24 @@ func (p *Product) watch(ctx context.Context) (status error) {
 }
 
 func (p *Product) Price() decimal.Decimal {
-	p.tickerCond.L.Lock()
-	defer p.tickerCond.L.Unlock()
-
-	return p.tickerPrice.Decimal
+	v, _ := topic.Recent(p.tickerTopic)
+	return v.Price
 }
 
-func (p *Product) setPrice(price BigFloat, at time.Time) {
-	p.tickerCond.L.Lock()
-	defer p.tickerCond.L.Unlock()
-
-	p.tickerPrice = price
-	p.tickerTime = at
-	p.tickerCond.Broadcast()
+func (p *Product) Ticker() <-chan *exchange.Ticker {
+	_, ch, _ := p.tickerTopic.Subscribe(1)
+	return ch
 }
 
-func (p *Product) waitForPrice() error {
-	p.tickerCond.L.Lock()
-	defer p.tickerCond.L.Unlock()
-
-	for p.ctx.Err() == nil && p.tickerPrice.IsZero() {
-		p.tickerCond.Wait()
+func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.Order, error) {
+	resp, err := p.client.getOrder(ctx, string(serverOrderID))
+	if err != nil {
+		return nil, err
 	}
-	return p.ctx.Err()
+	return resp.Order.ToExchangeOrder(), nil
 }
 
-func (p *Product) Buy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (*exchange.Order, error) {
+func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
 	req := &CreateOrderRequest{
 		ClientOrderID: clientOrderID,
 		ProductID:     p.productID,
@@ -192,17 +209,16 @@ func (p *Product) Buy(ctx context.Context, clientOrderID string, size, price dec
 	}
 	resp, err := p.client.createOrder(ctx, req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	status := &exchange.Order{
-		ClientOrderID: clientOrderID,
-		ServerOrderID: resp.OrderID,
+	if !resp.Success {
+		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
+		return "", errors.New(resp.FailureReason)
 	}
-	// TODO: Fill more fields.
-	return status, nil
+	return exchange.OrderID(resp.OrderID), nil
 }
 
-func (p *Product) Sell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (*exchange.Order, error) {
+func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
 	req := &CreateOrderRequest{
 		ClientOrderID: clientOrderID,
 		ProductID:     p.productID,
@@ -216,23 +232,18 @@ func (p *Product) Sell(ctx context.Context, clientOrderID string, size, price de
 	}
 	resp, err := p.client.createOrder(ctx, req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if !resp.Success {
 		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
-		return nil, errors.New(resp.FailureReason)
+		return "", errors.New(resp.FailureReason)
 	}
-	status := &exchange.Order{
-		ClientOrderID: clientOrderID,
-		ServerOrderID: resp.OrderID,
-	}
-	// TODO: Fill more fields.
-	return status, nil
+	return exchange.OrderID(resp.OrderID), nil
 }
 
-func (p *Product) Cancel(ctx context.Context, serverOrderID string) error {
+func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) error {
 	req := &CancelOrderRequest{
-		OrderIDs: []string{serverOrderID},
+		OrderIDs: []string{string(serverOrderID)},
 	}
 	resp, err := p.client.cancelOrder(ctx, req)
 	if err != nil {
@@ -270,18 +281,28 @@ func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
 	var orders []*exchange.Order
 	for _, resp := range responses {
 		for _, ord := range resp.Orders {
-			at, err := time.Parse(time.RFC3339Nano, ord.CreatedTime)
-			if err != nil {
-				return nil, err
-			}
-			order := &exchange.Order{
-				ClientOrderID: ord.ClientOrderID,
-				ServerOrderID: ord.OrderID,
-				CreatedAt:     at,
-				// TODO: More fields
-			}
-			orders = append(orders, order)
+			orders = append(orders, ord.ToExchangeOrder())
 		}
 	}
 	return orders, nil
+}
+
+func (p *Product) WaitForDone(ctx context.Context, id exchange.OrderID) (time.Time, error) {
+	wanted := []string{
+		"FILLED", "CANCELLED", "EXPIRED", "FAILED",
+	}
+
+	status, timestamp, ok := p.client.orderStatus(string(id))
+	if !ok {
+		return time.Time{}, os.ErrNotExist
+	}
+
+	for !slices.Contains(wanted, status) {
+		err := p.client.waitForStatusChange(ctx, string(id), timestamp)
+		if err != nil {
+			return time.Time{}, err
+		}
+		status, timestamp, _ = p.client.orderStatus(string(id))
+	}
+	return timestamp, nil
 }
