@@ -16,15 +16,17 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bvkgo/tradebot/coinbase"
 	"github.com/bvkgo/tradebot/daemonize"
 	"github.com/bvkgo/tradebot/server"
 	"github.com/google/subcommands"
 )
 
 type runCmd struct {
-	foreground bool
-	port       int
-	ip         string
+	foreground  bool
+	port        int
+	ip          string
+	secretsPath string
 }
 
 func (*runCmd) Name() string     { return "run" }
@@ -39,6 +41,7 @@ func (p *runCmd) SetFlags(f *flag.FlagSet) {
 	f.BoolVar(&p.foreground, "foreground", false, "runs the daemon in foreground")
 	f.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
 	f.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
+	f.StringVar(&p.secretsPath, "secrets-file", "secrets.json", "path to credentials file")
 }
 
 func (p *runCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -91,6 +94,11 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 		}
 	}
 
+	secrets, err := secretsFromFile(p.secretsPath)
+	if err != nil {
+		return err
+	}
+
 	opts := &server.Options{
 		ListenIP:   addr.IP,
 		ListenPort: addr.Port,
@@ -101,13 +109,19 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	}
 	defer s.Close()
 
-	// TODO: Start other services.
+	// Start other services.
+	coinbaseOpts := &coinbase.Options{}
+	cb, err := coinbase.New(secrets.Coinbase.Key, secrets.Coinbase.Secret, coinbaseOpts)
+	if err != nil {
+		return err
+	}
+	defer cb.Close()
 
-	slog.InfoContext(ctx, "started server", "ip", opts.ListenIP, "port", opts.ListenPort)
+	slog.InfoContext(ctx, "started tradebot server", "ip", opts.ListenIP, "port", opts.ListenPort)
 	s.AddHandler("/ppid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprintf("%d", os.Getppid()))
 	}))
 	<-ctx.Done()
-	slog.InfoContext(ctx, "server is shutting down")
+	slog.InfoContext(ctx, "tradebot server is shutting down")
 	return nil
 }

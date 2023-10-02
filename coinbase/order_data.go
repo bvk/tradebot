@@ -4,10 +4,15 @@ package coinbase
 
 import (
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/bvkgo/topic/v2"
 )
+
+var doneStatuses []string = []string{
+	"FILLED", "CANCELLED", "EXPIRED", "FAILED",
+}
 
 type orderStatus struct {
 	status     string
@@ -39,6 +44,9 @@ func (d *orderData) status() (string, time.Time) {
 func (d *orderData) setStatus(new string, serverTime time.Time) {
 	if v, ok := topic.Recent(d.statusTopic); ok {
 		if v.status == new {
+			return
+		}
+		if slices.Contains(doneStatuses, v.status) {
 			return
 		}
 		if serverTime.Before(v.serverTime) {

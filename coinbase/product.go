@@ -287,22 +287,18 @@ func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
 	return orders, nil
 }
 
-func (p *Product) WaitForDone(ctx context.Context, id exchange.OrderID) (time.Time, error) {
-	wanted := []string{
-		"FILLED", "CANCELLED", "EXPIRED", "FAILED",
-	}
-
+func (p *Product) WaitForDone(ctx context.Context, id exchange.OrderID) error {
 	status, timestamp, ok := p.client.orderStatus(string(id))
 	if !ok {
-		return time.Time{}, os.ErrNotExist
+		return os.ErrNotExist
 	}
 
-	for !slices.Contains(wanted, status) {
+	for !slices.Contains(doneStatuses, status) {
 		err := p.client.waitForStatusChange(ctx, string(id), timestamp)
 		if err != nil {
-			return time.Time{}, err
+			return err
 		}
 		status, timestamp, _ = p.client.orderStatus(string(id))
 	}
-	return timestamp, nil
+	return nil
 }

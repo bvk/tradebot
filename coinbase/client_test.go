@@ -3,6 +3,8 @@
 package coinbase
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"slices"
 	"testing"
 
@@ -11,12 +13,25 @@ import (
 )
 
 var (
-	testingKey     string   = "Cki0qSa9C6O0GI98"
-	testingSecret  string   = "0m3C3trHZSxe9ayFzoldSIvIlgNr7HLS"
+	testingKey     string
+	testingSecret  string
 	testingOptions *Options = &Options{}
 )
 
 func checkCredentials() bool {
+	if len(testingKey) != 0 && len(testingSecret) != 0 {
+		return true
+	}
+	data, err := ioutil.ReadFile("coinbase-creds.json")
+	if err != nil {
+		return false
+	}
+	s := new(Credentials)
+	if err := json.Unmarshal(data, s); err != nil {
+		return false
+	}
+	testingKey = s.Key
+	testingSecret = s.Secret
 	return len(testingKey) != 0 && len(testingSecret) != 0
 }
 
