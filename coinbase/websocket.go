@@ -166,6 +166,11 @@ func (w *Websocket) readMessage(ctx context.Context) (*MessageType, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if smsg := string(msg); !strings.Contains(smsg, `"channel":"heartbeats"`) {
+		slog.InfoContext(ctx, smsg)
+	}
+
 	m := new(MessageType)
 	if err := json.Unmarshal(msg, m); err != nil {
 		return nil, err
