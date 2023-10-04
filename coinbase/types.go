@@ -1,8 +1,7 @@
 package coinbase
 
 import (
-	"log/slog"
-	"time"
+	"slices"
 
 	"github.com/bvkgo/tradebot/exchange"
 )
@@ -43,11 +42,11 @@ type MessageType struct {
 }
 
 type EventType struct {
-	Type      string            `json:"type"`
-	ProductID string            `json:"product_id"`
-	Updates   []UpdateEventType `json:"updates"`
-	Tickers   []TickerEventType `json:"tickers"`
-	Orders    []OrderEventType  `json:"orders"`
+	Type      string             `json:"type"`
+	ProductID string             `json:"product_id"`
+	Updates   []*UpdateEventType `json:"updates"`
+	Tickers   []*TickerEventType `json:"tickers"`
+	Orders    []*OrderEventType  `json:"orders"`
 }
 
 type UpdateEventType struct {
@@ -70,15 +69,15 @@ type TickerEventType struct {
 }
 
 type OrderEventType struct {
-	OrderID       string `json:"order_id"`
-	ClientOrderID string `json:"client_order_id"`
-	Status        string `json:"status"`
-	ProductID     string `json:"product_id"`
-	CreatedTime   string `json:"creation_time"`
-	OrderSide     string `json:"order_side"`
-	OrderType     string `json:"order_type"`
-	CancelReason  string `json:"cancel_reason"`
-	RejectReason  string `json:"reject_reason"`
+	OrderID       string     `json:"order_id"`
+	ClientOrderID string     `json:"client_order_id"`
+	Status        string     `json:"status"`
+	ProductID     string     `json:"product_id"`
+	CreatedTime   RemoteTime `json:"creation_time"`
+	OrderSide     string     `json:"order_side"`
+	OrderType     string     `json:"order_type"`
+	CancelReason  string     `json:"cancel_reason"`
+	RejectReason  string     `json:"reject_reason"`
 }
 
 type OrderType struct {
@@ -95,9 +94,9 @@ type OrderType struct {
 	ProductID   string `json:"product_id"`
 	ProductType string `json:"product_type"`
 
-	Side        string `json:"side"`
-	CreatedTime string `json:"created_time"`
-	Settled     bool   `json:"settled"`
+	Side        string     `json:"side"`
+	CreatedTime RemoteTime `json:"created_time"`
+	Settled     bool       `json:"settled"`
 
 	FilledSize     BigFloat `json:"filled_size"`
 	AvgFilledPrice BigFloat `json:"average_filled_price"`
@@ -115,27 +114,22 @@ type OrderType struct {
 	CancelMessage string `json:"cancel_message"`
 }
 
-func (v *OrderType) ToExchangeOrder() *exchange.Order {
-	var at time.Time
-	if len(v.CreatedTime) > 0 {
-		v, err := time.Parse(time.RFC3339Nano, v.CreatedTime)
-		if err != nil {
-			slog.Warn("could not parse order created time (ignored)", "error", err)
-		} else {
-			at = v
-		}
-	}
-
-	return &exchange.Order{
+func toExchangeOrder(v *OrderType) *exchange.Order {
+	order := &exchange.Order{
 		ClientOrderID: v.ClientOrderID,
 		OrderID:       exchange.OrderID(v.OrderID),
-		CreatedTime:   at,
+		CreateTime:    exchange.RemoteTime(v.CreatedTime.Time),
 		Side:          v.Side,
 		Fee:           v.Fee.Decimal,
 		FilledSize:    v.FilledSize.Decimal,
 		FilledPrice:   v.AvgFilledPrice.Decimal,
 		Status:        v.Status,
+		Done:          slices.Contains(doneStatuses, v.Status),
 	}
+	if order.Done && order.Status != "FILLED" {
+		order.DoneReason = order.Status
+	}
+	return order
 }
 
 type MarketMarketIOCType struct {

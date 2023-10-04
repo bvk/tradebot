@@ -16,9 +16,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bvkgo/tradebot/coinbase"
 	"github.com/bvkgo/tradebot/daemonize"
 	"github.com/bvkgo/tradebot/server"
+	"github.com/bvkgo/tradebot/trader"
 	"github.com/google/subcommands"
 )
 
@@ -94,7 +94,7 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 		}
 	}
 
-	secrets, err := secretsFromFile(p.secretsPath)
+	secrets, err := trader.SecretsFromFile(p.secretsPath)
 	if err != nil {
 		return err
 	}
@@ -110,12 +110,22 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	defer s.Close()
 
 	// Start other services.
-	coinbaseOpts := &coinbase.Options{}
-	cb, err := coinbase.New(secrets.Coinbase.Key, secrets.Coinbase.Secret, coinbaseOpts)
+	trader, err := trader.NewTrader(secrets)
 	if err != nil {
 		return err
 	}
-	defer cb.Close()
+	defer trader.Close()
+
+	// Add trader api handlers
+	traderAPIs := trader.HandlerMap()
+	for k, v := range traderAPIs {
+		s.AddHandler(k, v)
+	}
+	defer func() {
+		for k := range traderAPIs {
+			s.RemoveHandler(k)
+		}
+	}()
 
 	slog.InfoContext(ctx, "started tradebot server", "ip", opts.ListenIP, "port", opts.ListenPort)
 	s.AddHandler("/ppid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

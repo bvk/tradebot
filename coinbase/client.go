@@ -36,9 +36,6 @@ type Client struct {
 	// TODO: Save full *ProductType objects.
 	spotProducts []string
 
-	// orderIDMap keeps a mapping between client order ids to server order ids.
-	orderIDMap map[string]string
-
 	// concurrent map[string]*orderData
 	orderDataMap sync.Map
 
@@ -55,12 +52,11 @@ func New(key, secret string, opts *Options) (*Client, error) {
 
 	ctx, cancel := context.WithCancelCause(context.Background())
 	c := &Client{
-		ctx:        ctx,
-		cancel:     cancel,
-		opts:       *opts,
-		key:        key,
-		secret:     []byte(secret),
-		orderIDMap: make(map[string]string),
+		ctx:    ctx,
+		cancel: cancel,
+		opts:   *opts,
+		key:    key,
+		secret: []byte(secret),
 		client: &http.Client{
 			Timeout: opts.HttpClientTimeout,
 		},
@@ -118,45 +114,6 @@ func (c *Client) listProducts(ctx context.Context) ([]string, error) {
 		ids = append(ids, p.ProductID)
 	}
 	return ids, nil
-}
-
-func (c *Client) orderStatus(id string) (string, time.Time, bool) {
-	value, ok := c.orderDataMap.Load(id)
-	if !ok {
-		v, ok := c.oldOrderDataMap.Load(id)
-		if !ok {
-			return "", time.Time{}, false
-		}
-		value = v
-	}
-	data := value.(*orderData)
-	status, timestamp := data.status()
-	return status, timestamp, true
-}
-
-func (c *Client) waitForStatusChange(ctx context.Context, id string, last time.Time) error {
-	value, ok := c.orderDataMap.Load(id)
-	if !ok {
-		return os.ErrNotExist
-	}
-	data := value.(*orderData)
-
-	sub, subCh, err := data.statusTopic.Subscribe(1)
-	if err != nil {
-		return err
-	}
-	defer sub.Unsubscribe()
-
-	_, timestamp := data.status()
-	for !last.Before(timestamp) {
-		select {
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		case v := <-subCh:
-			timestamp = v.localTime
-		}
-	}
-	return nil
 }
 
 func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
@@ -262,30 +219,35 @@ func (c *Client) handleUserChannelMsg(ctx context.Context, msg *MessageType) err
 	for _, event := range msg.Events {
 		if event.Type == "snapshot" {
 			for _, order := range event.Orders {
-				data := newOrderData(order.Status, serverTime)
-				if old, ok := c.orderDataMap.LoadOrStore(order.OrderID, data); ok {
-					data.Close()
-					old.(*orderData).setStatus(order.Status, serverTime)
+				if old, ok := c.orderDataMap.Load(string(order.OrderID)); ok {
+					old.(*orderData).websocketUpdate(serverTime, order)
 					continue
+				}
+				data := newOrderData()
+				data.websocketUpdate(serverTime, order)
+				if old, ok := c.orderDataMap.LoadOrStore(string(order.OrderID), data); ok {
+					data.Close()
+					old.(*orderData).websocketUpdate(serverTime, order)
 				}
 			}
 		}
 
 		if event.Type == "update" {
 			for _, order := range event.Orders {
-				data := newOrderData(order.Status, serverTime)
-				if old, ok := c.orderDataMap.LoadOrStore(order.OrderID, data); ok {
-					data.Close()
-					old.(*orderData).setStatus(order.Status, serverTime)
+				if old, ok := c.orderDataMap.Load(string(order.OrderID)); ok {
+					old.(*orderData).websocketUpdate(serverTime, order)
 					continue
+				}
+				data := newOrderData()
+				data.websocketUpdate(serverTime, order)
+				if old, ok := c.orderDataMap.LoadOrStore(string(order.OrderID), data); ok {
+					data.Close()
+					old.(*orderData).websocketUpdate(serverTime, order)
 				}
 			}
 		}
 	}
 	return nil
-}
-
-func (c *Client) retireOldOrders() {
 }
 
 func (c *Client) goPollOrders() {
@@ -389,13 +351,6 @@ func (c *Client) getOrder(ctx context.Context, orderID string) (*GetOrderRespons
 }
 
 func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (*CreateOrderResponse, error) {
-	// Make sure that client-order-id is unique.
-	if len(request.ClientOrderID) > 0 {
-		if _, ok := c.orderIDMap[request.ClientOrderID]; ok {
-			return nil, fmt.Errorf("client order id is already in use")
-		}
-	}
-
 	url := &url.URL{
 		Scheme: "https",
 		Host:   c.opts.RestHostname,
@@ -406,11 +361,14 @@ func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (
 		return nil, err
 	}
 
-	if resp.Success && len(request.ClientOrderID) > 0 {
-		c.orderIDMap[request.ClientOrderID] = resp.OrderID
-		data := newOrderData("", time.Time{})
-		if _, ok := c.orderDataMap.LoadOrStore(resp.OrderID, data); ok {
+	if resp.Success {
+		data := newOrderData()
+		if old, ok := c.orderDataMap.LoadOrStore(string(resp.OrderID), data); ok {
 			data.Close()
+			data = old.(*orderData)
+		}
+		if _, err := data.waitForOpen(ctx); err != nil {
+			return nil, err
 		}
 	}
 	return resp, nil

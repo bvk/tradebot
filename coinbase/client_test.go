@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -72,11 +73,6 @@ func TestClient(t *testing.T) {
 		return
 	}
 
-	order, err := c.getOrder(c.ctx, string(orders[0].OrderID))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	testPrice, _ := decimal.NewFromString("0.01")
 	testSize, _ := decimal.NewFromString("1")
 	testID := uuid.New()
@@ -84,25 +80,28 @@ func TestClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testOrderCh := bch.OrderUpdatesCh(testOrder)
+	if testOrderCh == nil {
+		t.Fatalf("order updates channel cannot be nil")
+	}
 
-	for {
-		status, at, ok := c.orderStatus(string(testOrder))
-		if !ok {
-			t.Fatalf("order just created has no status")
-		}
-		t.Logf("order %s status is %s", testOrder, status)
-		if status == "OPEN" {
-			break
-		}
-		if err := c.waitForStatusChange(c.ctx, string(testOrder), at); err != nil {
+	go func() {
+		time.Sleep(time.Second)
+		if err := bch.Cancel(c.ctx, testOrder); err != nil {
 			t.Fatal(err)
 		}
+	}()
+
+	for order := range testOrderCh {
+		if order.Done {
+			t.Logf("order is done with reason %q", order.DoneReason)
+			break
+		}
 	}
 
-	if err := bch.Cancel(c.ctx, testOrder); err != nil {
+	order, err := bch.Get(c.ctx, testOrder)
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	t.Logf("BCH price is at %s", bch.Price())
-	t.Logf("Found a live order %#v", order)
+	t.Logf("final order is: %#v", order)
 }

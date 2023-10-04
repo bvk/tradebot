@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package main
+package trader
 
 import (
 	"encoding/json"
@@ -9,16 +9,16 @@ import (
 	"github.com/bvkgo/tradebot/coinbase"
 )
 
-type secrets struct {
-	Coinbase coinbase.Credentials
+type Secrets struct {
+	Coinbase *coinbase.Credentials
 }
 
-func secretsFromFile(fpath string) (*secrets, error) {
+func SecretsFromFile(fpath string) (*Secrets, error) {
 	data, err := ioutil.ReadFile(fpath)
 	if err != nil {
 		return nil, err
 	}
-	s := new(secrets)
+	s := new(Secrets)
 	if err := json.Unmarshal(data, s); err != nil {
 		return nil, err
 	}
