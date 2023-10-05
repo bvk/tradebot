@@ -138,13 +138,14 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 		return nil, err
 	}
 
-	clientOrderID := uuid.New().String()
+	taskID := uuid.New().String()
 	// TODO: We should keep track of background jobs
 
-	buy := NewLimitBuy(product, req.BuyPrice, req.BuyCancelPrice, req.BuySize, clientOrderID)
+	buy := NewLimitBuy(product, taskID, req.BuyPrice, req.BuyCancelPrice, req.BuySize)
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
+
 		if err := buy.Run(t.closeCtx); err != nil {
 			slog.ErrorContext(t.closeCtx, "limit-buy operation has failed", "error", err)
 		} else {
@@ -153,7 +154,7 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 	}()
 
 	resp := &LimitBuyResponse{
-		TaskID: clientOrderID,
+		TaskID: taskID,
 	}
 	return resp, nil
 }
@@ -174,20 +175,22 @@ func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *Lim
 		return nil, err
 	}
 
-	clientOrderID := uuid.New().String()
+	taskID := uuid.New().String()
 	// TODO: We should keep track of background jobs
 
-	sell := NewLimitSell(product, req.SellPrice, req.SellCancelPrice, req.SellSize, clientOrderID)
+	sell := NewLimitSell(product, taskID, req.SellPrice, req.SellCancelPrice, req.SellSize)
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
 		if err := sell.Run(t.closeCtx); err != nil {
 			slog.ErrorContext(t.closeCtx, "limit-sell operation has failed", "error", err)
+		} else {
+			slog.InfoContext(ctx, "limit-sell has completed successfully")
 		}
 	}()
 
 	resp := &LimitSellResponse{
-		TaskID: clientOrderID,
+		TaskID: taskID,
 	}
 	return resp, nil
 }
@@ -219,8 +222,11 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
+
 		if err := loop.Run(t.closeCtx); err != nil {
 			slog.ErrorContext(t.closeCtx, "loop operation has failed", "error", err)
+		} else {
+			slog.InfoContext(ctx, "loop has completed successfully")
 		}
 	}()
 

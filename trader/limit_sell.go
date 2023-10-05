@@ -9,15 +9,14 @@ import (
 	"os"
 
 	"github.com/bvkgo/tradebot/exchange"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
 type LimitSell struct {
 	product exchange.Product
 
-	orderID exchange.OrderID
-
-	clientOrderID string
+	taskID string
 
 	size decimal.Decimal
 
@@ -25,20 +24,23 @@ type LimitSell struct {
 
 	cancelPrice decimal.Decimal
 
-	tickerCh  <-chan *exchange.Ticker
-	updatesCh <-chan *exchange.Order
+	tickerCh <-chan *exchange.Ticker
+
+	orderID exchange.OrderID
+
+	orderUpdatesCh <-chan *exchange.Order
 
 	order *exchange.Order
 }
 
-func NewLimitSell(product exchange.Product, sellPrice, cancelPrice, size decimal.Decimal, clientOrderID string) *LimitSell {
+func NewLimitSell(product exchange.Product, taskID string, sellPrice, cancelPrice, size decimal.Decimal) *LimitSell {
 	v := &LimitSell{
-		product:       product,
-		clientOrderID: clientOrderID,
-		size:          size,
-		price:         sellPrice,
-		cancelPrice:   cancelPrice,
-		tickerCh:      product.TickerCh(),
+		product:     product,
+		taskID:      taskID,
+		size:        size,
+		price:       sellPrice,
+		cancelPrice: cancelPrice,
+		tickerCh:    product.TickerCh(),
 	}
 	return v
 }
@@ -66,19 +68,30 @@ func (v *LimitSell) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			if v.orderID != "" {
+				slog.Info("cancelling active limit-sell order", "orderID", v.orderID)
+				if err := v.cancel(context.TODO()); err != nil {
+					return err
+				}
+			}
 			return context.Cause(ctx)
 
-		case order := <-v.updatesCh:
-			if !order.Done {
-				continue
+		case order := <-v.orderUpdatesCh:
+			if order.OrderID != v.orderID {
+				slog.ErrorContext(ctx, "unexpected: order update doesn't match the order-id")
+				return os.ErrInvalid
 			}
-			if order.DoneReason == "" {
-				v.order = order
-				return nil
+			if order.Done {
+				if order.DoneReason == "" {
+					v.order = order
+					return nil
+				}
+				return fmt.Errorf("order completed with reason: %s", order.DoneReason)
 			}
-			return fmt.Errorf("order completed with reason: %s", order.DoneReason)
 
 		case ticker := <-v.tickerCh:
+			// slog.InfoContext(ctx, "change", "ticker", ticker.Price, "orderID", v.orderID, "updatesCh", v.orderUpdatesCh != nil)
+
 			if ticker.Price.LessThanOrEqual(v.cancelPrice) {
 				if v.orderID != "" {
 					if err := v.cancel(ctx); err != nil {
@@ -101,12 +114,13 @@ func (v *LimitSell) Run(ctx context.Context) error {
 }
 
 func (v *LimitSell) create(ctx context.Context) error {
-	orderID, err := v.product.LimitSell(ctx, v.clientOrderID, v.size, v.price)
+	clientOrderID := uuid.New().String()
+	orderID, err := v.product.LimitSell(ctx, clientOrderID, v.size, v.price)
 	if err != nil {
 		return err
 	}
 	v.orderID = orderID
-	v.updatesCh = v.product.OrderUpdatesCh(v.orderID)
+	v.orderUpdatesCh = v.product.OrderUpdatesCh(v.orderID)
 	return nil
 }
 
@@ -114,8 +128,8 @@ func (v *LimitSell) cancel(ctx context.Context) error {
 	if err := v.product.Cancel(ctx, v.orderID); err != nil {
 		return err
 	}
-	v.updatesCh = nil
-	v.orderID = ""
 	// v.product.Retire(v.orderID)
+	v.orderID = ""
+	v.orderUpdatesCh = nil
 	return nil
 }

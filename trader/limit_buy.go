@@ -16,7 +16,7 @@ import (
 type LimitBuy struct {
 	product exchange.Product
 
-	clientOrderID string
+	taskID string
 
 	size decimal.Decimal
 
@@ -33,14 +33,14 @@ type LimitBuy struct {
 	order *exchange.Order
 }
 
-func NewLimitBuy(product exchange.Product, buyPrice, cancelPrice, size decimal.Decimal, clientOrderID string) *LimitBuy {
+func NewLimitBuy(product exchange.Product, taskID string, buyPrice, cancelPrice, size decimal.Decimal) *LimitBuy {
 	v := &LimitBuy{
-		product:       product,
-		clientOrderID: clientOrderID,
-		size:          size,
-		price:         buyPrice,
-		cancelPrice:   cancelPrice,
-		tickerCh:      product.TickerCh(),
+		product:     product,
+		taskID:      taskID,
+		size:        size,
+		price:       buyPrice,
+		cancelPrice: cancelPrice,
+		tickerCh:    product.TickerCh(),
 	}
 	return v
 }
@@ -69,8 +69,8 @@ func (v *LimitBuy) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			if v.orderID != "" {
-				slog.Info("order is still active", "orderID", v.orderID)
-				if err := v.cancel(context.Background()); err != nil {
+				slog.Info("cancelling active limit-buy order", "orderID", v.orderID)
+				if err := v.cancel(context.TODO()); err != nil {
 					return err
 				}
 			}
@@ -83,13 +83,15 @@ func (v *LimitBuy) Run(ctx context.Context) error {
 			}
 			if order.Done {
 				if order.DoneReason == "" {
+					v.order = order
 					return nil
 				}
 				return fmt.Errorf("order completed with reason: %s", order.DoneReason)
 			}
 
 		case ticker := <-v.tickerCh:
-			slog.InfoContext(ctx, "change", "ticker", ticker.Price, "orderID", v.orderID, "updatesCh", v.orderUpdatesCh == nil)
+			// slog.InfoContext(ctx, "change", "ticker", ticker.Price, "orderID", v.orderID, "updatesCh", v.orderUpdatesCh != nil)
+
 			if ticker.Price.GreaterThanOrEqual(v.cancelPrice) {
 				if v.orderID != "" {
 					if err := v.cancel(ctx); err != nil {

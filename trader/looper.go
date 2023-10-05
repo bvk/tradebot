@@ -34,6 +34,9 @@ type Looper struct {
 	// sellCancelPrice is the ticker price limit below which sell order is
 	// canceled to avoid holding up our balances.
 	sellCancelPrice decimal.Decimal
+
+	buys  []*LimitBuy
+	sells []*LimitSell
 }
 
 func NewLooper(product exchange.Product, taskID string, buySize, buyPrice, buyCancelPrice, sellSize, sellPrice, sellCancelPrice decimal.Decimal) (*Looper, error) {
@@ -65,45 +68,31 @@ func (v *Looper) check() error {
 
 func (v *Looper) Run(ctx context.Context) error {
 	for ctx.Err() == nil {
-		buy, err := v.limitBuy(ctx)
-		if err != nil {
+		if err := v.limitBuy(ctx); err != nil {
 			return err
 		}
 
-		// Save the buy order data in the db.
-		_ = buy
-
-		sell, err := v.limitSell(ctx)
-		if err != nil {
+		if err := v.limitSell(ctx); err != nil {
 			return err
 		}
-
-		// Save the sell order data in the db.
-		_ = sell
 	}
 	return nil
 }
 
-func (v *Looper) limitBuy(ctx context.Context) (*exchange.Order, error) {
-	b := NewLimitBuy(v.product, v.buyPrice, v.buyCancelPrice, v.buySize, "")
+func (v *Looper) limitBuy(ctx context.Context) error {
+	b := NewLimitBuy(v.product, v.taskID, v.buyPrice, v.buyCancelPrice, v.buySize)
 	if err := b.Run(ctx); err != nil {
-		return nil, err
+		return err
 	}
-	orders, err := b.Orders(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return orders[0], nil
+	v.buys = append(v.buys, b)
+	return nil
 }
 
-func (v *Looper) limitSell(ctx context.Context) (*exchange.Order, error) {
-	s := NewLimitSell(v.product, v.sellPrice, v.sellCancelPrice, v.sellSize, "")
+func (v *Looper) limitSell(ctx context.Context) error {
+	s := NewLimitSell(v.product, v.taskID, v.sellPrice, v.sellCancelPrice, v.sellSize)
 	if err := s.Run(ctx); err != nil {
-		return nil, err
+		return err
 	}
-	orders, err := s.Orders(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return orders[0], nil
+	v.sells = append(v.sells, s)
+	return nil
 }
