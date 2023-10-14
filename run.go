@@ -7,13 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"time"
 
 	"github.com/bvkgo/tradebot/daemonize"
@@ -23,7 +21,7 @@ import (
 )
 
 type runCmd struct {
-	foreground  bool
+	background  bool
 	port        int
 	ip          string
 	secretsPath string
@@ -38,7 +36,7 @@ func (*runCmd) Usage() string {
 }
 
 func (p *runCmd) SetFlags(f *flag.FlagSet) {
-	f.BoolVar(&p.foreground, "foreground", false, "runs the daemon in foreground")
+	f.BoolVar(&p.background, "background", false, "runs the daemon in background")
 	f.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
 	f.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
 	f.StringVar(&p.secretsPath, "secrets-file", "secrets.json", "path to credentials file")
@@ -67,28 +65,30 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 		Port: p.port,
 	}
 
-	check := func(context.Context) error {
+	// Health checker for the background process initialization. We need to
+	// verify that responding http server is really our child and not an older
+	// instance.
+	check := func(ctx context.Context, child *os.Process) (bool, error) {
 		c := http.Client{Timeout: time.Second}
-		resp, err := c.Get(fmt.Sprintf("http://%s/ppid", addr.String()))
+		resp, err := c.Get(fmt.Sprintf("http://%s/pid", addr.String()))
 		if err != nil {
-			return err
+			return true, err
 		}
 		defer resp.Body.Close()
-		data, err := ioutil.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			return true, fmt.Errorf("http status: %d", resp.StatusCode)
+		}
+		data, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return err
+			return true, err
 		}
-		ppid, err := strconv.ParseInt(string(data), 10, 32)
-		if err != nil {
-			return err
+		if pid := string(data); pid != fmt.Sprintf("%d", child.Pid) {
+			return false, fmt.Errorf("is another instance already running? pid mismatch: want %d got %s", child.Pid, pid)
 		}
-		if int(ppid) != os.Getpid() {
-			return fmt.Errorf("parent mismatch: want %d got %d", os.Getpid(), ppid)
-		}
-		return nil
+		return false, nil
 	}
 
-	if !p.foreground {
+	if p.background {
 		if err := daemonize.Daemonize(ctx, check); err != nil {
 			return err
 		}
@@ -128,8 +128,8 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	}()
 
 	slog.InfoContext(ctx, "started tradebot server", "ip", opts.ListenIP, "port", opts.ListenPort)
-	s.AddHandler("/ppid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, fmt.Sprintf("%d", os.Getppid()))
+	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
 	}))
 	<-ctx.Done()
 	slog.InfoContext(ctx, "tradebot server is shutting down")

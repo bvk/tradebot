@@ -18,6 +18,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// HealthChecker is a function that checks for successfull initialization of
+// the background process. It is run only in the parent after respawning itself
+// as a child that turns into the background process.
+type HealthChecker = func(ctx context.Context, child *os.Process) (retry bool, err error)
+
 // Daemonize uses an environment variable to identify if current process is a
 // parent or child process. We expect this environment variable to be unique
 // and not used (or set) by any other process. When it's value is non-nil, it
@@ -36,14 +41,13 @@ var DaemonizeEnvKey = "TRADEBOT_DAEMONIZE"
 //
 // Parent process will use the check function to wait for the background
 // process to initialize successfully or die unsuccessfully. Check function is
-// expected to verify that a new instance of child process is initialized
-// successfully.
+// expected to verify that a new instance of child process is initialized.
 //
-// When successful, Daemonize returns nil to the background process and exits
+// When successfull, Daemonize returns nil to the background process and exits
 // the parent process (i.e., never returns). When unsuccessful, Daemonize
 // returns non-nil error to the parent process and exits the background process
 // (i.e., never returns).
-func Daemonize(ctx context.Context, check func(context.Context) error) error {
+func Daemonize(ctx context.Context, check HealthChecker) error {
 	if v := os.Getenv(DaemonizeEnvKey); len(v) == 0 {
 		if err := daemonizeParent(ctx, check); err != nil {
 			return err
@@ -56,7 +60,7 @@ func Daemonize(ctx context.Context, check func(context.Context) error) error {
 	return nil
 }
 
-func daemonizeParent(ctx context.Context, check func(context.Context) error) error {
+func daemonizeParent(ctx context.Context, check HealthChecker) (status error) {
 	binary, err := exec.LookPath(os.Args[0])
 	if err != nil {
 		return fmt.Errorf("failed to lookup binary: %w", err)
@@ -70,6 +74,7 @@ func daemonizeParent(ctx context.Context, check func(context.Context) error) err
 	if err != nil {
 		return fmt.Errorf("failed to open /dev/null: %w", err)
 	}
+	defer file.Close()
 
 	// Receive signal when child-process dies.
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGCHLD, os.Interrupt)
@@ -80,17 +85,27 @@ func daemonizeParent(ctx context.Context, check func(context.Context) error) err
 		Env:   []string{fmt.Sprintf("%s=%d", DaemonizeEnvKey, os.Getpid())},
 		Files: []*os.File{file, file, file},
 	}
-	if _, err := os.StartProcess(binaryPath, os.Args, attr); err != nil {
+	proc, err := os.StartProcess(binaryPath, os.Args, attr)
+	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
+	defer func() {
+		if status != nil {
+			if _, err := proc.Wait(); err != nil {
+				slog.ErrorContext(ctx, "could not wait for child process cleanup (ignored)", "error", err)
+			}
+		}
+	}()
 
 	if check != nil {
-		time.Sleep(time.Second)
-		for ctx.Err() == nil {
-			if err := check(ctx); err != nil {
-				slog.WarnContext(ctx, "daemon process not yet initialized", "error", err)
-				time.Sleep(time.Second)
-				continue
+		for sleep := time.Millisecond; ctx.Err() == nil; sleep = sleep << 2 {
+			if retry, err := check(ctx, proc); err != nil {
+				slog.WarnContext(ctx, "background process is not yet initialized", "error", err)
+				if retry {
+					time.Sleep(sleep)
+					continue
+				}
+				return fmt.Errorf("background process isn't initialized: %w", err)
 			}
 			break
 		}
