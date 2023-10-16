@@ -89,7 +89,7 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	}
 
 	if p.background {
-		if err := daemonize.Daemonize(ctx, check); err != nil {
+		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
 			return err
 		}
 	}

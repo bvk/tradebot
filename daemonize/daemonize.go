@@ -23,21 +23,20 @@ import (
 // as a child that turns into the background process.
 type HealthChecker = func(ctx context.Context, child *os.Process) (retry bool, err error)
 
-// Daemonize uses an environment variable to identify if current process is a
-// parent or child process. We expect this environment variable to be unique
-// and not used (or set) by any other process. When it's value is non-nil, it
-// contains the parent process pid.
-var DaemonizeEnvKey = "TRADEBOT_DAEMONIZE"
-
-// Daemonize respawns the current program in the background with the same
-// command-line arguments. Daemonize is intended to turn the current program
-// invoked from shell into a daemon process. Daemonize function *must* be
-// called during the program startup before performing any other significant
-// logic, like opening databases, starting servers, etc.
+// Daemonize respawns the current program in background with the same
+// command-line arguments. Daemonize is intended to turn a program invoked from
+// shell into a daemon process. Daemonize function should be called during the
+// program startup before performing any other significant logic, like opening
+// databases, starting servers, etc.
 //
 // Standard input and standard outputs in the background process are replaced
-// with /dev/null and standard library log is redirected to use the syslog
-// backend.
+// with /dev/null; standard library log is redirected to use the syslog
+// backend; current directory of the background process is changed to the root
+// directory.
+//
+// Users are required to pass an unique, application-specific non-empty
+// environment key name to indicate to the background process that it is a
+// child and turn itself into the background.
 //
 // Parent process will use the check function to wait for the background
 // process to initialize successfully or die unsuccessfully. Check function is
@@ -47,20 +46,23 @@ var DaemonizeEnvKey = "TRADEBOT_DAEMONIZE"
 // the parent process (i.e., never returns). When unsuccessful, Daemonize
 // returns non-nil error to the parent process and exits the background process
 // (i.e., never returns).
-func Daemonize(ctx context.Context, check HealthChecker) error {
-	if v := os.Getenv(DaemonizeEnvKey); len(v) == 0 {
-		if err := daemonizeParent(ctx, check); err != nil {
+func Daemonize(ctx context.Context, envkey string, check HealthChecker) error {
+	if len(envkey) == 0 {
+		return os.ErrInvalid
+	}
+	if v := os.Getenv(envkey); len(v) == 0 {
+		if err := daemonizeParent(ctx, envkey, check); err != nil {
 			return err
 		}
 		os.Exit(0)
 	}
-	if err := daemonizeChild(); err != nil {
+	if err := daemonizeChild(envkey); err != nil {
 		os.Exit(1)
 	}
 	return nil
 }
 
-func daemonizeParent(ctx context.Context, check HealthChecker) (status error) {
+func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (status error) {
 	binary, err := exec.LookPath(os.Args[0])
 	if err != nil {
 		return fmt.Errorf("failed to lookup binary: %w", err)
@@ -82,7 +84,7 @@ func daemonizeParent(ctx context.Context, check HealthChecker) (status error) {
 
 	attr := &os.ProcAttr{
 		Dir:   "/",
-		Env:   []string{fmt.Sprintf("%s=%d", DaemonizeEnvKey, os.Getpid())},
+		Env:   []string{fmt.Sprintf("%s=%d", envkey, os.Getpid())},
 		Files: []*os.File{file, file, file},
 	}
 	proc, err := os.StartProcess(binaryPath, os.Args, attr)
@@ -116,15 +118,19 @@ func daemonizeParent(ctx context.Context, check HealthChecker) (status error) {
 	return nil
 }
 
-func daemonizeChild() error {
+func daemonizeChild(envkey string) error {
+	if ppid := os.Getppid(); fmt.Sprintf("%d", ppid) != os.Getenv(envkey) {
+		return fmt.Errorf("parent pid in the environment key is unexpected")
+	}
+
+	if _, err := unix.Setsid(); err != nil {
+		return fmt.Errorf("could not set session id: %w", err)
+	}
+
 	syslogger, err := syslog.New(syslog.LOG_INFO, "tradebot")
 	if err != nil {
 		return fmt.Errorf("could not create syslog: %w", err)
 	}
 	log.SetOutput(syslogger)
-
-	if _, err := unix.Setsid(); err != nil {
-		return fmt.Errorf("could not set session id: %w", err)
-	}
 	return nil
 }

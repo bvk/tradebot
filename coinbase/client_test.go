@@ -4,7 +4,7 @@ package coinbase
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -23,7 +23,7 @@ func checkCredentials() bool {
 	if len(testingKey) != 0 && len(testingSecret) != 0 {
 		return true
 	}
-	data, err := ioutil.ReadFile("coinbase-creds.json")
+	data, err := os.ReadFile("coinbase-creds.json")
 	if err != nil {
 		return false
 	}
