@@ -4,7 +4,7 @@ package trader
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 
 	"github.com/bvkgo/tradebot/coinbase"
 )
@@ -14,7 +14,7 @@ type Secrets struct {
 }
 
 func SecretsFromFile(fpath string) (*Secrets, error) {
-	data, err := ioutil.ReadFile(fpath)
+	data, err := os.ReadFile(fpath)
 	if err != nil {
 		return nil, err
 	}

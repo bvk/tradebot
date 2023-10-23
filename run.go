@@ -12,11 +12,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
+	"path/filepath"
 	"time"
 
+	"github.com/bvkgo/kvbadger"
 	"github.com/bvkgo/tradebot/daemonize"
 	"github.com/bvkgo/tradebot/server"
 	"github.com/bvkgo/tradebot/trader"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/google/subcommands"
 )
 
@@ -25,6 +29,7 @@ type runCmd struct {
 	port        int
 	ip          string
 	secretsPath string
+	dataDir     string
 }
 
 func (*runCmd) Name() string     { return "run" }
@@ -39,7 +44,8 @@ func (p *runCmd) SetFlags(f *flag.FlagSet) {
 	f.BoolVar(&p.background, "background", false, "runs the daemon in background")
 	f.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
 	f.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
-	f.StringVar(&p.secretsPath, "secrets-file", "secrets.json", "path to credentials file")
+	f.StringVar(&p.secretsPath, "secrets-file", "", "path to credentials file")
+	f.StringVar(&p.dataDir, "data-dir", "", "path to the data directory")
 }
 
 func (p *runCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
@@ -53,6 +59,26 @@ func (p *runCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{})
 func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
+
+	if len(p.dataDir) == 0 {
+		p.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
+	}
+	if _, err := os.Stat(p.dataDir); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("could not stat data directory %q: %w", p.dataDir, err)
+		}
+		if err := os.MkdirAll(p.dataDir, 0700); err != nil {
+			return fmt.Errorf("could not create data directory %q: %w", p.dataDir, err)
+		}
+	}
+
+	if len(p.secretsPath) == 0 {
+		p.secretsPath = filepath.Join(p.dataDir, "secrets.json")
+	}
+	secrets, err := trader.SecretsFromFile(p.secretsPath)
+	if err != nil {
+		return err
+	}
 
 	if ip := net.ParseIP(p.ip); ip == nil {
 		return fmt.Errorf("invalid ip address")
@@ -94,11 +120,7 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 		}
 	}
 
-	secrets, err := trader.SecretsFromFile(p.secretsPath)
-	if err != nil {
-		return err
-	}
-
+	// Start HTTP server.
 	opts := &server.Options{
 		ListenIP:   addr.IP,
 		ListenPort: addr.Port,
@@ -109,8 +131,17 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	}
 	defer s.Close()
 
+	// Open the database.
+	bopts := badger.DefaultOptions(p.dataDir)
+	bdb, err := badger.Open(bopts)
+	if err != nil {
+		return fmt.Errorf("could not open the database: %w", err)
+	}
+	defer bdb.Close()
+	db := kvbadger.New(bdb, isGoodKey)
+
 	// Start other services.
-	trader, err := trader.NewTrader(secrets)
+	trader, err := trader.NewTrader(secrets, db)
 	if err != nil {
 		return err
 	}
@@ -134,4 +165,8 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	<-ctx.Done()
 	slog.InfoContext(ctx, "tradebot server is shutting down")
 	return nil
+}
+
+func isGoodKey(k string) bool {
+	return path.IsAbs(k) && k == path.Clean(k)
 }

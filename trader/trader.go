@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/coinbase"
 	"github.com/bvkgo/tradebot/exchange"
 	"github.com/google/uuid"
@@ -24,6 +25,8 @@ type Trader struct {
 
 	wg sync.WaitGroup
 
+	db kv.Database
+
 	coinbaseClient *coinbase.Client
 
 	productMap map[string]*coinbase.Product
@@ -31,7 +34,7 @@ type Trader struct {
 	handlerMap map[string]http.Handler
 }
 
-func NewTrader(secrets *Secrets) (_ *Trader, status error) {
+func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer func() {
 		if status != nil {
@@ -53,6 +56,7 @@ func NewTrader(secrets *Secrets) (_ *Trader, status error) {
 		closeCtx:       ctx,
 		closeCause:     cancel,
 		coinbaseClient: coinbaseClient,
+		db:             db,
 		handlerMap:     make(map[string]http.Handler),
 		productMap:     make(map[string]*coinbase.Product),
 	}
