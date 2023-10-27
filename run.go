@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -119,6 +120,8 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 			return err
 		}
 	}
+
+	log.Printf("using data directory %s and secrets file %s", p.dataDir, p.secretsPath)
 
 	// Start HTTP server.
 	opts := &server.Options{

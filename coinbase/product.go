@@ -74,6 +74,10 @@ func (c *Client) CloseProduct(p *Product) error {
 	return nil
 }
 
+func (p *Product) ID() string {
+	return p.productID
+}
+
 func (p *Product) goWatchPrice() {
 	defer p.wg.Done()
 

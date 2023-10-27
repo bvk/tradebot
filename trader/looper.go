@@ -4,8 +4,11 @@ package trader
 
 import (
 	"context"
+	"encoding/gob"
 	"fmt"
+	"path"
 
+	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
 	"github.com/shopspring/decimal"
 )
@@ -13,7 +16,7 @@ import (
 type Looper struct {
 	product exchange.Product
 
-	taskID string
+	uid string
 
 	// buySize is the amount of asset to buy.
 	buySize decimal.Decimal
@@ -35,14 +38,14 @@ type Looper struct {
 	// canceled to avoid holding up our balances.
 	sellCancelPrice decimal.Decimal
 
-	buys  []*LimitBuy
-	sells []*LimitSell
+	buys  []*Limiter
+	sells []*Limiter
 }
 
-func NewLooper(product exchange.Product, taskID string, buySize, buyPrice, buyCancelPrice, sellSize, sellPrice, sellCancelPrice decimal.Decimal) (*Looper, error) {
+func NewLooper(uid string, product exchange.Product, buySize, buyPrice, buyCancelPrice, sellSize, sellPrice, sellCancelPrice decimal.Decimal) (*Looper, error) {
 	v := &Looper{
 		product:         product,
-		taskID:          taskID,
+		uid:             uid,
 		buySize:         buySize,
 		buyPrice:        buyPrice,
 		buyCancelPrice:  buyCancelPrice,
@@ -66,33 +69,83 @@ func (v *Looper) check() error {
 	return nil
 }
 
-func (v *Looper) Run(ctx context.Context) error {
+func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 	for ctx.Err() == nil {
-		if err := v.limitBuy(ctx); err != nil {
+		if err := v.limitBuy(ctx, db); err != nil {
 			return err
 		}
 
-		if err := v.limitSell(ctx); err != nil {
+		if err := v.limitSell(ctx, db); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (v *Looper) limitBuy(ctx context.Context) error {
-	b := NewLimitBuy(v.product, v.taskID, v.buyPrice, v.buyCancelPrice, v.buySize)
-	if err := b.Run(ctx); err != nil {
+func (v *Looper) limitBuy(ctx context.Context, db kv.Database) error {
+	uid := path.Join(v.uid, fmt.Sprintf("buy-%d", len(v.buys)))
+	b, err := NewLimiter(uid, v.product, v.buySize, v.buyPrice, v.buyCancelPrice)
+	if err != nil {
+		return err
+	}
+	if err := b.Run(ctx, db); err != nil {
 		return err
 	}
 	v.buys = append(v.buys, b)
 	return nil
 }
 
-func (v *Looper) limitSell(ctx context.Context) error {
-	s := NewLimitSell(v.product, v.taskID, v.sellPrice, v.sellCancelPrice, v.sellSize)
-	if err := s.Run(ctx); err != nil {
+func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
+	uid := path.Join(v.uid, fmt.Sprintf("sell-%d", len(v.buys)))
+	s, err := NewLimiter(uid, v.product, v.sellSize, v.sellPrice, v.sellCancelPrice)
+	if err != nil {
+		return err
+	}
+	if err := s.Run(ctx, db); err != nil {
 		return err
 	}
 	v.sells = append(v.sells, s)
 	return nil
+}
+
+type gobLooper struct {
+	ProductID string
+	Limiters  []string
+}
+
+func LoadLooper(ctx context.Context, uid string, db kv.Database, pmap map[string]exchange.Product) (*Looper, error) {
+	key := path.Join("/loopers", uid)
+	buf, err := kvGet(ctx, db, key)
+	if err != nil {
+		return nil, err
+	}
+	gv := new(gobLooper)
+	if err := gob.NewDecoder(buf).Decode(gv); err != nil {
+		return nil, err
+	}
+	product, ok := pmap[gv.ProductID]
+	if !ok {
+		return nil, fmt.Errorf("product %q not found", gv.ProductID)
+	}
+	var buys, sells []*Limiter
+	for _, id := range gv.Limiters {
+		v, err := LoadLimiter(ctx, id, db, pmap)
+		if err != nil {
+			return nil, err
+		}
+		if v.Side() == "BUY" {
+			buys = append(buys, v)
+			continue
+		}
+		if v.Side() == "SELL" {
+			sells = append(sells, v)
+			continue
+		}
+		return nil, fmt.Errorf("unexpected limiter side %q", v.Side())
+	}
+
+	v := &Looper{
+		product: product,
+	}
+	return v, nil
 }

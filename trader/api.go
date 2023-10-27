@@ -2,7 +2,9 @@
 
 package trader
 
-import "github.com/shopspring/decimal"
+import (
+	"github.com/shopspring/decimal"
+)
 
 type LimitBuyRequest struct {
 	Product string
@@ -15,7 +17,7 @@ type LimitBuyRequest struct {
 }
 
 type LimitBuyResponse struct {
-	TaskID string
+	UID string
 }
 
 type LimitSellRequest struct {
@@ -29,7 +31,23 @@ type LimitSellRequest struct {
 }
 
 type LimitSellResponse struct {
-	TaskID string
+	UID string
+}
+
+type LimitRequest struct {
+	Product string
+
+	Size decimal.Decimal
+
+	Price decimal.Decimal
+
+	CancelPrice decimal.Decimal
+}
+
+type LimitResponse struct {
+	UID string
+
+	Side string
 }
 
 type LoopRequest struct {
@@ -49,7 +67,7 @@ type LoopRequest struct {
 }
 
 type LoopResponse struct {
-	TaskID string
+	UID string
 }
 
 type WallRequest struct {
@@ -57,5 +75,5 @@ type WallRequest struct {
 }
 
 type WallResponse struct {
-	TaskID string
+	UID string
 }

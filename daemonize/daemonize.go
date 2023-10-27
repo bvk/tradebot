@@ -83,8 +83,12 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 	defer stop()
 
 	attr := &os.ProcAttr{
-		Dir:   "/",
-		Env:   []string{fmt.Sprintf("%s=%d", envkey, os.Getpid())},
+		Dir: "/",
+		Env: []string{
+			fmt.Sprintf("PATH=/usr/bin:/bin:/usr/sbin:/sbin"),
+			fmt.Sprintf("HOME=%s", os.Getenv("HOME")),
+			fmt.Sprintf("%s=%d", envkey, os.Getpid()),
+		},
 		Files: []*os.File{file, file, file},
 	}
 	proc, err := os.StartProcess(binaryPath, os.Args, attr)

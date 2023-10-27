@@ -6,6 +6,8 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+
+	"github.com/bvkgo/kv"
 )
 
 type Waller struct {
@@ -16,7 +18,7 @@ func (v *Waller) check() error {
 	return nil
 }
 
-func (v *Waller) Run(ctx context.Context) error {
+func (v *Waller) Run(ctx context.Context, db kv.Database) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -27,7 +29,7 @@ func (v *Waller) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 
-			if err := loop.Run(ctx); err != nil {
+			if err := loop.Run(ctx, db); err != nil {
 				slog.ErrorContext(ctx, "sub looper for wall has failed", "error", err)
 				return
 			}
