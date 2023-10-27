@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"sync"
 
@@ -139,7 +140,7 @@ func (t *Trader) doLimit(ctx context.Context, req *LimitRequest) (_ *LimitRespon
 		return nil, err
 	}
 
-	uid := uuid.New().String()
+	uid := path.Join("/limiters", uuid.New().String())
 	limit, err := NewLimiter(uid, product, req.Price, req.CancelPrice, req.Size)
 	if err != nil {
 		return nil, err
@@ -181,7 +182,7 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 		return nil, err
 	}
 
-	uid := uuid.New().String()
+	uid := path.Join("/limiters", uuid.New().String())
 	// TODO: We should keep track of background jobs
 
 	buy, err := NewLimiter(uid, product, req.BuySize, req.BuyPrice, req.BuyCancelPrice)
@@ -226,7 +227,8 @@ func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *Lim
 		return nil, err
 	}
 
-	uid := uuid.New().String()
+	uid := path.Join("/limiters", uuid.New().String())
+
 	// TODO: We should keep track of background jobs
 
 	sell, err := NewLimiter(uid, product, req.SellSize, req.SellPrice, req.SellCancelPrice)
@@ -266,7 +268,8 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 		return nil, err
 	}
 
-	uid := uuid.New().String()
+	uid := path.Join("/loopers", uuid.New().String())
+
 	// TODO: We should keep track of background jobs
 
 	loop, err := NewLooper(uid, product, req.BuySize, req.BuyPrice, req.BuyCancelPrice, req.SellSize, req.SellPrice, req.SellCancelPrice)

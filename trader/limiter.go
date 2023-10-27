@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
-	"path"
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
@@ -19,7 +18,7 @@ import (
 type Limiter struct {
 	product exchange.Product
 
-	uid string
+	key string
 
 	side string // BUY or SELL
 
@@ -58,7 +57,7 @@ func NewLimiter(uid string, product exchange.Product, size, limitPrice, cancelPr
 
 	v := &Limiter{
 		product:     product,
-		uid:         uid,
+		key:         uid,
 		size:        size,
 		side:        side,
 		price:       limitPrice,
@@ -68,6 +67,10 @@ func NewLimiter(uid string, product exchange.Product, size, limitPrice, cancelPr
 		orderMap:    make(map[exchange.OrderID]*exchange.Order),
 	}
 	return v, nil
+}
+
+func (v *Limiter) UID() string {
+	return v.key
 }
 
 func (v *Limiter) Side() string {
@@ -236,7 +239,6 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 }
 
 type gobLimiter struct {
-	UID         string
 	ProductID   string
 	Offset      uint64
 	Side        string
@@ -249,7 +251,6 @@ type gobLimiter struct {
 func (v *Limiter) save(ctx context.Context, tx kv.Transaction) error {
 	v.compactOrderMap()
 	gv := &gobLimiter{
-		UID:       v.uid,
 		ProductID: v.product.ID(),
 
 		Offset: v.idgen.Offset(),
@@ -264,18 +265,12 @@ func (v *Limiter) save(ctx context.Context, tx kv.Transaction) error {
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return err
 	}
-	key := path.Join("/limiter", v.uid)
-	return tx.Set(ctx, key, &buf)
+	return tx.Set(ctx, v.key, &buf)
 }
 
 func LoadLimiter(ctx context.Context, uid string, db kv.Database, pmap map[string]exchange.Product) (*Limiter, error) {
-	key := path.Join("/limiters", uid)
-	buf, err := kvGet(ctx, db, key)
+	gv, err := kvGet[gobLimiter](ctx, db, uid)
 	if err != nil {
-		return nil, err
-	}
-	gv := new(gobLimiter)
-	if err := gob.NewDecoder(buf).Decode(gv); err != nil {
 		return nil, err
 	}
 	product, ok := pmap[gv.ProductID]
@@ -284,7 +279,7 @@ func LoadLimiter(ctx context.Context, uid string, db kv.Database, pmap map[strin
 	}
 	v := &Limiter{
 		product:     product,
-		uid:         uid,
+		key:         uid,
 		side:        gv.Side,
 		size:        gv.Size,
 		price:       gv.LimitPrice,
