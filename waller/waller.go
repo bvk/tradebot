@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package trader
+package waller
 
 import (
 	"bytes"
@@ -13,6 +13,9 @@ import (
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
+	"github.com/bvkgo/tradebot/kvutil"
+	"github.com/bvkgo/tradebot/looper"
+	"github.com/bvkgo/tradebot/point"
 )
 
 type Waller struct {
@@ -20,10 +23,10 @@ type Waller struct {
 
 	product exchange.Product
 
-	buyPoints  []*Point
-	sellPoints []*Point
+	buyPoints  []*point.Point
+	sellPoints []*point.Point
 
-	loopers []*Looper
+	loopers []*looper.Looper
 }
 
 func (w *Waller) check() error {
@@ -71,15 +74,15 @@ func (w *Waller) Run(ctx context.Context, db kv.Database) error {
 
 type gobWaller struct {
 	ProductID  string
-	BuyPoints  []*Point
-	SellPoints []*Point
+	BuyPoints  []*point.Point
+	SellPoints []*point.Point
 	Loopers    []string
 }
 
-func (w *Waller) save(ctx context.Context, tx kv.Transaction) error {
+func (w *Waller) Save(ctx context.Context, tx kv.Transaction) error {
 	var loopers []string
 	for _, l := range w.loopers {
-		if err := l.save(ctx, tx); err != nil {
+		if err := l.Save(ctx, tx); err != nil {
 			return err
 		}
 		loopers = append(loopers, l.UID())
@@ -97,8 +100,8 @@ func (w *Waller) save(ctx context.Context, tx kv.Transaction) error {
 	return tx.Set(ctx, w.key, &buf)
 }
 
-func LoadWaller(ctx context.Context, uid string, db kv.Database, pmap map[string]exchange.Product) (*Waller, error) {
-	gv, err := kvGet[gobWaller](ctx, db, uid)
+func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Waller, error) {
+	gv, err := kvutil.Get[gobWaller](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +109,9 @@ func LoadWaller(ctx context.Context, uid string, db kv.Database, pmap map[string
 	if !ok {
 		return nil, fmt.Errorf("product %q not found", gv.ProductID)
 	}
-	var loopers []*Looper
+	var loopers []*looper.Looper
 	for _, id := range gv.Loopers {
-		v, err := LoadLooper(ctx, id, db, pmap)
+		v, err := looper.Load(ctx, id, r, pmap)
 		if err != nil {
 			return nil, err
 		}

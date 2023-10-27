@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package trader
+package limiter
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
+	"github.com/bvkgo/tradebot/kvutil"
+	"github.com/bvkgo/tradebot/point"
 	"github.com/shopspring/decimal"
 )
 
@@ -21,7 +23,7 @@ type Limiter struct {
 
 	key string
 
-	point Point
+	point point.Point
 
 	idgen *idGenerator
 
@@ -34,13 +36,12 @@ type Limiter struct {
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
-// NewLimiter creates a new BUY or SELL limit order at the given price and
-// size.
+// New creates a new BUY or SELL limit order at the given price and size.
 //
 // Limit order will be a SELL order when cancel-price is lower than the
 // limit-price or it will be a BUY order when cancel-price is higher than the
 // limit-price. Limit price must never be equal to the cancel-price.
-func NewLimiter(uid string, product exchange.Product, point *Point) (*Limiter, error) {
+func New(uid string, product exchange.Product, point *point.Point) (*Limiter, error) {
 	if err := point.Check(); err != nil {
 		return nil, err
 	}
@@ -143,7 +144,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 						if err := v.cancel(ctx); err != nil {
 							return err
 						}
-						_ = kv.WithTransaction(ctx, db, v.save)
+						_ = kv.WithTransaction(ctx, db, v.Save)
 					}
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
@@ -151,7 +152,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 						if err := v.create(ctx); err != nil {
 							return err
 						}
-						_ = kv.WithTransaction(ctx, db, v.save)
+						_ = kv.WithTransaction(ctx, db, v.Save)
 					}
 				}
 				continue
@@ -162,7 +163,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 	if err := v.fetchOrderMap(ctx, len(v.orderMap)); err != nil {
 		return err
 	}
-	if err := kv.WithTransaction(ctx, db, v.save); err != nil {
+	if err := kv.WithTransaction(ctx, db, v.Save); err != nil {
 		return err
 	}
 	return nil
@@ -238,11 +239,11 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 type gobLimiter struct {
 	ProductID string
 	Offset    uint64
-	Point     Point
+	Point     point.Point
 	OrderMap  map[exchange.OrderID]*exchange.Order
 }
 
-func (v *Limiter) save(ctx context.Context, tx kv.Transaction) error {
+func (v *Limiter) Save(ctx context.Context, tx kv.Transaction) error {
 	v.compactOrderMap()
 	gv := &gobLimiter{
 		ProductID: v.product.ID(),
@@ -257,8 +258,8 @@ func (v *Limiter) save(ctx context.Context, tx kv.Transaction) error {
 	return tx.Set(ctx, v.key, &buf)
 }
 
-func LoadLimiter(ctx context.Context, uid string, db kv.Database, pmap map[string]exchange.Product) (*Limiter, error) {
-	gv, err := kvGet[gobLimiter](ctx, db, uid)
+func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Limiter, error) {
+	gv, err := kvutil.Get[gobLimiter](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}

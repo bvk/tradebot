@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package trader
+package looper
 
 import (
 	"bytes"
@@ -11,6 +11,9 @@ import (
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
+	"github.com/bvkgo/tradebot/kvutil"
+	"github.com/bvkgo/tradebot/limiter"
+	"github.com/bvkgo/tradebot/point"
 )
 
 type Looper struct {
@@ -18,14 +21,14 @@ type Looper struct {
 
 	key string
 
-	buyPoint  Point
-	sellPoint Point
+	buyPoint  point.Point
+	sellPoint point.Point
 
-	buys  []*Limiter
-	sells []*Limiter
+	buys  []*limiter.Limiter
+	sells []*limiter.Limiter
 }
 
-func NewLooper(uid string, product exchange.Product, buy, sell *Point) (*Looper, error) {
+func New(uid string, product exchange.Product, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
 		product:   product,
 		key:       uid,
@@ -76,12 +79,12 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 
 func (v *Looper) limitBuy(ctx context.Context, db kv.Database) error {
 	uid := path.Join(v.key, fmt.Sprintf("buy-%06d", len(v.buys)))
-	b, err := NewLimiter(uid, v.product, &v.buyPoint)
+	b, err := limiter.New(uid, v.product, &v.buyPoint)
 	if err != nil {
 		return err
 	}
 	v.buys = append(v.buys, b)
-	if err := kv.WithTransaction(ctx, db, v.save); err != nil {
+	if err := kv.WithTransaction(ctx, db, v.Save); err != nil {
 		return err
 	}
 	if err := b.Run(ctx, db); err != nil {
@@ -92,12 +95,12 @@ func (v *Looper) limitBuy(ctx context.Context, db kv.Database) error {
 
 func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
 	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.buys)))
-	s, err := NewLimiter(uid, v.product, &v.sellPoint)
+	s, err := limiter.New(uid, v.product, &v.sellPoint)
 	if err != nil {
 		return err
 	}
 	v.sells = append(v.sells, s)
-	if err := kv.WithTransaction(ctx, db, v.save); err != nil {
+	if err := kv.WithTransaction(ctx, db, v.Save); err != nil {
 		return err
 	}
 	if err := s.Run(ctx, db); err != nil {
@@ -109,21 +112,21 @@ func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
 type gobLooper struct {
 	ProductID string
 	Limiters  []string
-	BuyPoint  Point
-	SellPoint Point
+	BuyPoint  point.Point
+	SellPoint point.Point
 }
 
-func (v *Looper) save(ctx context.Context, tx kv.Transaction) error {
+func (v *Looper) Save(ctx context.Context, tx kv.Transaction) error {
 	var limiters []string
 	// TODO: We can avoid saving already completed limiters repeatedly.
 	for _, b := range v.buys {
-		if err := b.save(ctx, tx); err != nil {
+		if err := b.Save(ctx, tx); err != nil {
 			return err
 		}
 		limiters = append(limiters, b.UID())
 	}
 	for _, s := range v.sells {
-		if err := s.save(ctx, tx); err != nil {
+		if err := s.Save(ctx, tx); err != nil {
 			return err
 		}
 		limiters = append(limiters, s.UID())
@@ -141,8 +144,8 @@ func (v *Looper) save(ctx context.Context, tx kv.Transaction) error {
 	return tx.Set(ctx, v.key, &buf)
 }
 
-func LoadLooper(ctx context.Context, uid string, db kv.Database, pmap map[string]exchange.Product) (*Looper, error) {
-	gv, err := kvGet[gobLooper](ctx, db, uid)
+func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Looper, error) {
+	gv, err := kvutil.Get[gobLooper](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -150,9 +153,9 @@ func LoadLooper(ctx context.Context, uid string, db kv.Database, pmap map[string
 	if !ok {
 		return nil, fmt.Errorf("product %q not found", gv.ProductID)
 	}
-	var buys, sells []*Limiter
+	var buys, sells []*limiter.Limiter
 	for _, id := range gv.Limiters {
-		v, err := LoadLimiter(ctx, id, db, pmap)
+		v, err := limiter.Load(ctx, id, r, pmap)
 		if err != nil {
 			return nil, err
 		}

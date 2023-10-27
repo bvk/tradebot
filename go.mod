@@ -8,7 +8,7 @@ require (
 	github.com/bvkgo/topic/v2 v2.1.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/google/subcommands v1.2.0
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.4.0
 	github.com/gorilla/websocket v1.4.0
 	github.com/shopspring/decimal v1.3.1
 	golang.org/x/sys v0.12.0
@@ -30,3 +30,5 @@ require (
 	golang.org/x/net v0.7.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 )
+
+replace github.com/bvkgo/kv => ../bvkgo/kv

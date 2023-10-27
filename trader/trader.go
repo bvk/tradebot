@@ -15,8 +15,13 @@ import (
 	"sync"
 
 	"github.com/bvkgo/kv"
+	"github.com/bvkgo/tradebot/api"
 	"github.com/bvkgo/tradebot/coinbase"
 	"github.com/bvkgo/tradebot/exchange"
+	"github.com/bvkgo/tradebot/limiter"
+	"github.com/bvkgo/tradebot/looper"
+	"github.com/bvkgo/tradebot/point"
+	"github.com/bvkgo/tradebot/waller"
 	"github.com/google/uuid"
 )
 
@@ -30,9 +35,15 @@ type Trader struct {
 
 	coinbaseClient *coinbase.Client
 
-	productMap map[string]*coinbase.Product
-
 	handlerMap map[string]http.Handler
+
+	mu sync.Map
+
+	productMap map[string]exchange.Product
+
+	limiters []*limiter.Limiter
+	loopers  []*looper.Looper
+	wallers  []*waller.Waller
 }
 
 func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
@@ -59,13 +70,19 @@ func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
 		coinbaseClient: coinbaseClient,
 		db:             db,
 		handlerMap:     make(map[string]http.Handler),
-		productMap:     make(map[string]*coinbase.Product),
+		productMap:     make(map[string]exchange.Product),
 	}
+
+	// FIXME: We need to find a cleaner way to load default products. We need it
+	// before REST api is enabled.
 
 	t.handlerMap["/trader/buy/limit"] = httpPostJSONHandler(t.doLimitBuy)
 	t.handlerMap["/trader/sell/limit"] = httpPostJSONHandler(t.doLimitSell)
 	t.handlerMap["/trader/loop"] = httpPostJSONHandler(t.doLoop)
 	t.handlerMap["/trader/limit"] = httpPostJSONHandler(t.doLimit)
+
+	// TODO: Resume existing traders.
+
 	return t, nil
 }
 
@@ -75,7 +92,7 @@ func (t *Trader) Close() error {
 
 	if t.coinbaseClient != nil {
 		for _, p := range t.productMap {
-			t.coinbaseClient.CloseProduct(p)
+			t.coinbaseClient.CloseProduct(p.(*coinbase.Product))
 		}
 		t.coinbaseClient.Close()
 	}
@@ -84,6 +101,27 @@ func (t *Trader) Close() error {
 
 func (t *Trader) HandlerMap() map[string]http.Handler {
 	return maps.Clone(t.handlerMap)
+}
+
+func (t *Trader) Run(ctx context.Context) error {
+	// Load default set of products.
+	defaultProducts := []string{"BCH-USD"}
+
+	for _, p := range defaultProducts {
+		if _, err := t.getProduct(ctx, p); err != nil {
+			return err
+		}
+	}
+
+	// Scan the database and load existing traders.
+	if err := kv.WithSnapshot(ctx, t.db, t.loadTrades); err != nil {
+		return err
+	}
+
+	// TODO: Resume the unfinished trades. Perhaps, we should *move* them under
+	// `/completed/` directory.
+
+	return nil
 }
 
 func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product, error) {
@@ -97,6 +135,124 @@ func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product,
 		t.productMap[name] = p
 	}
 	return product, nil
+}
+
+func (t *Trader) loadTrades(ctx context.Context, s kv.Snapshot) error {
+	limiters, err := t.loadLimiters(ctx, s)
+	if err != nil {
+		return fmt.Errorf("could not load existing limiters: %w", err)
+	}
+	loopers, err := t.loadLoopers(ctx, s)
+	if err != nil {
+		return fmt.Errorf("could not load existing loopers: %w", err)
+	}
+	wallers, err := t.loadWallers(ctx, s)
+	if err != nil {
+		return fmt.Errorf("could not load existing wallers: %w", err)
+	}
+	t.limiters = limiters
+	t.loopers = loopers
+	t.wallers = wallers
+	return nil
+}
+
+func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) ([]*limiter.Limiter, error) {
+	begin := "/limiters/00000000-0000-0000-0000-000000000000"
+	end := "/limiters/ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+	it, err := r.Ascend(ctx, begin, end)
+	if err != nil {
+		return nil, err
+	}
+	defer kv.Close(it)
+
+	var limiters []*limiter.Limiter
+	for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+		dir, file := path.Split(k)
+		if dir != "/limiters/" {
+			break
+		}
+		if _, err := uuid.Parse(file); err != nil {
+			continue
+		}
+
+		l, err := limiter.Load(ctx, k, r, t.productMap)
+		if err != nil {
+			return nil, err
+		}
+		limiters = append(limiters, l)
+	}
+
+	if err := it.Err(); err != nil {
+		return nil, err
+	}
+	return limiters, nil
+}
+
+func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) ([]*looper.Looper, error) {
+	begin := "/loopers/00000000-0000-0000-0000-000000000000"
+	end := "/loopers/ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+	it, err := r.Ascend(ctx, begin, end)
+	if err != nil {
+		return nil, err
+	}
+	defer kv.Close(it)
+
+	var loopers []*looper.Looper
+	for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+		dir, file := path.Split(k)
+		if dir != "/loopers/" {
+			break
+		}
+		if _, err := uuid.Parse(file); err != nil {
+			continue
+		}
+
+		l, err := looper.Load(ctx, k, r, t.productMap)
+		if err != nil {
+			return nil, err
+		}
+		loopers = append(loopers, l)
+	}
+
+	if err := it.Err(); err != nil {
+		return nil, err
+	}
+	return loopers, nil
+}
+
+func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) ([]*waller.Waller, error) {
+	begin := "/wallers/00000000-0000-0000-0000-000000000000"
+	end := "/wallers/ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+	it, err := r.Ascend(ctx, begin, end)
+	if err != nil {
+		return nil, err
+	}
+	defer kv.Close(it)
+
+	var wallers []*waller.Waller
+	for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+		dir, file := path.Split(k)
+		if dir != "/wallers/" {
+			break
+		}
+		if _, err := uuid.Parse(file); err != nil {
+			continue
+		}
+
+		l, err := waller.Load(ctx, k, r, t.productMap)
+		if err != nil {
+			return nil, err
+		}
+		wallers = append(wallers, l)
+	}
+
+	if err := it.Err(); err != nil {
+		return nil, err
+	}
+	return wallers, nil
 }
 
 func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, error)) http.Handler {
@@ -128,7 +284,7 @@ func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, er
 	})
 }
 
-func (t *Trader) doLimit(ctx context.Context, req *LimitRequest) (_ *LimitResponse, status error) {
+func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.LimitResponse, status error) {
 	defer func() {
 		if status != nil {
 			slog.ErrorContext(ctx, "limit request has failed", "error", status)
@@ -140,7 +296,7 @@ func (t *Trader) doLimit(ctx context.Context, req *LimitRequest) (_ *LimitRespon
 		return nil, err
 	}
 
-	point := &Point{
+	point := &point.Point{
 		Size:   req.Size,
 		Price:  req.Price,
 		Cancel: req.CancelPrice,
@@ -149,13 +305,13 @@ func (t *Trader) doLimit(ctx context.Context, req *LimitRequest) (_ *LimitRespon
 		return nil, err
 	}
 
-	uid := path.Join("/limiters", uuid.New().String())
-	limit, err := NewLimiter(uid, product, point)
+	uid := path.Join("/limiters/", uuid.New().String())
+	limit, err := limiter.New(uid, product, point)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := kv.WithTransaction(ctx, t.db, limit.save); err != nil {
+	if err := kv.WithTransaction(ctx, t.db, limit.Save); err != nil {
 		return nil, err
 	}
 
@@ -169,14 +325,14 @@ func (t *Trader) doLimit(ctx context.Context, req *LimitRequest) (_ *LimitRespon
 		}
 	}()
 
-	resp := &LimitResponse{
+	resp := &api.LimitResponse{
 		UID:  uid,
 		Side: limit.Side(),
 	}
 	return resp, nil
 }
 
-func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *LimitBuyResponse, status error) {
+func (t *Trader) doLimitBuy(ctx context.Context, req *api.LimitBuyRequest) (_ *api.LimitBuyResponse, status error) {
 	if req.BuyCancelPrice.LessThanOrEqual(req.BuyPrice) {
 		return nil, fmt.Errorf("cancel-price must be greater than buy-price")
 	}
@@ -195,7 +351,7 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 		return nil, err
 	}
 
-	point := &Point{
+	point := &point.Point{
 		Size:   req.BuySize,
 		Price:  req.BuyPrice,
 		Cancel: req.BuyCancelPrice,
@@ -207,12 +363,12 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 		return nil, fmt.Errorf("limit-buy point %v falls on invalid side", point)
 	}
 
-	uid := path.Join("/limiters", uuid.New().String())
-	buy, err := NewLimiter(uid, product, point)
+	uid := path.Join("/limiters/", uuid.New().String())
+	buy, err := limiter.New(uid, product, point)
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithTransaction(ctx, t.db, buy.save); err != nil {
+	if err := kv.WithTransaction(ctx, t.db, buy.Save); err != nil {
 		return nil, err
 	}
 
@@ -229,13 +385,13 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 		}
 	}()
 
-	resp := &LimitBuyResponse{
+	resp := &api.LimitBuyResponse{
 		UID: uid,
 	}
 	return resp, nil
 }
 
-func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *LimitSellResponse, status error) {
+func (t *Trader) doLimitSell(ctx context.Context, req *api.LimitSellRequest) (_ *api.LimitSellResponse, status error) {
 	if req.SellCancelPrice.GreaterThanOrEqual(req.SellPrice) {
 		return nil, fmt.Errorf("cancel-price must be lesser than sell-price")
 	}
@@ -255,7 +411,7 @@ func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *Lim
 		return nil, err
 	}
 
-	point := &Point{
+	point := &point.Point{
 		Size:   req.SellSize,
 		Price:  req.SellPrice,
 		Cancel: req.SellCancelPrice,
@@ -267,13 +423,13 @@ func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *Lim
 		return nil, fmt.Errorf("limit-sell point %v falls on invalid side", point)
 	}
 
-	uid := path.Join("/limiters", uuid.New().String())
-	sell, err := NewLimiter(uid, product, point)
+	uid := path.Join("/limiters/", uuid.New().String())
+	sell, err := limiter.New(uid, product, point)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := kv.WithTransaction(ctx, t.db, sell.save); err != nil {
+	if err := kv.WithTransaction(ctx, t.db, sell.Save); err != nil {
 		return nil, err
 	}
 
@@ -287,13 +443,13 @@ func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *Lim
 		}
 	}()
 
-	resp := &LimitSellResponse{
+	resp := &api.LimitSellResponse{
 		UID: uid,
 	}
 	return resp, nil
 }
 
-func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse, status error) {
+func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopResponse, status error) {
 	defer func() {
 		if status != nil {
 			slog.ErrorContext(ctx, "loop has failed", "error", status)
@@ -309,7 +465,7 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 		return nil, err
 	}
 
-	buyp := &Point{
+	buyp := &point.Point{
 		Size:   req.BuySize,
 		Price:  req.BuyPrice,
 		Cancel: req.BuyCancelPrice,
@@ -321,7 +477,7 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 		return nil, fmt.Errorf("buy point %v falls on invalid side", buyp)
 	}
 
-	sellp := &Point{
+	sellp := &point.Point{
 		Size:   req.SellSize,
 		Price:  req.SellPrice,
 		Cancel: req.SellCancelPrice,
@@ -333,12 +489,12 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 		return nil, fmt.Errorf("sell point %v falls on invalid side", sellp)
 	}
 
-	uid := path.Join("/loopers", uuid.New().String())
-	loop, err := NewLooper(uid, product, buyp, sellp)
+	uid := path.Join("/loopers/", uuid.New().String())
+	loop, err := looper.New(uid, product, buyp, sellp)
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithTransaction(ctx, t.db, loop.save); err != nil {
+	if err := kv.WithTransaction(ctx, t.db, loop.Save); err != nil {
 		return nil, err
 	}
 
@@ -355,7 +511,7 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 		}
 	}()
 
-	resp := &LoopResponse{
+	resp := &api.LoopResponse{
 		UID: uid,
 	}
 	return resp, nil
