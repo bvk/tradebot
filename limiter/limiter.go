@@ -36,6 +36,25 @@ type Limiter struct {
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
+type State struct {
+	ProductID string
+	Offset    uint64
+	Point     point.Point
+	OrderMap  map[exchange.OrderID]*exchange.Order
+}
+
+type Status struct {
+	UID string
+
+	ProductID string
+
+	Side string
+
+	Point point.Point
+
+	Pending decimal.Decimal
+}
+
 // New creates a new BUY or SELL limit order at the given price and size.
 //
 // Limit order will be a SELL order when cancel-price is lower than the
@@ -67,12 +86,18 @@ func (v *Limiter) check() error {
 	return nil
 }
 
-func (v *Limiter) UID() string {
-	return v.key
-}
-
 func (v *Limiter) Side() string {
 	return v.point.Side()
+}
+
+func (v *Limiter) Status() *Status {
+	return &Status{
+		UID:       v.key,
+		ProductID: v.product.ID(),
+		Side:      v.point.Side(),
+		Point:     v.point,
+		Pending:   v.pending(),
+	}
 }
 
 func (v *Limiter) GetOrders(ctx context.Context) ([]*exchange.Order, error) {
@@ -236,16 +261,9 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 	return nil
 }
 
-type gobLimiter struct {
-	ProductID string
-	Offset    uint64
-	Point     point.Point
-	OrderMap  map[exchange.OrderID]*exchange.Order
-}
-
 func (v *Limiter) Save(ctx context.Context, tx kv.Transaction) error {
 	v.compactOrderMap()
-	gv := &gobLimiter{
+	gv := &State{
 		ProductID: v.product.ID(),
 		Offset:    v.idgen.Offset(),
 		Point:     v.point,
@@ -259,7 +277,7 @@ func (v *Limiter) Save(ctx context.Context, tx kv.Transaction) error {
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Limiter, error) {
-	gv, err := kvutil.Get[gobLimiter](ctx, r, uid)
+	gv, err := kvutil.Get[State](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,9 @@
 package api
 
 import (
+	"github.com/bvkgo/tradebot/limiter"
+	"github.com/bvkgo/tradebot/looper"
+	"github.com/bvkgo/tradebot/waller"
 	"github.com/shopspring/decimal"
 )
 
@@ -76,4 +79,13 @@ type WallRequest struct {
 
 type WallResponse struct {
 	UID string
+}
+
+type ListRequest struct {
+}
+
+type ListResponse struct {
+	Limiters []*limiter.Status
+	Loopers  []*looper.Status
+	Wallers  []*waller.Status
 }

@@ -165,8 +165,9 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
 	}))
-	<-ctx.Done()
-	slog.InfoContext(ctx, "tradebot server is shutting down")
+
+	status := trader.Run(ctx)
+	slog.InfoContext(ctx, "tradebot server is shutting down", "status", status)
 	return nil
 }
 

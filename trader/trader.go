@@ -80,6 +80,7 @@ func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
 	t.handlerMap["/trader/sell/limit"] = httpPostJSONHandler(t.doLimitSell)
 	t.handlerMap["/trader/loop"] = httpPostJSONHandler(t.doLoop)
 	t.handlerMap["/trader/limit"] = httpPostJSONHandler(t.doLimit)
+	t.handlerMap["/trader/list"] = httpPostJSONHandler(t.doList)
 
 	// TODO: Resume existing traders.
 
@@ -121,7 +122,8 @@ func (t *Trader) Run(ctx context.Context) error {
 	// TODO: Resume the unfinished trades. Perhaps, we should *move* them under
 	// `/completed/` directory.
 
-	return nil
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product, error) {
@@ -284,6 +286,20 @@ func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, er
 	})
 }
 
+func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListResponse, error) {
+	resp := new(api.ListResponse)
+	for _, v := range t.limiters {
+		resp.Limiters = append(resp.Limiters, v.Status())
+	}
+	for _, v := range t.loopers {
+		resp.Loopers = append(resp.Loopers, v.Status())
+	}
+	for _, v := range t.wallers {
+		resp.Wallers = append(resp.Wallers, v.Status())
+	}
+	return resp, nil
+}
+
 func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.LimitResponse, status error) {
 	defer func() {
 		if status != nil {
@@ -314,6 +330,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := kv.WithTransaction(ctx, t.db, limit.Save); err != nil {
 		return nil, err
 	}
+	t.limiters = append(t.limiters, limit)
 
 	t.wg.Add(1)
 	go func() {
@@ -371,6 +388,7 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *api.LimitBuyRequest) (_ *a
 	if err := kv.WithTransaction(ctx, t.db, buy.Save); err != nil {
 		return nil, err
 	}
+	t.limiters = append(t.limiters, buy)
 
 	// TODO: We should load and resume these jobs upon restart.
 
@@ -432,6 +450,7 @@ func (t *Trader) doLimitSell(ctx context.Context, req *api.LimitSellRequest) (_ 
 	if err := kv.WithTransaction(ctx, t.db, sell.Save); err != nil {
 		return nil, err
 	}
+	t.limiters = append(t.limiters, sell)
 
 	t.wg.Add(1)
 	go func() {
@@ -497,6 +516,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := kv.WithTransaction(ctx, t.db, loop.Save); err != nil {
 		return nil, err
 	}
+	t.loopers = append(t.loopers, loop)
 
 	// TODO: We should keep track of background jobs
 

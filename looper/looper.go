@@ -28,6 +28,25 @@ type Looper struct {
 	sells []*limiter.Limiter
 }
 
+type State struct {
+	ProductID string
+	Limiters  []string
+	BuyPoint  point.Point
+	SellPoint point.Point
+}
+
+type Status struct {
+	UID string
+
+	ProductID string
+
+	BuyPoint  point.Point
+	SellPoint point.Point
+
+	NumBuys  int
+	NumSells int
+}
+
 func New(uid string, product exchange.Product, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
 		product:   product,
@@ -60,8 +79,15 @@ func (v *Looper) check() error {
 	return nil
 }
 
-func (v *Looper) UID() string {
-	return v.key
+func (v *Looper) Status() *Status {
+	return &Status{
+		UID:       v.key,
+		ProductID: v.product.ID(),
+		BuyPoint:  v.buyPoint,
+		SellPoint: v.sellPoint,
+		NumBuys:   len(v.buys), // FIXME: Remove the incomplete ones?
+		NumSells:  len(v.sells),
+	}
 }
 
 func (v *Looper) Run(ctx context.Context, db kv.Database) error {
@@ -109,13 +135,6 @@ func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
 	return nil
 }
 
-type gobLooper struct {
-	ProductID string
-	Limiters  []string
-	BuyPoint  point.Point
-	SellPoint point.Point
-}
-
 func (v *Looper) Save(ctx context.Context, tx kv.Transaction) error {
 	var limiters []string
 	// TODO: We can avoid saving already completed limiters repeatedly.
@@ -123,15 +142,17 @@ func (v *Looper) Save(ctx context.Context, tx kv.Transaction) error {
 		if err := b.Save(ctx, tx); err != nil {
 			return err
 		}
-		limiters = append(limiters, b.UID())
+		s := b.Status()
+		limiters = append(limiters, s.UID)
 	}
 	for _, s := range v.sells {
 		if err := s.Save(ctx, tx); err != nil {
 			return err
 		}
-		limiters = append(limiters, s.UID())
+		ss := s.Status()
+		limiters = append(limiters, ss.UID)
 	}
-	gv := &gobLooper{
+	gv := &State{
 		ProductID: v.product.ID(),
 		Limiters:  limiters,
 		BuyPoint:  v.buyPoint,
@@ -145,7 +166,7 @@ func (v *Looper) Save(ctx context.Context, tx kv.Transaction) error {
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Looper, error) {
-	gv, err := kvutil.Get[gobLooper](ctx, r, uid)
+	gv, err := kvutil.Get[State](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}

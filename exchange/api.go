@@ -4,14 +4,11 @@ package exchange
 
 import (
 	"context"
-	"time"
 
 	"github.com/shopspring/decimal"
 )
 
 type OrderID string
-
-type RemoteTime time.Time
 
 type Order struct {
 	OrderID OrderID

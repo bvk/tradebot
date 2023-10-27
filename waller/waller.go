@@ -29,6 +29,24 @@ type Waller struct {
 	loopers []*looper.Looper
 }
 
+type State struct {
+	ProductID  string
+	BuyPoints  []*point.Point
+	SellPoints []*point.Point
+	Loopers    []string
+}
+
+type Status struct {
+	UID string
+
+	ProductID string
+
+	BuyPoints  []*point.Point
+	SellPoints []*point.Point
+
+	// TODO: Add more status data.
+}
+
 func (w *Waller) check() error {
 	if len(w.key) == 0 || !path.IsAbs(w.key) {
 		return fmt.Errorf("waller uid/key %q is invalid", w.key)
@@ -52,6 +70,15 @@ func (w *Waller) check() error {
 	return nil
 }
 
+func (w *Waller) Status() *Status {
+	return &Status{
+		UID:        w.key,
+		ProductID:  w.product.ID(),
+		BuyPoints:  w.buyPoints,
+		SellPoints: w.sellPoints,
+	}
+}
+
 func (w *Waller) Run(ctx context.Context, db kv.Database) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
@@ -72,22 +99,16 @@ func (w *Waller) Run(ctx context.Context, db kv.Database) error {
 	return nil
 }
 
-type gobWaller struct {
-	ProductID  string
-	BuyPoints  []*point.Point
-	SellPoints []*point.Point
-	Loopers    []string
-}
-
 func (w *Waller) Save(ctx context.Context, tx kv.Transaction) error {
 	var loopers []string
 	for _, l := range w.loopers {
 		if err := l.Save(ctx, tx); err != nil {
 			return err
 		}
-		loopers = append(loopers, l.UID())
+		s := l.Status()
+		loopers = append(loopers, s.UID)
 	}
-	gv := &gobWaller{
+	gv := &State{
 		ProductID:  w.product.ID(),
 		BuyPoints:  w.buyPoints,
 		SellPoints: w.sellPoints,
@@ -101,7 +122,7 @@ func (w *Waller) Save(ctx context.Context, tx kv.Transaction) error {
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Waller, error) {
-	gv, err := kvutil.Get[gobWaller](ctx, r, uid)
+	gv, err := kvutil.Get[State](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}
