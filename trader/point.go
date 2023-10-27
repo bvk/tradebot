@@ -4,6 +4,7 @@ package trader
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/shopspring/decimal"
 )
@@ -47,5 +48,9 @@ func (p *Point) Side() string {
 }
 
 func (p *Point) String() string {
-	return fmt.Sprintf("%s{%s@%s/%s}", p.Side(), p.Size, p.Price, p.Cancel)
+	return fmt.Sprintf("%s{%s@%s}", p.Side(), p.Size, p.Price)
+}
+
+func (p *Point) LogValue() slog.Value {
+	return slog.StringValue(p.String())
 }

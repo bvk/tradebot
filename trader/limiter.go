@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"path"
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
@@ -20,13 +21,7 @@ type Limiter struct {
 
 	key string
 
-	side string // BUY or SELL
-
-	size decimal.Decimal
-
-	price decimal.Decimal
-
-	cancelPrice decimal.Decimal
+	point Point
 
 	idgen *idGenerator
 
@@ -45,28 +40,30 @@ type Limiter struct {
 // Limit order will be a SELL order when cancel-price is lower than the
 // limit-price or it will be a BUY order when cancel-price is higher than the
 // limit-price. Limit price must never be equal to the cancel-price.
-func NewLimiter(uid string, product exchange.Product, size, limitPrice, cancelPrice decimal.Decimal) (*Limiter, error) {
-	side := ""
-	if cancelPrice.LessThan(limitPrice) {
-		side = "SELL"
-	} else if cancelPrice.GreaterThan(limitPrice) {
-		side = "BUY"
-	} else {
-		return nil, fmt.Errorf("limit price and cancel price cannot be the same")
+func NewLimiter(uid string, product exchange.Product, point *Point) (*Limiter, error) {
+	if err := point.Check(); err != nil {
+		return nil, err
 	}
 
 	v := &Limiter{
-		product:     product,
-		key:         uid,
-		size:        size,
-		side:        side,
-		price:       limitPrice,
-		cancelPrice: cancelPrice,
-		idgen:       newIDGenerator(uid, 0),
-		tickerCh:    product.TickerCh(),
-		orderMap:    make(map[exchange.OrderID]*exchange.Order),
+		product:  product,
+		key:      uid,
+		point:    *point,
+		idgen:    newIDGenerator(uid, 0),
+		tickerCh: product.TickerCh(),
+		orderMap: make(map[exchange.OrderID]*exchange.Order),
 	}
 	return v, nil
+}
+
+func (v *Limiter) check() error {
+	if len(v.key) == 0 || !path.IsAbs(v.key) {
+		return fmt.Errorf("limiter uid/key %q is invalid", v.key)
+	}
+	if err := v.point.Check(); err != nil {
+		return fmt.Errorf("limiter buy/sell point is invalid: %w", err)
+	}
+	return nil
 }
 
 func (v *Limiter) UID() string {
@@ -74,7 +71,7 @@ func (v *Limiter) UID() string {
 }
 
 func (v *Limiter) Side() string {
-	return v.side
+	return v.point.Side()
 }
 
 func (v *Limiter) GetOrders(ctx context.Context) ([]*exchange.Order, error) {
@@ -99,7 +96,7 @@ func (v *Limiter) pending() decimal.Decimal {
 			filled = filled.Add(order.FilledSize)
 		}
 	}
-	return v.size.Sub(filled)
+	return v.point.Size.Sub(filled)
 }
 
 func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
@@ -107,7 +104,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 		select {
 		case <-ctx.Done():
 			if v.activeOrderID != "" {
-				slog.Info("cancelling active limit order", "side", v.side, "orderID", v.activeOrderID)
+				slog.Info("cancelling active limit order", "point", v.point, "orderID", v.activeOrderID)
 				if err := v.cancel(context.TODO()); err != nil {
 					return err
 				}
@@ -122,15 +119,15 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 		case ticker := <-v.tickerCh:
 			// slog.InfoContext(ctx, "change", "ticker", ticker.Price, "orderID", v.orderID, "updatesCh", v.orderUpdatesCh != nil)
 
-			if v.side == "SELL" {
-				if ticker.Price.LessThanOrEqual(v.cancelPrice) {
+			if v.Side() == "SELL" {
+				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
 					if v.activeOrderID != "" {
 						if err := v.cancel(ctx); err != nil {
 							return err
 						}
 					}
 				}
-				if ticker.Price.GreaterThan(v.cancelPrice) {
+				if ticker.Price.GreaterThan(v.point.Cancel) {
 					if v.activeOrderID == "" {
 						if err := v.create(ctx); err != nil {
 							return err
@@ -140,8 +137,8 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 				continue
 			}
 
-			if v.side == "BUY" {
-				if ticker.Price.GreaterThanOrEqual(v.cancelPrice) {
+			if v.Side() == "BUY" {
+				if ticker.Price.GreaterThanOrEqual(v.point.Cancel) {
 					if v.activeOrderID != "" {
 						if err := v.cancel(ctx); err != nil {
 							return err
@@ -149,7 +146,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 						_ = kv.WithTransaction(ctx, db, v.save)
 					}
 				}
-				if ticker.Price.LessThan(v.cancelPrice) {
+				if ticker.Price.LessThan(v.point.Cancel) {
 					if v.activeOrderID == "" {
 						if err := v.create(ctx); err != nil {
 							return err
@@ -177,12 +174,12 @@ func (v *Limiter) create(ctx context.Context) error {
 
 	var err error
 	var orderID exchange.OrderID
-	if v.side == "SELL" {
-		orderID, err = v.product.LimitSell(ctx, clientOrderID.String(), size, v.price)
-		log.Printf("limit-sell for size %s at price %s -> %v, %v", size, v.price, orderID, err)
+	if v.Side() == "SELL" {
+		orderID, err = v.product.LimitSell(ctx, clientOrderID.String(), size, v.point.Price)
+		log.Printf("limit-sell for size %s at price %s -> %v, %v", size, v.point.Price, orderID, err)
 	} else {
-		orderID, err = v.product.LimitBuy(ctx, clientOrderID.String(), size, v.price)
-		log.Printf("limit-buy for size %s at price %s -> %v, %v", size, v.price, orderID, err)
+		orderID, err = v.product.LimitBuy(ctx, clientOrderID.String(), size, v.point.Price)
+		log.Printf("limit-buy for size %s at price %s -> %v, %v", size, v.point.Price, orderID, err)
 	}
 	if err != nil {
 		return err
@@ -239,27 +236,19 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 }
 
 type gobLimiter struct {
-	ProductID   string
-	Offset      uint64
-	Side        string
-	Size        decimal.Decimal
-	LimitPrice  decimal.Decimal
-	CancelPrice decimal.Decimal
-	OrderMap    map[exchange.OrderID]*exchange.Order
+	ProductID string
+	Offset    uint64
+	Point     Point
+	OrderMap  map[exchange.OrderID]*exchange.Order
 }
 
 func (v *Limiter) save(ctx context.Context, tx kv.Transaction) error {
 	v.compactOrderMap()
 	gv := &gobLimiter{
 		ProductID: v.product.ID(),
-
-		Offset: v.idgen.Offset(),
-
-		Side:        v.side,
-		Size:        v.size,
-		LimitPrice:  v.price,
-		CancelPrice: v.cancelPrice,
-		OrderMap:    v.orderMap,
+		Offset:    v.idgen.Offset(),
+		Point:     v.point,
+		OrderMap:  v.orderMap,
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
@@ -278,15 +267,12 @@ func LoadLimiter(ctx context.Context, uid string, db kv.Database, pmap map[strin
 		return nil, fmt.Errorf("product %q not found", gv.ProductID)
 	}
 	v := &Limiter{
-		product:     product,
-		key:         uid,
-		side:        gv.Side,
-		size:        gv.Size,
-		price:       gv.LimitPrice,
-		cancelPrice: gv.CancelPrice,
-		idgen:       newIDGenerator(uid, gv.Offset),
-		tickerCh:    product.TickerCh(),
-		orderMap:    gv.OrderMap,
+		product:  product,
+		key:      uid,
+		point:    gv.Point,
+		idgen:    newIDGenerator(uid, gv.Offset),
+		tickerCh: product.TickerCh(),
+		orderMap: gv.OrderMap,
 	}
 	if v.orderMap == nil {
 		v.orderMap = make(map[exchange.OrderID]*exchange.Order)

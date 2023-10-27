@@ -140,9 +140,22 @@ func (t *Trader) doLimit(ctx context.Context, req *LimitRequest) (_ *LimitRespon
 		return nil, err
 	}
 
+	point := &Point{
+		Size:   req.Size,
+		Price:  req.Price,
+		Cancel: req.CancelPrice,
+	}
+	if err := point.Check(); err != nil {
+		return nil, err
+	}
+
 	uid := path.Join("/limiters", uuid.New().String())
-	limit, err := NewLimiter(uid, product, req.Price, req.CancelPrice, req.Size)
+	limit, err := NewLimiter(uid, product, point)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := kv.WithTransaction(ctx, t.db, limit.save); err != nil {
 		return nil, err
 	}
 
@@ -182,13 +195,28 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *LimitBuyRequest) (_ *Limit
 		return nil, err
 	}
 
-	uid := path.Join("/limiters", uuid.New().String())
-	// TODO: We should keep track of background jobs
+	point := &Point{
+		Size:   req.BuySize,
+		Price:  req.BuyPrice,
+		Cancel: req.BuyCancelPrice,
+	}
+	if err := point.Check(); err != nil {
+		return nil, err
+	}
+	if s := point.Side(); s != "BUY" {
+		return nil, fmt.Errorf("limit-buy point %v falls on invalid side", point)
+	}
 
-	buy, err := NewLimiter(uid, product, req.BuySize, req.BuyPrice, req.BuyCancelPrice)
+	uid := path.Join("/limiters", uuid.New().String())
+	buy, err := NewLimiter(uid, product, point)
 	if err != nil {
 		return nil, err
 	}
+	if err := kv.WithTransaction(ctx, t.db, buy.save); err != nil {
+		return nil, err
+	}
+
+	// TODO: We should load and resume these jobs upon restart.
 
 	t.wg.Add(1)
 	go func() {
@@ -227,12 +255,25 @@ func (t *Trader) doLimitSell(ctx context.Context, req *LimitSellRequest) (_ *Lim
 		return nil, err
 	}
 
+	point := &Point{
+		Size:   req.SellSize,
+		Price:  req.SellPrice,
+		Cancel: req.SellCancelPrice,
+	}
+	if err := point.Check(); err != nil {
+		return nil, err
+	}
+	if s := point.Side(); s != "SELL" {
+		return nil, fmt.Errorf("limit-sell point %v falls on invalid side", point)
+	}
+
 	uid := path.Join("/limiters", uuid.New().String())
-
-	// TODO: We should keep track of background jobs
-
-	sell, err := NewLimiter(uid, product, req.SellSize, req.SellPrice, req.SellCancelPrice)
+	sell, err := NewLimiter(uid, product, point)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := kv.WithTransaction(ctx, t.db, sell.save); err != nil {
 		return nil, err
 	}
 
@@ -268,14 +309,40 @@ func (t *Trader) doLoop(ctx context.Context, req *LoopRequest) (_ *LoopResponse,
 		return nil, err
 	}
 
+	buyp := &Point{
+		Size:   req.BuySize,
+		Price:  req.BuyPrice,
+		Cancel: req.BuyCancelPrice,
+	}
+	if err := buyp.Check(); err != nil {
+		return nil, err
+	}
+	if s := buyp.Side(); s != "BUY" {
+		return nil, fmt.Errorf("buy point %v falls on invalid side", buyp)
+	}
+
+	sellp := &Point{
+		Size:   req.SellSize,
+		Price:  req.SellPrice,
+		Cancel: req.SellCancelPrice,
+	}
+	if err := sellp.Check(); err != nil {
+		return nil, err
+	}
+	if s := sellp.Side(); s != "SELL" {
+		return nil, fmt.Errorf("sell point %v falls on invalid side", sellp)
+	}
+
 	uid := path.Join("/loopers", uuid.New().String())
-
-	// TODO: We should keep track of background jobs
-
-	loop, err := NewLooper(uid, product, req.BuySize, req.BuyPrice, req.BuyCancelPrice, req.SellSize, req.SellPrice, req.SellCancelPrice)
+	loop, err := NewLooper(uid, product, buyp, sellp)
 	if err != nil {
 		return nil, err
 	}
+	if err := kv.WithTransaction(ctx, t.db, loop.save); err != nil {
+		return nil, err
+	}
+
+	// TODO: We should keep track of background jobs
 
 	t.wg.Add(1)
 	go func() {
