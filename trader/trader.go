@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -526,9 +527,8 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		defer t.wg.Done()
 
 		if err := loop.Run(t.closeCtx, t.db); err != nil {
+			log.Printf("loop failed with %T", err)
 			slog.ErrorContext(t.closeCtx, "loop operation has failed", "error", err)
-		} else {
-			slog.InfoContext(ctx, "loop has completed successfully")
 		}
 	}()
 
@@ -591,8 +591,6 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 
 		if err := wall.Run(t.closeCtx, t.db); err != nil {
 			slog.ErrorContext(t.closeCtx, "wall operation has failed", "error", err)
-		} else {
-			slog.InfoContext(ctx, "wall has completed successfully")
 		}
 	}()
 

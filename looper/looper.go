@@ -91,6 +91,7 @@ func (v *Looper) Status() *Status {
 }
 
 func (v *Looper) Run(ctx context.Context, db kv.Database) error {
+	// FIXME: We should not return err on limiter failures.
 	for ctx.Err() == nil {
 		if err := v.limitBuy(ctx, db); err != nil {
 			return err

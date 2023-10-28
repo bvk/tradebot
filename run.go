@@ -36,8 +36,10 @@ type runCmd struct {
 func (*runCmd) Name() string     { return "run" }
 func (*runCmd) Synopsis() string { return "runs the trading bot daemon" }
 func (*runCmd) Usage() string {
-	return `run [options]:
+	return `Usage: tradebot run <flags>
+
   Runs the trading bot daemon.
+
 `
 }
 
