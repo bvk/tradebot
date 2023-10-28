@@ -47,6 +47,19 @@ type Status struct {
 	// TODO: Add more status data.
 }
 
+func New(uid string, product exchange.Product, buys, sells []*point.Point) (*Waller, error) {
+	w := &Waller{
+		key:        uid,
+		product:    product,
+		buyPoints:  buys,
+		sellPoints: sells,
+	}
+	if err := w.check(); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
 func (w *Waller) check() error {
 	if len(w.key) == 0 || !path.IsAbs(w.key) {
 		return fmt.Errorf("waller uid/key %q is invalid", w.key)
@@ -99,10 +112,10 @@ func (w *Waller) Run(ctx context.Context, db kv.Database) error {
 	return nil
 }
 
-func (w *Waller) Save(ctx context.Context, tx kv.Transaction) error {
+func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	var loopers []string
 	for _, l := range w.loopers {
-		if err := l.Save(ctx, tx); err != nil {
+		if err := l.Save(ctx, rw); err != nil {
 			return err
 		}
 		s := l.Status()
@@ -118,7 +131,7 @@ func (w *Waller) Save(ctx context.Context, tx kv.Transaction) error {
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return err
 	}
-	return tx.Set(ctx, w.key, &buf)
+	return rw.Set(ctx, w.key, &buf)
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Waller, error) {

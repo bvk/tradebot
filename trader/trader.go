@@ -76,11 +76,12 @@ func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
 	// FIXME: We need to find a cleaner way to load default products. We need it
 	// before REST api is enabled.
 
+	t.handlerMap["/trader/list"] = httpPostJSONHandler(t.doList)
 	t.handlerMap["/trader/buy/limit"] = httpPostJSONHandler(t.doLimitBuy)
 	t.handlerMap["/trader/sell/limit"] = httpPostJSONHandler(t.doLimitSell)
 	t.handlerMap["/trader/loop"] = httpPostJSONHandler(t.doLoop)
 	t.handlerMap["/trader/limit"] = httpPostJSONHandler(t.doLimit)
-	t.handlerMap["/trader/list"] = httpPostJSONHandler(t.doList)
+	t.handlerMap["/trader/wall"] = httpPostJSONHandler(t.doWall)
 
 	// TODO: Resume existing traders.
 
@@ -115,7 +116,7 @@ func (t *Trader) Run(ctx context.Context) error {
 	}
 
 	// Scan the database and load existing traders.
-	if err := kv.WithSnapshot(ctx, t.db, t.loadTrades); err != nil {
+	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
 		return err
 	}
 
@@ -139,16 +140,16 @@ func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product,
 	return product, nil
 }
 
-func (t *Trader) loadTrades(ctx context.Context, s kv.Snapshot) error {
-	limiters, err := t.loadLimiters(ctx, s)
+func (t *Trader) loadTrades(ctx context.Context, r kv.Reader) error {
+	limiters, err := t.loadLimiters(ctx, r)
 	if err != nil {
 		return fmt.Errorf("could not load existing limiters: %w", err)
 	}
-	loopers, err := t.loadLoopers(ctx, s)
+	loopers, err := t.loadLoopers(ctx, r)
 	if err != nil {
 		return fmt.Errorf("could not load existing loopers: %w", err)
 	}
-	wallers, err := t.loadWallers(ctx, s)
+	wallers, err := t.loadWallers(ctx, r)
 	if err != nil {
 		return fmt.Errorf("could not load existing wallers: %w", err)
 	}
@@ -327,7 +328,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, err
 	}
 
-	if err := kv.WithTransaction(ctx, t.db, limit.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, t.db, limit.Save); err != nil {
 		return nil, err
 	}
 	t.limiters = append(t.limiters, limit)
@@ -385,7 +386,7 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *api.LimitBuyRequest) (_ *a
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithTransaction(ctx, t.db, buy.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, t.db, buy.Save); err != nil {
 		return nil, err
 	}
 	t.limiters = append(t.limiters, buy)
@@ -447,7 +448,7 @@ func (t *Trader) doLimitSell(ctx context.Context, req *api.LimitSellRequest) (_ 
 		return nil, err
 	}
 
-	if err := kv.WithTransaction(ctx, t.db, sell.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, t.db, sell.Save); err != nil {
 		return nil, err
 	}
 	t.limiters = append(t.limiters, sell)
@@ -513,7 +514,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithTransaction(ctx, t.db, loop.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, t.db, loop.Save); err != nil {
 		return nil, err
 	}
 	t.loopers = append(t.loopers, loop)
@@ -532,6 +533,70 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	}()
 
 	resp := &api.LoopResponse{
+		UID: uid,
+	}
+	return resp, nil
+}
+
+func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallResponse, status error) {
+	defer func() {
+		if status != nil {
+			slog.ErrorContext(ctx, "wall has failed", "error", status)
+		}
+	}()
+
+	// if err := req.Check(); err != nil {
+	// 	return err
+	// }
+
+	var buys, sells []*point.Point
+	for i, bs := range req.BuySellPoints {
+		buy, sell := bs[0], bs[1]
+		if err := buy.Check(); err != nil {
+			return nil, fmt.Errorf("buy point %d (%v) is invalid", i, buy)
+		}
+		if side := buy.Side(); side != "BUY" {
+			return nil, fmt.Errorf("buy point %d falls on invalid side", buy)
+		}
+		if err := sell.Check(); err != nil {
+			return nil, fmt.Errorf("sell point %d (%v) is invalid", i, sell)
+		}
+		if side := sell.Side(); side != "SELL" {
+			return nil, fmt.Errorf("sell point %d falls on invalid side", sell)
+		}
+		buys = append(buys, buy)
+		sells = append(sells, sell)
+	}
+
+	product, err := t.getProduct(ctx, req.Product)
+	if err != nil {
+		return nil, err
+	}
+
+	uid := path.Join("/wallers/", uuid.New().String())
+	wall, err := waller.New(uid, product, buys, sells)
+	if err != nil {
+		return nil, err
+	}
+	if err := kv.WithReadWriter(ctx, t.db, wall.Save); err != nil {
+		return nil, err
+	}
+	t.wallers = append(t.wallers, wall)
+
+	// TODO: We should keep track of background jobs
+
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+
+		if err := wall.Run(t.closeCtx, t.db); err != nil {
+			slog.ErrorContext(t.closeCtx, "wall operation has failed", "error", err)
+		} else {
+			slog.InfoContext(ctx, "wall has completed successfully")
+		}
+	}()
+
+	resp := &api.WallResponse{
 		UID: uid,
 	}
 	return resp, nil

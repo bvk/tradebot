@@ -3,7 +3,7 @@ module github.com/bvkgo/tradebot
 go 1.21.0
 
 require (
-	github.com/bvkgo/kv v0.0.0-20231023161027-13e58b1d43cb
+	github.com/bvkgo/kv v0.0.0-20231027202514-381ec9477ada
 	github.com/bvkgo/kvbadger v0.0.0-20231023162119-cb5916b95d7f
 	github.com/bvkgo/topic/v2 v2.1.0
 	github.com/dgraph-io/badger/v4 v4.2.0
@@ -30,5 +30,3 @@ require (
 	golang.org/x/net v0.7.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 )
-
-replace github.com/bvkgo/kv => ../bvkgo/kv

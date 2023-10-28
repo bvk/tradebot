@@ -5,6 +5,7 @@ package api
 import (
 	"github.com/bvkgo/tradebot/limiter"
 	"github.com/bvkgo/tradebot/looper"
+	"github.com/bvkgo/tradebot/point"
 	"github.com/bvkgo/tradebot/waller"
 	"github.com/shopspring/decimal"
 )
@@ -75,6 +76,8 @@ type LoopResponse struct {
 
 type WallRequest struct {
 	Product string
+
+	BuySellPoints [][2]*point.Point
 }
 
 type WallResponse struct {

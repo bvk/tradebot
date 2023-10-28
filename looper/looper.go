@@ -110,7 +110,7 @@ func (v *Looper) limitBuy(ctx context.Context, db kv.Database) error {
 		return err
 	}
 	v.buys = append(v.buys, b)
-	if err := kv.WithTransaction(ctx, db, v.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
 		return err
 	}
 	if err := b.Run(ctx, db); err != nil {
@@ -126,7 +126,7 @@ func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
 		return err
 	}
 	v.sells = append(v.sells, s)
-	if err := kv.WithTransaction(ctx, db, v.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
 		return err
 	}
 	if err := s.Run(ctx, db); err != nil {
@@ -135,18 +135,18 @@ func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
 	return nil
 }
 
-func (v *Looper) Save(ctx context.Context, tx kv.Transaction) error {
+func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	var limiters []string
 	// TODO: We can avoid saving already completed limiters repeatedly.
 	for _, b := range v.buys {
-		if err := b.Save(ctx, tx); err != nil {
+		if err := b.Save(ctx, rw); err != nil {
 			return err
 		}
 		s := b.Status()
 		limiters = append(limiters, s.UID)
 	}
 	for _, s := range v.sells {
-		if err := s.Save(ctx, tx); err != nil {
+		if err := s.Save(ctx, rw); err != nil {
 			return err
 		}
 		ss := s.Status()
@@ -162,7 +162,7 @@ func (v *Looper) Save(ctx context.Context, tx kv.Transaction) error {
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return err
 	}
-	return tx.Set(ctx, v.key, &buf)
+	return rw.Set(ctx, v.key, &buf)
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Looper, error) {

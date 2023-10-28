@@ -169,7 +169,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 						if err := v.cancel(ctx); err != nil {
 							return err
 						}
-						_ = kv.WithTransaction(ctx, db, v.Save)
+						_ = kv.WithReadWriter(ctx, db, v.Save)
 					}
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
@@ -177,7 +177,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 						if err := v.create(ctx); err != nil {
 							return err
 						}
-						_ = kv.WithTransaction(ctx, db, v.Save)
+						_ = kv.WithReadWriter(ctx, db, v.Save)
 					}
 				}
 				continue
@@ -188,7 +188,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 	if err := v.fetchOrderMap(ctx, len(v.orderMap)); err != nil {
 		return err
 	}
-	if err := kv.WithTransaction(ctx, db, v.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
 		return err
 	}
 	return nil
@@ -261,7 +261,7 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 	return nil
 }
 
-func (v *Limiter) Save(ctx context.Context, tx kv.Transaction) error {
+func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	v.compactOrderMap()
 	gv := &State{
 		ProductID: v.product.ID(),
@@ -273,7 +273,7 @@ func (v *Limiter) Save(ctx context.Context, tx kv.Transaction) error {
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return err
 	}
-	return tx.Set(ctx, v.key, &buf)
+	return rw.Set(ctx, v.key, &buf)
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Limiter, error) {
