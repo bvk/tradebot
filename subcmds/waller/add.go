@@ -17,8 +17,6 @@ import (
 )
 
 type Add struct {
-	fset *flag.FlagSet
-
 	subcmds.ClientFlags
 
 	dryRun bool
@@ -128,24 +126,6 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-// func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
-// 	if c.fset == nil {
-// 		c.fset = flag.NewFlagSet("add", flag.ContinueOnError)
-// 		c.ClientFlags.SetFlags(c.fset)
-// 		c.fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
-// 		c.fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
-// 		c.fset.Float64Var(&c.beginPriceRange, "begin-price", 0, "begin price for the trading price range")
-// 		c.fset.Float64Var(&c.endPriceRange, "end-price", 0, "end price for the trading price range")
-// 		c.fset.Float64Var(&c.buyInterval, "buy-interval", 0, "interval between successive buy price points")
-// 		c.fset.Float64Var(&c.sellMargin, "sell-margin", 0, "interval between buy and sell price points")
-// 		c.fset.Float64Var(&c.buySize, "buy-size", 0, "asset buy-size for the trade")
-// 		c.fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
-// 		c.fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
-// 		c.fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
-// 	}
-// 	return c.fset, cli.CmdFunc(c.Run)
-// }
-
 func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("add", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
@@ -160,4 +140,26 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
 	fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
 	return fset, cli.CmdFunc(c.Run)
+}
+
+func (c *Add) CommandHelp() string {
+	return `
+
+Command "add" creates multiple buy-and-sell loops within a given ticker price
+range (begin, end), so that as along as the ticker price is within the given
+range, there will always be a buy or sell action following the ticker price.
+
+Since (1) each sell point is associated with a buy point (2) sell point is
+above it's associated buy point and (3) sell is performed only after it's
+associated buy has completed every sell point execution generates a little
+profit.
+
+Note that when the ticker price goes completely above the chosen price-range,
+then all buy points will be executed and all sell points will be waiting for
+the ticker to come back down. Similarly, when the ticker price goes completely
+below the chosen price-range then all sell points -- for already completed buys
+if any -- will be executed, and buy points will be waiting for the ticker to
+come back up.
+
+`
 }

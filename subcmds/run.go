@@ -38,6 +38,30 @@ func (c *Run) Synopsis() string {
 	return "Runs tradebot in foreground or background"
 }
 
+func (c *Run) CommandHelp() string {
+	return `
+
+Command "run" starts the tradebot service.
+
+SECRETS FILE
+
+Most exchanges require API keys to perform trading operations and
+authentication. Users are expected to create a secrets file with API keys in
+JSON format. A example secrets file format is given below:
+
+    {
+        "coinbase":{
+            "key":"111111111",
+            "secret":"2222222222"
+        }
+    }
+
+Users should consult the exchange specific documentation to learn how to create
+the API keys.
+
+`
+}
+
 func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("run", flag.ContinueOnError)
 	c.ServerFlags.SetFlags(fset)

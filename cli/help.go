@@ -144,7 +144,7 @@ func (cg *cmdGroup) printHelp(ctx context.Context, w io.Writer, cmdpath []*cmdDa
 	if len(help) > 0 {
 		fmt.Fprintln(w)
 		// TODO: Format the help into 80 columns?
-		fmt.Fprintf(w, "%s\n", help)
+		fmt.Fprintf(w, "%s\n", strings.TrimSpace(help))
 	}
 	if len(subcmds) > 0 {
 		fmt.Fprintln(w)
