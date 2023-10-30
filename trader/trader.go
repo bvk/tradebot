@@ -38,7 +38,7 @@ type Trader struct {
 
 	handlerMap map[string]http.Handler
 
-	mu sync.Map
+	mu sync.Mutex
 
 	productMap map[string]exchange.Product
 
@@ -129,6 +129,9 @@ func (t *Trader) Run(ctx context.Context) error {
 }
 
 func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	product, ok := t.productMap[name]
 	if !ok {
 		p, err := t.coinbaseClient.NewProduct(name)
@@ -154,6 +157,10 @@ func (t *Trader) loadTrades(ctx context.Context, r kv.Reader) error {
 	if err != nil {
 		return fmt.Errorf("could not load existing wallers: %w", err)
 	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	t.limiters = limiters
 	t.loopers = loopers
 	t.wallers = wallers
@@ -332,7 +339,10 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := kv.WithReadWriter(ctx, t.db, limit.Save); err != nil {
 		return nil, err
 	}
+
+	t.mu.Lock()
 	t.limiters = append(t.limiters, limit)
+	t.mu.Unlock()
 
 	t.wg.Add(1)
 	go func() {
@@ -390,7 +400,10 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *api.LimitBuyRequest) (_ *a
 	if err := kv.WithReadWriter(ctx, t.db, buy.Save); err != nil {
 		return nil, err
 	}
+
+	t.mu.Lock()
 	t.limiters = append(t.limiters, buy)
+	t.mu.Unlock()
 
 	// TODO: We should load and resume these jobs upon restart.
 
@@ -452,7 +465,10 @@ func (t *Trader) doLimitSell(ctx context.Context, req *api.LimitSellRequest) (_ 
 	if err := kv.WithReadWriter(ctx, t.db, sell.Save); err != nil {
 		return nil, err
 	}
+
+	t.mu.Lock()
 	t.limiters = append(t.limiters, sell)
+	t.mu.Unlock()
 
 	t.wg.Add(1)
 	go func() {
@@ -518,7 +534,10 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := kv.WithReadWriter(ctx, t.db, loop.Save); err != nil {
 		return nil, err
 	}
+
+	t.mu.Lock()
 	t.loopers = append(t.loopers, loop)
+	t.mu.Unlock()
 
 	// TODO: We should keep track of background jobs
 
@@ -581,7 +600,10 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err := kv.WithReadWriter(ctx, t.db, wall.Save); err != nil {
 		return nil, err
 	}
+
+	t.mu.Lock()
 	t.wallers = append(t.wallers, wall)
+	t.mu.Unlock()
 
 	// TODO: We should keep track of background jobs
 
