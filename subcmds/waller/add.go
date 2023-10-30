@@ -128,20 +128,36 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
+// func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
+// 	if c.fset == nil {
+// 		c.fset = flag.NewFlagSet("add", flag.ContinueOnError)
+// 		c.ClientFlags.SetFlags(c.fset)
+// 		c.fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
+// 		c.fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
+// 		c.fset.Float64Var(&c.beginPriceRange, "begin-price", 0, "begin price for the trading price range")
+// 		c.fset.Float64Var(&c.endPriceRange, "end-price", 0, "end price for the trading price range")
+// 		c.fset.Float64Var(&c.buyInterval, "buy-interval", 0, "interval between successive buy price points")
+// 		c.fset.Float64Var(&c.sellMargin, "sell-margin", 0, "interval between buy and sell price points")
+// 		c.fset.Float64Var(&c.buySize, "buy-size", 0, "asset buy-size for the trade")
+// 		c.fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
+// 		c.fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
+// 		c.fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
+// 	}
+// 	return c.fset, cli.CmdFunc(c.Run)
+// }
+
 func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
-	if c.fset == nil {
-		c.fset = flag.NewFlagSet("add", flag.ContinueOnError)
-		c.ClientFlags.SetFlags(c.fset)
-		c.fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
-		c.fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
-		c.fset.Float64Var(&c.beginPriceRange, "begin-price", 0, "begin price for the trading price range")
-		c.fset.Float64Var(&c.endPriceRange, "end-price", 0, "end price for the trading price range")
-		c.fset.Float64Var(&c.buyInterval, "buy-interval", 0, "interval between successive buy price points")
-		c.fset.Float64Var(&c.sellMargin, "sell-margin", 0, "interval between buy and sell price points")
-		c.fset.Float64Var(&c.buySize, "buy-size", 0, "asset buy-size for the trade")
-		c.fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
-		c.fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
-		c.fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
-	}
-	return c.fset, cli.CmdFunc(c.Run)
+	fset := flag.NewFlagSet("add", flag.ContinueOnError)
+	c.ClientFlags.SetFlags(fset)
+	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
+	fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
+	fset.Float64Var(&c.beginPriceRange, "begin-price", 0, "begin price for the trading price range")
+	fset.Float64Var(&c.endPriceRange, "end-price", 0, "end price for the trading price range")
+	fset.Float64Var(&c.buyInterval, "buy-interval", 0, "interval between successive buy price points")
+	fset.Float64Var(&c.sellMargin, "sell-margin", 0, "interval between buy and sell price points")
+	fset.Float64Var(&c.buySize, "buy-size", 0, "asset buy-size for the trade")
+	fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
+	fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
+	fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
+	return fset, cli.CmdFunc(c.Run)
 }

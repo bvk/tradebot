@@ -18,8 +18,6 @@ import (
 type List struct {
 	Flags
 
-	fset *flag.FlagSet
-
 	printValues bool
 }
 
@@ -60,12 +58,10 @@ func (c *List) Run(ctx context.Context, args []string) error {
 }
 
 func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
-	if c.fset == nil {
-		c.fset = flag.NewFlagSet("list", flag.ContinueOnError)
-		c.Flags.setFlags(c.fset)
-		c.fset.BoolVar(&c.printValues, "print-values", false, "values are printed when true")
-	}
-	return c.fset, cli.CmdFunc(c.Run)
+	fset := flag.NewFlagSet("list", flag.ContinueOnError)
+	c.Flags.setFlags(fset)
+	fset.BoolVar(&c.printValues, "print-values", false, "values are printed when true")
+	return fset, cli.CmdFunc(c.Run)
 }
 
 func (c *List) Synopsis() string {

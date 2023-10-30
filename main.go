@@ -41,10 +41,10 @@ func main() {
 
 	cmds := []cli.Command{
 		new(subcmds.Run),
-		cli.CommandGroup("db", "manage db content manually", dbCmds...),
-		cli.CommandGroup("limiter", "manage limit buys/sells", limiterCmds...),
-		cli.CommandGroup("looper", "manage buy-sell loops", looperCmds...),
-		cli.CommandGroup("waller", "manage trades in a price range", wallerCmds...),
+		cli.CommandGroup("db", "Manage db content manually", dbCmds...),
+		cli.CommandGroup("limiter", "Manage limit buys/sells", limiterCmds...),
+		cli.CommandGroup("looper", "Manage buy-sell loops", looperCmds...),
+		cli.CommandGroup("waller", "Manage trades in a price range", wallerCmds...),
 	}
 	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
 		log.Fatal(err)

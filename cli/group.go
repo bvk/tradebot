@@ -26,14 +26,14 @@ func (cg *cmdGroup) Command() (*flag.FlagSet, CmdFunc) {
 	return cg.flags, nil
 }
 
-func (cg *cmdGroup) printFlags(ctx context.Context, w io.Writer, cmdpath []Command) error {
-	fs, _ := cmdpath[len(cmdpath)-1].Command()
+func (cg *cmdGroup) printFlags(ctx context.Context, w io.Writer, cmdpath []*cmdData) error {
+	fs := cmdpath[len(cmdpath)-1].fset
 	fs.SetOutput(w)
 	fs.PrintDefaults()
 	return nil
 }
 
-func (cg *cmdGroup) printCommands(ctx context.Context, w io.Writer, cmdpath []Command) error {
+func (cg *cmdGroup) printCommands(ctx context.Context, w io.Writer, cmdpath []*cmdData) error {
 	subcmds := getSubcommands(cmdpath)
 	for _, sub := range subcmds {
 		if len(sub[1]) > 0 {
@@ -45,28 +45,43 @@ func (cg *cmdGroup) printCommands(ctx context.Context, w io.Writer, cmdpath []Co
 	return nil
 }
 
-func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]Command, []string, error) {
+type cmdData struct {
+	fset *flag.FlagSet
+	fun  CmdFunc
+	cmd  Command
+}
+
+func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]*cmdData, []string, error) {
 	type boolFlag interface {
 		flag.Value
 		IsBoolFlag() bool
 	}
 
-	cmdMap := make(map[string]Command)
-	prepCmdMap := func(cmds []Command) {
-		m := make(map[string]Command)
+	cmdDataMap := make(map[string]*cmdData)
+	prepCmdDataMap := func(cmds []Command) {
+		m := make(map[string]*cmdData)
 		for _, c := range cmds {
-			fs, _ := c.Command()
-			m[fs.Name()] = c
+			fs, fn := c.Command()
+			m[fs.Name()] = &cmdData{
+				fset: fs,
+				fun:  fn,
+				cmd:  c,
+			}
 		}
-		cmdMap = m
+		cmdDataMap = m
 	}
-	prepCmdMap(cg.subcmds)
+	prepCmdDataMap(cg.subcmds)
 
-	fspath := []*flag.FlagSet{flag.CommandLine}
+	cmdpath := []*cmdData{
+		{
+			fset: flag.CommandLine,
+			cmd:  cg,
+		},
+	}
+
 	lookup := func(s string) (*flag.Flag, bool) {
-		for i := len(fspath) - 1; i >= 0; i-- {
-			fs := fspath[i]
-			if f := fs.Lookup(s); f != nil {
+		for i := len(cmdpath) - 1; i >= 0; i-- {
+			if f := cmdpath[i].fset.Lookup(s); f != nil {
 				return f, true
 			}
 		}
@@ -74,7 +89,6 @@ func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]Command, []st
 	}
 
 	var i int
-	cmdpath := []Command{cg}
 	for i = 0; i < len(args); i++ {
 		s := args[i]
 
@@ -87,11 +101,11 @@ func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]Command, []st
 		// Non-flag argument
 		if len(s) < 2 || s[0] != '-' {
 			// non-flag argument to the last subcmd
-			if len(cmdMap) == 0 {
+			if len(cmdDataMap) == 0 {
 				break
 			}
 
-			subcmd, ok := cmdMap[s]
+			subcmd, ok := cmdDataMap[s]
 			if !ok {
 				// handle one of special commands: help, flags, commands
 				if len(cmdpath) == 1 && slices.Contains(specialCmds, s) {
@@ -103,15 +117,13 @@ func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]Command, []st
 			cmdpath = append(cmdpath, subcmd)
 
 			// handle subcommands from a command group
-			if sg, ok := subcmd.(*cmdGroup); ok {
-				prepCmdMap(sg.subcmds)
+			if sg, ok := subcmd.cmd.(*cmdGroup); ok {
+				prepCmdDataMap(sg.subcmds)
 				continue
 			}
 
 			// stop subcommand processing, but continue to resolve flags
-			prepCmdMap(nil)
-			fs, _ := subcmd.Command()
-			fspath = append(fspath, fs)
+			prepCmdDataMap(nil)
 			continue
 		}
 
@@ -187,7 +199,7 @@ func (cg *cmdGroup) run(ctx context.Context, args []string) error {
 		return cg.printCommands(ctx, os.Stderr, cmdpath)
 	}
 
-	_, fun := cmdpath[len(cmdpath)-1].Command()
+	fun := cmdpath[len(cmdpath)-1].fun
 	if fun == nil {
 		return cg.printHelp(ctx, os.Stderr, cmdpath)
 	}

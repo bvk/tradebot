@@ -17,35 +17,31 @@
 //
 // # EXAMPLE
 //
-//			type runCmd struct {
-//	      fset *flag.FlagSet
+//		type runCmd struct {
+//			background  bool
+//			port        int
+//			ip          string
+//			secretsPath string
+//			dataDir     string
+//		}
 //
-//				background  bool
-//				port        int
-//				ip          string
-//				secretsPath string
-//				dataDir     string
+//		func (r *runCmd) Run(ctx context.Context, args []string) error {
+//			if len(p.dataDir) == 0 {
+//				p.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
 //			}
+//			...
+//			return nil
+//		}
 //
-//			func (r *runCmd) Run(ctx context.Context, args []string) error {
-//				if len(p.dataDir) == 0 {
-//					p.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
-//				}
-//				...
-//				return nil
-//			}
-//
-//			func (r *runCmd) Command() (*flag.FlagSet, CmdFunc) {
-//	      if r.fset == nil {
-//				  r.fset = flag.NewFlagSet("run", flag.ContinueOnError)
-//				  r.fset.BoolVar(&p.background, "background", false, "runs the daemon in background")
-//				  r.fset.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
-//				  r.fset.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
-//				  r.fset.StringVar(&p.secretsPath, "secrets-file", "", "path to credentials file")
-//				  r.fset.StringVar(&p.dataDir, "data-dir", "", "path to the data directory")
-//	      }
-//		    return r.fset, CmdFunc(r.Run)
-//			}
+//		func (r *runCmd) Command() (*flag.FlagSet, CmdFunc) {
+//			fset := flag.NewFlagSet("run", flag.ContinueOnError)
+//			fset.BoolVar(&p.background, "background", false, "runs the daemon in background")
+//			fset.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
+//			fset.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
+//			fset.StringVar(&p.secretsPath, "secrets-file", "", "path to credentials file")
+//			fset.StringVar(&p.dataDir, "data-dir", "", "path to the data directory")
+//	    return fset, CmdFunc(r.Run)
+//		}
 package cli
 
 import (
@@ -81,6 +77,10 @@ func CommandGroup(name, description string, cmds ...Command) Command {
 // picks the best command to execute from `cmds`. Top-level command flags from
 // flag.CommandLine flags are also processed on the way to resolving the best
 // command.
+//
+// Run guarantees that `Command()` method is called only once for each member
+// in `cmds` so that a new `flag.FlagSet` can be created within the Command()
+// function.
 func Run(ctx context.Context, cmds []Command, args []string) error {
 	if cmds == nil {
 		return os.ErrInvalid

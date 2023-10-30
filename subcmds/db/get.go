@@ -17,8 +17,6 @@ import (
 
 type Get struct {
 	Flags
-
-	fset *flag.FlagSet
 }
 
 func (c *Get) Run(ctx context.Context, args []string) error {
@@ -56,11 +54,9 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 }
 
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
-	if c.fset == nil {
-		c.fset = flag.NewFlagSet("get", flag.ContinueOnError)
-		c.Flags.setFlags(c.fset)
-	}
-	return c.fset, cli.CmdFunc(c.Run)
+	fset := flag.NewFlagSet("get", flag.ContinueOnError)
+	c.Flags.setFlags(fset)
+	return fset, cli.CmdFunc(c.Run)
 }
 
 func (c *Get) Synopsis() string {

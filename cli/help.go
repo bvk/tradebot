@@ -24,27 +24,25 @@ func getName(c Command) string {
 	return file
 }
 
-func getUsage(cmdpath []Command) string {
+func getUsage(cmdpath []*cmdData) string {
 	var words []string
 
 	for i, c := range cmdpath {
-		fs, _ := c.Command()
-		name := fs.Name()
+		name := c.fset.Name()
 		if i == 0 {
-			_, name = filepath.Split(fs.Name())
+			_, name = filepath.Split(c.fset.Name())
 		}
 		words = append(words, name)
 	}
 
 	for _, c := range cmdpath {
-		fs, _ := c.Command()
-		if n := numFlags(fs); n != 0 {
+		if n := numFlags(c.fset); n != 0 {
 			words = append(words, "<flags>")
 			break
 		}
 	}
 
-	if _, ok := cmdpath[len(cmdpath)-1].(*cmdGroup); ok {
+	if _, ok := cmdpath[len(cmdpath)-1].cmd.(*cmdGroup); ok {
 		words = append(words, "<subcommand>")
 	}
 
@@ -74,7 +72,7 @@ func getFlags(c Command) (*flag.FlagSet, int) {
 	return fs, numFlags(fs)
 }
 
-func getInheritedFlags(cmdpath []Command) (*flag.FlagSet, int) {
+func getInheritedFlags(cmdpath []*cmdData) (*flag.FlagSet, int) {
 	flagMap := make(map[string][]*flag.Flag)
 	collector := func(f *flag.Flag) {
 		fs := flagMap[f.Name]
@@ -84,8 +82,7 @@ func getInheritedFlags(cmdpath []Command) (*flag.FlagSet, int) {
 	// flag may be defined multiple times unfortunately, in which case, we pick
 	// the closest/deepest flag.Flag to the currently running command.
 	for i := 0; i < len(cmdpath)-1; i++ {
-		fs, _ := cmdpath[i].Command()
-		fs.VisitAll(collector)
+		cmdpath[i].fset.VisitAll(collector)
 	}
 	fset := flag.NewFlagSet("temp", flag.ContinueOnError)
 	for _, fs := range flagMap {
@@ -96,19 +93,19 @@ func getInheritedFlags(cmdpath []Command) (*flag.FlagSet, int) {
 }
 
 // getSubcommands returns all subcommand names and synopsises as a pair.
-func getSubcommands(cmdpath []Command) [][2]string {
+func getSubcommands(cmdpath []*cmdData) [][2]string {
 	var result [][2]string
 	if len(cmdpath) == 1 {
 		result = [][2]string{
-			[2]string{"help", "describe subcommands and flags"},
-			[2]string{"flags", "describe all known flags"},
-			[2]string{"commands", "list all command names"},
-			[2]string{},
+			{"help", "Describe commands and flags"},
+			{"flags", "Describe all known flags"},
+			{"commands", "Lists all command names"},
+			{},
 		}
 	}
 
 	var subcmds [][2]string
-	if cg, ok := cmdpath[len(cmdpath)-1].(*cmdGroup); ok {
+	if cg, ok := cmdpath[len(cmdpath)-1].cmd.(*cmdGroup); ok {
 		for _, c := range cg.subcmds {
 			n, s := getName(c), getSynopsis(c)
 			subcmds = append(subcmds, [2]string{n, s})
@@ -134,13 +131,13 @@ func getSubcommands(cmdpath []Command) [][2]string {
 	return append(result, subcmds...)
 }
 
-func (cg *cmdGroup) printHelp(ctx context.Context, w io.Writer, cmdpath []Command) error {
-	cmd := cmdpath[len(cmdpath)-1]
+func (cg *cmdGroup) printHelp(ctx context.Context, w io.Writer, cmdpath []*cmdData) error {
+	last := cmdpath[len(cmdpath)-1]
 
 	usage := getUsage(cmdpath)
-	help := getHelpDoc(cmd)
+	help := getHelpDoc(last.cmd)
 	subcmds := getSubcommands(cmdpath)
-	flags, nflags := getFlags(cmd)
+	flags, nflags := getFlags(last.cmd)
 	iflags, niflags := getInheritedFlags(cmdpath)
 
 	fmt.Fprintf(w, "Usage: %s\n", usage)

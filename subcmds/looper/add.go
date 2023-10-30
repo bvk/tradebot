@@ -17,8 +17,6 @@ import (
 type Add struct {
 	subcmds.ClientFlags
 
-	fset *flag.FlagSet
-
 	product string
 
 	buySize        float64
@@ -73,16 +71,14 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 }
 
 func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
-	if c.fset == nil {
-		c.fset = flag.NewFlagSet("add", flag.ContinueOnError)
-		c.ClientFlags.SetFlags(c.fset)
-		c.fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
-		c.fset.Float64Var(&c.buySize, "buy-size", 0, "asset buy-size for the trade")
-		c.fset.Float64Var(&c.buyPrice, "buy-price", 0, "asset limit buy-price for the trade")
-		c.fset.Float64Var(&c.buyCancelPrice, "buy-cancel-price", 0, "asset buy-cancel-at price for the trade")
-		c.fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
-		c.fset.Float64Var(&c.sellPrice, "sell-price", 0, "asset limit sell-price for the trade")
-		c.fset.Float64Var(&c.sellCancelPrice, "sell-cancel-price", 0, "asset sell-cancel-at price for the trade")
-	}
-	return c.fset, cli.CmdFunc(c.Run)
+	fset := flag.NewFlagSet("add", flag.ContinueOnError)
+	c.ClientFlags.SetFlags(fset)
+	fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
+	fset.Float64Var(&c.buySize, "buy-size", 0, "asset buy-size for the trade")
+	fset.Float64Var(&c.buyPrice, "buy-price", 0, "asset limit buy-price for the trade")
+	fset.Float64Var(&c.buyCancelPrice, "buy-cancel-price", 0, "asset buy-cancel-at price for the trade")
+	fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
+	fset.Float64Var(&c.sellPrice, "sell-price", 0, "asset limit sell-price for the trade")
+	fset.Float64Var(&c.sellCancelPrice, "sell-cancel-price", 0, "asset sell-cancel-at price for the trade")
+	return fset, cli.CmdFunc(c.Run)
 }

@@ -16,8 +16,6 @@ import (
 
 type Delete struct {
 	Flags
-
-	fset *flag.FlagSet
 }
 
 func (c *Delete) Run(ctx context.Context, args []string) error {
@@ -51,11 +49,9 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 }
 
 func (c *Delete) Command() (*flag.FlagSet, cli.CmdFunc) {
-	if c.fset == nil {
-		c.fset = flag.NewFlagSet("delete", flag.ContinueOnError)
-		c.Flags.setFlags(c.fset)
-	}
-	return c.fset, cli.CmdFunc(c.Run)
+	fset := flag.NewFlagSet("delete", flag.ContinueOnError)
+	c.Flags.setFlags(fset)
+	return fset, cli.CmdFunc(c.Run)
 }
 
 func (c *Delete) Synopsis() string {

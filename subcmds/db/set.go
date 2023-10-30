@@ -17,8 +17,6 @@ import (
 
 type Set struct {
 	Flags
-
-	fset *flag.FlagSet
 }
 
 func (c *Set) Run(ctx context.Context, args []string) error {
@@ -52,11 +50,9 @@ func (c *Set) Run(ctx context.Context, args []string) error {
 }
 
 func (c *Set) Command() (*flag.FlagSet, cli.CmdFunc) {
-	if c.fset == nil {
-		c.fset = flag.NewFlagSet("set", flag.ContinueOnError)
-		c.Flags.setFlags(c.fset)
-	}
-	return c.fset, cli.CmdFunc(c.Run)
+	fset := flag.NewFlagSet("set", flag.ContinueOnError)
+	c.Flags.setFlags(fset)
+	return fset, cli.CmdFunc(c.Run)
 }
 
 func (c *Set) Synopsis() string {
