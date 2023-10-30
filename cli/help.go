@@ -63,6 +63,9 @@ func getSynopsis(c Command) string {
 	if v, ok := c.(interface{ Synopsis() string }); ok {
 		return v.Synopsis()
 	}
+	if v, ok := c.(*cmdGroup); ok {
+		return v.synopsis
+	}
 	return ""
 }
 
@@ -100,6 +103,7 @@ func getSubcommands(cmdpath []Command) [][2]string {
 			[2]string{"help", "describe subcommands and flags"},
 			[2]string{"flags", "describe all known flags"},
 			[2]string{"commands", "list all command names"},
+			[2]string{},
 		}
 	}
 
@@ -151,8 +155,10 @@ func (cg *cmdGroup) printHelp(ctx context.Context, w io.Writer, cmdpath []Comman
 		for _, sub := range subcmds {
 			if len(sub[1]) > 0 {
 				fmt.Fprintf(w, "\t%-15s  %s\n", sub[0], sub[1])
-			} else {
+			} else if len(sub[0]) > 0 {
 				fmt.Fprintf(w, "\t%-15s\n", sub[0])
+			} else {
+				fmt.Fprintln(w)
 			}
 		}
 	}

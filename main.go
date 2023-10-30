@@ -12,21 +12,39 @@ import (
 	"github.com/bvkgo/tradebot/exchange"
 	"github.com/bvkgo/tradebot/subcmds"
 	"github.com/bvkgo/tradebot/subcmds/db"
+	"github.com/bvkgo/tradebot/subcmds/limiter"
+	"github.com/bvkgo/tradebot/subcmds/looper"
+	"github.com/bvkgo/tradebot/subcmds/waller"
 )
 
 var _ exchange.Product = &coinbase.Product{}
 
 func main() {
-	dbcmds := []cli.Command{
+	dbCmds := []cli.Command{
 		new(db.Get),
 		new(db.Set),
 		new(db.Delete),
 		new(db.List),
 	}
 
+	limiterCmds := []cli.Command{
+		new(limiter.Add),
+	}
+
+	looperCmds := []cli.Command{
+		new(looper.Add),
+	}
+
+	wallerCmds := []cli.Command{
+		new(waller.Add),
+	}
+
 	cmds := []cli.Command{
 		new(subcmds.Run),
-		cli.CommandGroup("db", dbcmds...),
+		cli.CommandGroup("db", "manage db content manually", dbCmds...),
+		cli.CommandGroup("limiter", "manage limit buys/sells", limiterCmds...),
+		cli.CommandGroup("looper", "manage buy-sell loops", looperCmds...),
+		cli.CommandGroup("waller", "manage trades in a price range", wallerCmds...),
 	}
 	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
 		log.Fatal(err)

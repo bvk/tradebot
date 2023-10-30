@@ -40,7 +40,7 @@ func TestRun(t *testing.T) {
 	jobsList.flags.String("format", "json", "list output format")
 	jobsSummary := newTestCmd("summary")
 	jobsSummary.flags.String("format", "json", "summary output format")
-	jobs := CommandGroup("jobs", jobsList, jobsSummary)
+	jobs := CommandGroup("jobs", "manage jobs", jobsList, jobsSummary)
 
 	jobPause := newTestCmd("pause")
 	jobPause.flags.Duration("timeout", 0, "pause duration")
@@ -50,14 +50,14 @@ func TestRun(t *testing.T) {
 	jobCancel.flags.Duration("after", 0, "cancellation delay")
 	jobArchive := newTestCmd("archive")
 	jobDelete := newTestCmd("delete")
-	job := CommandGroup("job", jobPause, jobResume, jobCancel, jobArchive, jobDelete)
+	job := CommandGroup("job", "manage single job", jobPause, jobResume, jobCancel, jobArchive, jobDelete)
 
 	dbGet := newTestCmd("get")
 	dbSet := newTestCmd("set")
 	dbDelete := newTestCmd("delete")
 	dbScan := newTestCmd("scan")
 	dbBackup := newTestCmd("backup")
-	db := CommandGroup("db", dbGet, dbSet, dbDelete, dbScan, dbBackup)
+	db := CommandGroup("db", "manage database", dbGet, dbSet, dbDelete, dbScan, dbBackup)
 
 	cmds := []Command{run, jobs, job, db}
 

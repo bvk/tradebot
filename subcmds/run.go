@@ -27,9 +27,11 @@ import (
 )
 
 type Run struct {
+	fset *flag.FlagSet
+
+	ServerFlags
+
 	background  bool
-	port        int
-	ip          string
 	secretsPath string
 	dataDir     string
 }
@@ -39,13 +41,14 @@ func (c *Run) Synopsis() string {
 }
 
 func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("run", flag.ContinueOnError)
-	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
-	fset.IntVar(&c.port, "port", 10000, "TCP port number for the daemon")
-	fset.StringVar(&c.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
-	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
-	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
-	return fset, cli.CmdFunc(c.run)
+	if c.fset == nil {
+		c.fset = flag.NewFlagSet("run", flag.ContinueOnError)
+		c.ServerFlags.SetFlags(c.fset)
+		c.fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
+		c.fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
+		c.fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
+	}
+	return c.fset, cli.CmdFunc(c.run)
 }
 
 func (c *Run) run(ctx context.Context, args []string) error {

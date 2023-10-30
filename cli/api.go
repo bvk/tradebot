@@ -17,31 +17,35 @@
 //
 // # EXAMPLE
 //
-//		type runCmd struct {
-//			background  bool
-//			port        int
-//			ip          string
-//			secretsPath string
-//			dataDir     string
-//		}
+//			type runCmd struct {
+//	      fset *flag.FlagSet
 //
-//		func (r *runCmd) Run(ctx context.Context, args []string) error {
-//			if len(p.dataDir) == 0 {
-//				p.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
+//				background  bool
+//				port        int
+//				ip          string
+//				secretsPath string
+//				dataDir     string
 //			}
-//			...
-//			return nil
-//		}
 //
-//		func (r *runCmd) Command() (*flag.FlagSet, CmdFunc) {
-//			fset := flag.NewFlagSet("run", flag.ContinueOnError)
-//			f.BoolVar(&p.background, "background", false, "runs the daemon in background")
-//			f.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
-//			f.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
-//			f.StringVar(&p.secretsPath, "secrets-file", "", "path to credentials file")
-//			f.StringVar(&p.dataDir, "data-dir", "", "path to the data directory")
-//	    return fset, CmdFunc(r.Run)
-//		}
+//			func (r *runCmd) Run(ctx context.Context, args []string) error {
+//				if len(p.dataDir) == 0 {
+//					p.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
+//				}
+//				...
+//				return nil
+//			}
+//
+//			func (r *runCmd) Command() (*flag.FlagSet, CmdFunc) {
+//	      if r.fset == nil {
+//				  r.fset = flag.NewFlagSet("run", flag.ContinueOnError)
+//				  r.fset.BoolVar(&p.background, "background", false, "runs the daemon in background")
+//				  r.fset.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
+//				  r.fset.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
+//				  r.fset.StringVar(&p.secretsPath, "secrets-file", "", "path to credentials file")
+//				  r.fset.StringVar(&p.dataDir, "data-dir", "", "path to the data directory")
+//	      }
+//		    return r.fset, CmdFunc(r.Run)
+//			}
 package cli
 
 import (
@@ -65,10 +69,11 @@ type Command interface {
 
 // CommandGroup groups a collection of commands under a parent command. This
 // allows for defining subcommands under another command name.
-func CommandGroup(name string, cmds ...Command) Command {
+func CommandGroup(name, description string, cmds ...Command) Command {
 	return &cmdGroup{
-		flags:   flag.NewFlagSet(name, flag.ContinueOnError),
-		subcmds: cmds,
+		flags:    flag.NewFlagSet(name, flag.ContinueOnError),
+		subcmds:  cmds,
+		synopsis: description,
 	}
 }
 
