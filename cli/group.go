@@ -192,16 +192,16 @@ func (cg *cmdGroup) run(ctx context.Context, args []string) error {
 
 	switch cg.specialCmd {
 	case "help":
-		return cg.printHelp(ctx, os.Stderr, cmdpath)
+		return cg.printHelp(ctx, os.Stdout, cmdpath)
 	case "flags":
-		return cg.printFlags(ctx, os.Stderr, cmdpath)
+		return cg.printFlags(ctx, os.Stdout, cmdpath)
 	case "commands":
-		return cg.printCommands(ctx, os.Stderr, cmdpath)
+		return cg.printCommands(ctx, os.Stdout, cmdpath)
 	}
 
 	fun := cmdpath[len(cmdpath)-1].fun
 	if fun == nil {
-		return cg.printHelp(ctx, os.Stderr, cmdpath)
+		return cg.printHelp(ctx, os.Stdout, cmdpath)
 	}
 
 	return fun(ctx, args)
