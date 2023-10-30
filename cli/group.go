@@ -134,6 +134,10 @@ func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]Command, []st
 		// check for the flag in all the parent FlagSets
 		flag, ok := lookup(name)
 		if !ok {
+			if name == "help" || name == "h" {
+				cg.specialCmd = "help"
+				continue
+			}
 			return nil, nil, fmt.Errorf("flag provided but not defined: -%s", name)
 		}
 
