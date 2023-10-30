@@ -7,9 +7,10 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
-	"log/slog"
+	"log"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
@@ -83,6 +84,10 @@ func (w *Waller) check() error {
 	return nil
 }
 
+func (w *Waller) String() string {
+	return "waller:" + w.key
+}
+
 func (w *Waller) Status() *Status {
 	return &Status{
 		UID:        w.key,
@@ -103,9 +108,13 @@ func (w *Waller) Run(ctx context.Context, db kv.Database) error {
 		go func() {
 			defer wg.Done()
 
-			if err := loop.Run(ctx, db); err != nil {
-				slog.ErrorContext(ctx, "sub looper for wall has failed", "error", err)
-				return
+			for ctx.Err() == nil {
+				if err := loop.Run(ctx, db); err != nil {
+					if ctx.Err() == nil {
+						log.Printf("wall-looper %v has failed (retry): %v", loop, err)
+						time.Sleep(time.Second)
+					}
+				}
 			}
 		}()
 	}

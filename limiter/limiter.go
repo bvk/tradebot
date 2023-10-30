@@ -8,7 +8,6 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
-	"log/slog"
 	"path"
 
 	"github.com/bvkgo/kv"
@@ -86,6 +85,10 @@ func (v *Limiter) check() error {
 	return nil
 }
 
+func (v *Limiter) String() string {
+	return "limiter:" + v.key
+}
+
 func (v *Limiter) Side() string {
 	return v.point.Side()
 }
@@ -96,7 +99,7 @@ func (v *Limiter) Status() *Status {
 		ProductID: v.product.ID(),
 		Side:      v.point.Side(),
 		Point:     v.point,
-		Pending:   v.pending(),
+		Pending:   v.Pending(),
 	}
 }
 
@@ -115,7 +118,7 @@ func (v *Limiter) GetOrders(ctx context.Context) ([]*exchange.Order, error) {
 	return orders, nil
 }
 
-func (v *Limiter) pending() decimal.Decimal {
+func (v *Limiter) Pending() decimal.Decimal {
 	var filled decimal.Decimal
 	for _, order := range v.orderMap {
 		if order != nil {
@@ -126,11 +129,11 @@ func (v *Limiter) pending() decimal.Decimal {
 }
 
 func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
-	for p := v.pending(); !p.IsZero(); p = v.pending() {
+	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
 		select {
 		case <-ctx.Done():
 			if v.activeOrderID != "" {
-				slog.Info("cancelling active limit order", "point", v.point, "orderID", v.activeOrderID)
+				log.Printf("canceling active limit order %v at point %v", v.activeOrderID, v.point)
 				if err := v.cancel(context.TODO()); err != nil {
 					return err
 				}
@@ -143,8 +146,6 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 			}
 
 		case ticker := <-v.tickerCh:
-			// slog.InfoContext(ctx, "change", "ticker", ticker.Price, "orderID", v.orderID, "updatesCh", v.orderUpdatesCh != nil)
-
 			if v.Side() == "SELL" {
 				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
 					if v.activeOrderID != "" {
@@ -196,7 +197,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 
 func (v *Limiter) create(ctx context.Context) error {
 	clientOrderID := v.idgen.NextID()
-	size := v.pending()
+	size := v.Pending()
 
 	var err error
 	var orderID exchange.OrderID

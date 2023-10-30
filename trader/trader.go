@@ -121,8 +121,7 @@ func (t *Trader) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Resume the unfinished trades. Perhaps, we should *move* them under
-	// `/completed/` directory.
+	// TODO: Resume the unfinished trades.
 
 	<-ctx.Done()
 	return ctx.Err()

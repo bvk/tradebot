@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log"
 	"path"
+	"time"
 
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/exchange"
@@ -79,6 +81,10 @@ func (v *Looper) check() error {
 	return nil
 }
 
+func (v *Looper) String() string {
+	return "looper:" + v.key
+}
+
 func (v *Looper) Status() *Status {
 	return &Status{
 		UID:       v.key,
@@ -91,20 +97,62 @@ func (v *Looper) Status() *Status {
 }
 
 func (v *Looper) Run(ctx context.Context, db kv.Database) error {
-	// FIXME: We should not return err on limiter failures.
 	for ctx.Err() == nil {
-		if err := v.limitBuy(ctx, db); err != nil {
-			return err
+		nbuys := len(v.buys)
+		if nbuys == 0 {
+			if err := v.addNewBuy(ctx, db); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
+					time.Sleep(time.Second)
+				}
+			}
+			continue
 		}
 
-		if err := v.limitSell(ctx, db); err != nil {
-			return err
+		if last := v.buys[nbuys-1]; !last.Pending().IsZero() {
+			if err := last.Run(ctx, db); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
+					time.Sleep(time.Second)
+				}
+			}
+			continue
+		}
+
+		nsells := len(v.sells)
+		if nsells < nbuys {
+			if err := v.addNewSell(ctx, db); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
+					time.Sleep(time.Second)
+				}
+			}
+			continue
+		}
+
+		if last := v.sells[nsells-1]; !last.Pending().IsZero() {
+			if err := last.Run(ctx, db); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
+					time.Sleep(time.Second)
+				}
+			}
+			continue
+		}
+
+		if err := v.addNewBuy(ctx, db); err != nil {
+			if ctx.Err() == nil {
+				log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
+				time.Sleep(time.Second)
+			}
+			continue
 		}
 	}
-	return nil
+
+	return context.Cause(ctx)
 }
 
-func (v *Looper) limitBuy(ctx context.Context, db kv.Database) error {
+func (v *Looper) addNewBuy(ctx context.Context, db kv.Database) error {
 	uid := path.Join(v.key, fmt.Sprintf("buy-%06d", len(v.buys)))
 	b, err := limiter.New(uid, v.product, &v.buyPoint)
 	if err != nil {
@@ -112,15 +160,13 @@ func (v *Looper) limitBuy(ctx context.Context, db kv.Database) error {
 	}
 	v.buys = append(v.buys, b)
 	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
-		return err
-	}
-	if err := b.Run(ctx, db); err != nil {
+		v.buys = v.buys[:len(v.buys)-1]
 		return err
 	}
 	return nil
 }
 
-func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
+func (v *Looper) addNewSell(ctx context.Context, db kv.Database) error {
 	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.buys)))
 	s, err := limiter.New(uid, v.product, &v.sellPoint)
 	if err != nil {
@@ -128,9 +174,7 @@ func (v *Looper) limitSell(ctx context.Context, db kv.Database) error {
 	}
 	v.sells = append(v.sells, s)
 	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
-		return err
-	}
-	if err := s.Run(ctx, db); err != nil {
+		v.sells = v.sells[:len(v.sells)-1]
 		return err
 	}
 	return nil
