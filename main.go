@@ -4,23 +4,31 @@ package main
 
 import (
 	"context"
-	"flag"
+	"log"
 	"os"
 
+	"github.com/bvkgo/tradebot/cli"
 	"github.com/bvkgo/tradebot/coinbase"
 	"github.com/bvkgo/tradebot/exchange"
-	"github.com/google/subcommands"
+	"github.com/bvkgo/tradebot/subcmds"
+	"github.com/bvkgo/tradebot/subcmds/db"
 )
 
 var _ exchange.Product = &coinbase.Product{}
 
 func main() {
-	subcommands.Register(subcommands.HelpCommand(), "")
-	subcommands.Register(subcommands.FlagsCommand(), "")
-	subcommands.Register(subcommands.CommandsCommand(), "")
-	subcommands.Register(&runCmd{}, "")
+	dbcmds := []cli.Command{
+		new(db.Get),
+		new(db.Set),
+		new(db.Delete),
+		new(db.List),
+	}
 
-	flag.Parse()
-	ctx := context.Background()
-	os.Exit(int(subcommands.Execute(ctx)))
+	cmds := []cli.Command{
+		new(subcmds.Run),
+		cli.CommandGroup("db", dbcmds...),
+	}
+	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
+		log.Fatal(err)
+	}
 }

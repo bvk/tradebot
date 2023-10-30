@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package main
+package subcmds
 
 import (
 	"context"
@@ -17,15 +17,16 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
+	"github.com/bvkgo/tradebot/cli"
 	"github.com/bvkgo/tradebot/daemonize"
 	"github.com/bvkgo/tradebot/server"
 	"github.com/bvkgo/tradebot/trader"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/google/subcommands"
 )
 
-type runCmd struct {
+type Run struct {
 	background  bool
 	port        int
 	ip          string
@@ -33,65 +34,53 @@ type runCmd struct {
 	dataDir     string
 }
 
-func (*runCmd) Name() string     { return "run" }
-func (*runCmd) Synopsis() string { return "runs the trading bot daemon" }
-func (*runCmd) Usage() string {
-	return `Usage: tradebot run <flags>
-
-  Runs the trading bot daemon.
-
-`
+func (c *Run) Synopsis() string {
+	return "Runs tradebot in foreground or background"
 }
 
-func (p *runCmd) SetFlags(f *flag.FlagSet) {
-	f.BoolVar(&p.background, "background", false, "runs the daemon in background")
-	f.IntVar(&p.port, "port", 10000, "TCP port number for the daemon")
-	f.StringVar(&p.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
-	f.StringVar(&p.secretsPath, "secrets-file", "", "path to credentials file")
-	f.StringVar(&p.dataDir, "data-dir", "", "path to the data directory")
+func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
+	fset := flag.NewFlagSet("run", flag.ContinueOnError)
+	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
+	fset.IntVar(&c.port, "port", 10000, "TCP port number for the daemon")
+	fset.StringVar(&c.ip, "ip", "0.0.0.0", "TCP ip address for the daemon")
+	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
+	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
+	return fset, cli.CmdFunc(c.run)
 }
 
-func (p *runCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-	if err := p.run(ctx, f); err != nil {
-		slog.ErrorContext(ctx, "run:", "error", err)
-		return subcommands.ExitFailure
-	}
-	return subcommands.ExitSuccess
-}
-
-func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
+func (c *Run) run(ctx context.Context, args []string) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	if len(p.dataDir) == 0 {
-		p.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
+	if len(c.dataDir) == 0 {
+		c.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
 	}
-	if _, err := os.Stat(p.dataDir); err != nil {
+	if _, err := os.Stat(c.dataDir); err != nil {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("could not stat data directory %q: %w", p.dataDir, err)
+			return fmt.Errorf("could not stat data directory %q: %w", c.dataDir, err)
 		}
-		if err := os.MkdirAll(p.dataDir, 0700); err != nil {
-			return fmt.Errorf("could not create data directory %q: %w", p.dataDir, err)
+		if err := os.MkdirAll(c.dataDir, 0700); err != nil {
+			return fmt.Errorf("could not create data directory %q: %w", c.dataDir, err)
 		}
 	}
 
-	if len(p.secretsPath) == 0 {
-		p.secretsPath = filepath.Join(p.dataDir, "secrets.json")
+	if len(c.secretsPath) == 0 {
+		c.secretsPath = filepath.Join(c.dataDir, "secrets.json")
 	}
-	secrets, err := trader.SecretsFromFile(p.secretsPath)
+	secrets, err := trader.SecretsFromFile(c.secretsPath)
 	if err != nil {
 		return err
 	}
 
-	if ip := net.ParseIP(p.ip); ip == nil {
+	if ip := net.ParseIP(c.ip); ip == nil {
 		return fmt.Errorf("invalid ip address")
 	}
-	if p.port <= 0 {
+	if c.port <= 0 {
 		return fmt.Errorf("invalid port number")
 	}
 	addr := &net.TCPAddr{
-		IP:   net.ParseIP(p.ip),
-		Port: p.port,
+		IP:   net.ParseIP(c.ip),
+		Port: c.port,
 	}
 
 	// Health checker for the background process initialization. We need to
@@ -117,13 +106,12 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 		return false, nil
 	}
 
-	if p.background {
+	if c.background {
 		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
 			return err
 		}
+		log.Printf("using data directory %s and secrets file %s", c.dataDir, c.secretsPath)
 	}
-
-	log.Printf("using data directory %s and secrets file %s", p.dataDir, p.secretsPath)
 
 	// Start HTTP server.
 	opts := &server.Options{
@@ -137,7 +125,7 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 	defer s.Close()
 
 	// Open the database.
-	bopts := badger.DefaultOptions(p.dataDir)
+	bopts := badger.DefaultOptions(c.dataDir)
 	bdb, err := badger.Open(bopts)
 	if err != nil {
 		return fmt.Errorf("could not open the database: %w", err)
@@ -162,6 +150,8 @@ func (p *runCmd) run(ctx context.Context, f *flag.FlagSet) error {
 			s.RemoveHandler(k)
 		}
 	}()
+
+	s.AddHandler("/db/", http.StripPrefix("/db", kvhttp.Handler(db)))
 
 	slog.InfoContext(ctx, "started tradebot server", "ip", opts.ListenIP, "port", opts.ListenPort)
 	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
