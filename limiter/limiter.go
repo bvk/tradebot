@@ -17,6 +17,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const DefaultKeyspace = "/limiters"
+
 type Limiter struct {
 	product exchange.Product
 

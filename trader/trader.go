@@ -376,7 +376,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, err
 	}
 
-	uid := path.Join("/limiters/", uuid.New().String())
+	uid := path.Join(limiter.DefaultKeyspace, uuid.New().String())
 	limit, err := limiter.New(uid, product, point)
 	if err != nil {
 		return nil, err
@@ -438,7 +438,7 @@ func (t *Trader) doLimitBuy(ctx context.Context, req *api.LimitBuyRequest) (_ *a
 		return nil, fmt.Errorf("limit-buy point %v falls on invalid side", point)
 	}
 
-	uid := path.Join("/limiters/", uuid.New().String())
+	uid := path.Join(limiter.DefaultKeyspace, uuid.New().String())
 	buy, err := limiter.New(uid, product, point)
 	if err != nil {
 		return nil, err
@@ -502,7 +502,7 @@ func (t *Trader) doLimitSell(ctx context.Context, req *api.LimitSellRequest) (_ 
 		return nil, fmt.Errorf("limit-sell point %v falls on invalid side", point)
 	}
 
-	uid := path.Join("/limiters/", uuid.New().String())
+	uid := path.Join(limiter.DefaultKeyspace, uuid.New().String())
 	sell, err := limiter.New(uid, product, point)
 	if err != nil {
 		return nil, err
@@ -572,7 +572,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		return nil, fmt.Errorf("sell point %v falls on invalid side", sellp)
 	}
 
-	uid := path.Join("/loopers/", uuid.New().String())
+	uid := path.Join(looper.DefaultKeyspace, uuid.New().String())
 	loop, err := looper.New(uid, product, buyp, sellp)
 	if err != nil {
 		return nil, err
@@ -638,7 +638,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		return nil, err
 	}
 
-	uid := path.Join("/wallers/", uuid.New().String())
+	uid := path.Join(waller.DefaultKeyspace, uuid.New().String())
 	wall, err := waller.New(uid, product, buys, sells)
 	if err != nil {
 		return nil, err

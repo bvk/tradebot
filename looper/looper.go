@@ -18,6 +18,8 @@ import (
 	"github.com/bvkgo/tradebot/point"
 )
 
+const DefaultKeyspace = "/loopers"
+
 type Looper struct {
 	product exchange.Product
 

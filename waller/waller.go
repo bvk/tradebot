@@ -19,6 +19,8 @@ import (
 	"github.com/bvkgo/tradebot/point"
 )
 
+const DefaultKeyspace = "/wallers"
+
 type Waller struct {
 	key string
 
