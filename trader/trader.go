@@ -32,6 +32,8 @@ type Trader struct {
 
 	wg sync.WaitGroup
 
+	opts Options
+
 	db kv.Database
 
 	coinbaseClient *coinbase.Client
@@ -47,7 +49,7 @@ type Trader struct {
 	wallers  []*waller.Waller
 }
 
-func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
+func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, status error) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer func() {
 		if status != nil {
@@ -70,6 +72,7 @@ func NewTrader(secrets *Secrets, db kv.Database) (_ *Trader, status error) {
 		closeCause:     cancel,
 		coinbaseClient: coinbaseClient,
 		db:             db,
+		opts:           *opts,
 		handlerMap:     make(map[string]http.Handler),
 		productMap:     make(map[string]exchange.Product),
 	}
@@ -121,10 +124,54 @@ func (t *Trader) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: Resume the unfinished trades.
+	if t.opts.NoResume {
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}
+
+	return t.resume(ctx)
+}
+
+func (t *Trader) resume(ctx context.Context) error {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
+	var limiters []*limiter.Limiter
+	var loopers []*looper.Looper
+	var wallers []*waller.Waller
+
+	t.mu.Lock()
+	limiters = append(limiters, t.limiters...)
+	loopers = append(loopers, t.loopers...)
+	wallers = append(wallers, t.wallers...)
+	t.mu.Unlock()
+
+	for _, l := range limiters {
+		wg.Add(1)
+		go func(l *limiter.Limiter) {
+			l.Run(ctx, t.db)
+			wg.Done()
+		}(l)
+	}
+
+	for _, l := range loopers {
+		wg.Add(1)
+		go func(l *looper.Looper) {
+			l.Run(ctx, t.db)
+			wg.Done()
+		}(l)
+	}
+
+	for _, w := range wallers {
+		wg.Add(1)
+		go func(w *waller.Waller) {
+			w.Run(ctx, t.db)
+			wg.Done()
+		}(w)
+	}
 
 	<-ctx.Done()
-	return ctx.Err()
+	return context.Cause(ctx)
 }
 
 func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product, error) {

@@ -29,7 +29,9 @@ import (
 type Run struct {
 	ServerFlags
 
-	background  bool
+	background bool
+	noResume   bool
+
 	secretsPath string
 	dataDir     string
 }
@@ -66,6 +68,7 @@ func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("run", flag.ContinueOnError)
 	c.ServerFlags.SetFlags(fset)
 	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
+	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
 	return fset, cli.CmdFunc(c.run)
@@ -157,7 +160,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	db := kvbadger.New(bdb, isGoodKey)
 
 	// Start other services.
-	trader, err := trader.NewTrader(secrets, db)
+	topts := &trader.Options{
+		NoResume: c.noResume,
+	}
+	trader, err := trader.NewTrader(secrets, db, topts)
 	if err != nil {
 		return err
 	}
