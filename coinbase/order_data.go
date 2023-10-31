@@ -76,10 +76,13 @@ func (d *orderData) websocketUpdate(serverTime time.Time, event *OrderEventType)
 	order := &exchange.Order{
 		OrderID:       exchange.OrderID(event.OrderID),
 		ClientOrderID: event.ClientOrderID,
-		CreateTime:    exchange.RemoteTime(event.CreatedTime.Time),
+		CreateTime:    exchange.RemoteTime{Time: event.CreatedTime.Time},
 		Side:          event.OrderSide,
 		Status:        event.Status,
 		Done:          slices.Contains(doneStatuses, event.Status),
+		FilledSize:    event.CumulativeQuantity.Decimal,
+		FilledPrice:   event.AvgPrice.Decimal,
+		Fee:           event.TotalFees.Decimal,
 	}
 
 	if order.Done && event.Status != "FILLED" {

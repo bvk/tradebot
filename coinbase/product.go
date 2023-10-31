@@ -168,7 +168,7 @@ func (p *Product) watch(ctx context.Context) (status error) {
 					if tick.ProductID == p.productID {
 						v := &exchange.Ticker{
 							Price:     tick.Price.Decimal,
-							Timestamp: exchange.RemoteTime(timestamp),
+							Timestamp: exchange.RemoteTime{Time: timestamp},
 						}
 						p.tickerTopic.SendCh() <- v
 					}

@@ -69,15 +69,18 @@ type TickerEventType struct {
 }
 
 type OrderEventType struct {
-	OrderID       string     `json:"order_id"`
-	ClientOrderID string     `json:"client_order_id"`
-	Status        string     `json:"status"`
-	ProductID     string     `json:"product_id"`
-	CreatedTime   RemoteTime `json:"creation_time"`
-	OrderSide     string     `json:"order_side"`
-	OrderType     string     `json:"order_type"`
-	CancelReason  string     `json:"cancel_reason"`
-	RejectReason  string     `json:"reject_reason"`
+	OrderID            string     `json:"order_id"`
+	ClientOrderID      string     `json:"client_order_id"`
+	Status             string     `json:"status"`
+	ProductID          string     `json:"product_id"`
+	CreatedTime        RemoteTime `json:"creation_time"`
+	OrderSide          string     `json:"order_side"`
+	OrderType          string     `json:"order_type"`
+	CancelReason       string     `json:"cancel_reason"`
+	RejectReason       string     `json:"reject_reason"`
+	CumulativeQuantity BigFloat   `json:"cumulative_quantity"`
+	TotalFees          BigFloat   `json:"total_fees"`
+	AvgPrice           BigFloat   `json:"avg_price"`
 }
 
 type OrderType struct {
@@ -118,7 +121,7 @@ func toExchangeOrder(v *OrderType) *exchange.Order {
 	order := &exchange.Order{
 		ClientOrderID: v.ClientOrderID,
 		OrderID:       exchange.OrderID(v.OrderID),
-		CreateTime:    exchange.RemoteTime(v.CreatedTime.Time),
+		CreateTime:    exchange.RemoteTime{Time: v.CreatedTime.Time},
 		Side:          v.Side,
 		Fee:           v.Fee.Decimal,
 		FilledSize:    v.FilledSize.Decimal,
