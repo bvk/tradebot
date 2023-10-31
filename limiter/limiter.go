@@ -74,6 +74,10 @@ func New(uid string, product exchange.Product, point *point.Point) (*Limiter, er
 		tickerCh: product.TickerCh(),
 		orderMap: make(map[exchange.OrderID]*exchange.Order),
 	}
+	if err := v.check(); err != nil {
+		return nil, err
+	}
+
 	return v, nil
 }
 
@@ -113,9 +117,7 @@ func (v *Limiter) GetOrders(ctx context.Context) ([]*exchange.Order, error) {
 
 	var orders []*exchange.Order
 	for _, order := range v.orderMap {
-		if order != nil {
-			orders = append(orders, order)
-		}
+		orders = append(orders, order)
 	}
 	return orders, nil
 }
@@ -123,16 +125,36 @@ func (v *Limiter) GetOrders(ctx context.Context) ([]*exchange.Order, error) {
 func (v *Limiter) Pending() decimal.Decimal {
 	var filled decimal.Decimal
 	for _, order := range v.orderMap {
-		if order != nil {
-			filled = filled.Add(order.FilledSize)
-		}
+		filled = filled.Add(order.FilledSize)
 	}
 	return v.point.Size.Sub(filled)
 }
 
 func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
+	// We also need to handle resume logic here.
+	if err := v.fetchOrderMap(ctx, len(v.orderMap)); err != nil {
+		return err
+	}
 	if p := v.Pending(); p.IsZero() {
 		return nil
+	}
+
+	// Check if any of the orders in the orderMap are still active on the
+	// exchange.
+	var live []*exchange.Order
+	for _, order := range v.orderMap {
+		if !order.Done {
+			live = append(live, order)
+		}
+	}
+	nlive := len(live)
+	log.Printf("%s: found %d unfinished orders", v.key, nlive)
+	if nlive > 1 {
+		return fmt.Errorf("found %d live orders (want 0 or 1)", nlive)
+	}
+	if nlive != 0 {
+		v.activeOrderID = live[0].OrderID
+		log.Printf("%s: reusing existing order %s as the active order", v.key, v.activeOrderID)
 	}
 
 	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
@@ -219,7 +241,11 @@ func (v *Limiter) create(ctx context.Context) error {
 		return err
 	}
 
-	v.orderMap[orderID] = nil
+	v.orderMap[orderID] = &exchange.Order{
+		OrderID:       orderID,
+		ClientOrderID: clientOrderID.String(),
+		Side:          v.Side(),
+	}
 	v.activeOrderID = orderID
 	v.orderUpdatesCh = v.product.OrderUpdatesCh(v.activeOrderID)
 	return nil
@@ -237,7 +263,7 @@ func (v *Limiter) cancel(ctx context.Context) error {
 
 func (v *Limiter) compactOrderMap() {
 	for id, order := range v.orderMap {
-		if order != nil && order.Done && order.FilledSize.IsZero() {
+		if order.Done && order.FilledSize.IsZero() {
 			delete(v.orderMap, id)
 			continue
 		}
@@ -249,12 +275,15 @@ func (v *Limiter) updateOrderMap(order *exchange.Order) error {
 		return nil
 	}
 	v.orderMap[order.OrderID] = order
+	if order.Done {
+		v.activeOrderID = ""
+	}
 	return nil
 }
 
 func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 	for id, order := range v.orderMap {
-		if order != nil && order.Done {
+		if order.Done {
 			continue
 		}
 		order, err := v.product.Get(ctx, id)
