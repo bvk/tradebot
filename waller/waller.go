@@ -60,12 +60,25 @@ func New(uid string, product exchange.Product, buys, sells []*point.Point) (*Wal
 	if err := w.check(); err != nil {
 		return nil, err
 	}
+	var loopers []*looper.Looper
+	for i := 0; i < len(buys); i++ {
+		luid := path.Join(uid, fmt.Sprintf("loop-%06d", i))
+		l, err := looper.New(luid, product, buys[i], sells[i])
+		if err != nil {
+			return nil, err
+		}
+		loopers = append(loopers, l)
+	}
+	w.loopers = loopers
 	return w, nil
 }
 
 func (w *Waller) check() error {
 	if len(w.key) == 0 || !path.IsAbs(w.key) {
 		return fmt.Errorf("waller uid/key %q is invalid", w.key)
+	}
+	if a, b := len(w.buyPoints), len(w.sellPoints); a != b {
+		return fmt.Errorf("number of buys %d must match sells %d", a, b)
 	}
 	for i, b := range w.buyPoints {
 		if err := b.Check(); err != nil {

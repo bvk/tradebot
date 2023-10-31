@@ -131,6 +131,10 @@ func (v *Limiter) Pending() decimal.Decimal {
 }
 
 func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
+	if p := v.Pending(); p.IsZero() {
+		return nil
+	}
+
 	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
 		select {
 		case <-ctx.Done():
@@ -188,6 +192,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 		}
 	}
 
+	log.Printf("limit order %s is complete (%v pending)", v.key, v.Pending())
 	if err := v.fetchOrderMap(ctx, len(v.orderMap)); err != nil {
 		return err
 	}
@@ -265,6 +270,9 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 }
 
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
+	if err := v.fetchOrderMap(ctx, len(v.orderMap)); err != nil {
+		return err
+	}
 	v.compactOrderMap()
 	gv := &State{
 		ProductID: v.product.ID(),

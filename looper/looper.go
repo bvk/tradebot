@@ -25,6 +25,8 @@ type Looper struct {
 
 	key string
 
+	tickerCh <-chan *exchange.Ticker
+
 	buyPoint  point.Point
 	sellPoint point.Point
 
@@ -57,6 +59,7 @@ func New(uid string, product exchange.Product, buy, sell *point.Point) (*Looper,
 		key:       uid,
 		buyPoint:  *buy,
 		sellPoint: *sell,
+		tickerCh:  product.TickerCh(),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -155,6 +158,16 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 }
 
 func (v *Looper) addNewBuy(ctx context.Context, db kv.Database) error {
+	// Wait for the ticker to go above the buy point price.
+	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case ticker := <-v.tickerCh:
+			p = ticker.Price
+		}
+	}
+
 	uid := path.Join(v.key, fmt.Sprintf("buy-%06d", len(v.buys)))
 	b, err := limiter.New(uid, v.product, &v.buyPoint)
 	if err != nil {
@@ -169,7 +182,17 @@ func (v *Looper) addNewBuy(ctx context.Context, db kv.Database) error {
 }
 
 func (v *Looper) addNewSell(ctx context.Context, db kv.Database) error {
-	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.buys)))
+	// Wait for the ticker to go below the sell point price.
+	for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case ticker := <-v.tickerCh:
+			p = ticker.Price
+		}
+	}
+
+	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.sells)))
 	s, err := limiter.New(uid, v.product, &v.sellPoint)
 	if err != nil {
 		return err
