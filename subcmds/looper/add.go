@@ -89,6 +89,10 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	return fset, cli.CmdFunc(c.Run)
 }
 
+func (c *Add) Synopsis() string {
+	return "Creates a new buy-sell loop job"
+}
+
 func (c *Add) CommandHelp() string {
 	return `
 

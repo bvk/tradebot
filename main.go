@@ -41,6 +41,8 @@ func main() {
 
 	wallerCmds := []cli.Command{
 		new(waller.Add),
+		new(waller.List),
+		new(waller.Get),
 	}
 
 	cmds := []cli.Command{

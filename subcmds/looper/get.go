@@ -17,17 +17,15 @@ import (
 
 type Get struct {
 	db.Flags
-
-	key string
 }
 
 func (c *Get) Run(ctx context.Context, args []string) error {
-	if len(args) != 0 {
-		return fmt.Errorf("this command takes no arguments")
+	if len(args) != 1 {
+		return fmt.Errorf("this command takes one (key) argument")
 	}
 
 	getter := func(ctx context.Context, r kv.Reader) error {
-		gv, err := kvutil.Get[looper.State](ctx, r, c.key)
+		gv, err := kvutil.Get[looper.State](ctx, r, args[0])
 		if err != nil {
 			return err
 		}
@@ -47,7 +45,6 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
 	c.Flags.SetFlags(fset)
-	fset.StringVar(&c.key, "key", "", "looper job key in the db")
 	return fset, cli.CmdFunc(c.Run)
 }
 

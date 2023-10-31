@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package limiter
+package waller
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/tradebot/cli"
 	"github.com/bvkgo/tradebot/kvutil"
-	"github.com/bvkgo/tradebot/limiter"
 	"github.com/bvkgo/tradebot/subcmds/db"
+	"github.com/bvkgo/tradebot/waller"
 )
 
 type Get struct {
@@ -25,7 +25,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	}
 
 	getter := func(ctx context.Context, r kv.Reader) error {
-		gv, err := kvutil.Get[limiter.State](ctx, r, args[0])
+		gv, err := kvutil.Get[waller.State](ctx, r, args[0])
 		if err != nil {
 			return err
 		}
@@ -49,5 +49,5 @@ func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *Get) Synopsis() string {
-	return "Prints a single limit buy/sell job info from a key"
+	return "Prints a single waller job info from a key"
 }

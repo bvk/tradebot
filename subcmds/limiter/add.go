@@ -93,7 +93,7 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *Add) Synopsis() string {
-	return "Creates a limit buy/sell job"
+	return "Creates a new limit buy/sell job"
 }
 
 func (c *Add) CommandHelp() string {
