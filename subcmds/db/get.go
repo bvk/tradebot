@@ -7,11 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
-	"net/url"
 
-	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/tradebot/cli"
 )
 
@@ -24,16 +20,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	baseURL := &url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(c.ip, fmt.Sprintf("%d", c.port)),
-		Path:   c.basePath,
-	}
-	client := &http.Client{
-		Timeout: c.httpTimeout,
-	}
-
-	db := kvhttp.New(baseURL, client)
+	db := c.Flags.Client()
 	snap, err := db.NewSnapshot(ctx)
 	if err != nil {
 		return err
@@ -55,7 +42,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
-	c.Flags.setFlags(fset)
+	c.Flags.SetFlags(fset)
 	return fset, cli.CmdFunc(c.Run)
 }
 

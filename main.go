@@ -29,10 +29,14 @@ func main() {
 
 	limiterCmds := []cli.Command{
 		new(limiter.Add),
+		new(limiter.List),
+		new(limiter.Get),
 	}
 
 	looperCmds := []cli.Command{
 		new(looper.Add),
+		new(looper.List),
+		new(looper.Get),
 	}
 
 	wallerCmds := []cli.Command{

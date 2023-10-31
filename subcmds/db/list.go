@@ -6,12 +6,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/tradebot/cli"
 )
 
@@ -22,13 +18,8 @@ type List struct {
 }
 
 func (c *List) Run(ctx context.Context, args []string) error {
-	baseURL := &url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(c.ip, fmt.Sprintf("%d", c.port)),
-		Path:   c.basePath,
-	}
-	client := &http.Client{
-		Timeout: c.httpTimeout,
+	if len(args) != 0 {
+		return fmt.Errorf("command takes no arguments")
 	}
 
 	// TODO: handle printValues flag
@@ -50,7 +41,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db := kvhttp.New(baseURL, client)
+	db := c.Flags.Client()
 	if err := kv.WithReader(ctx, db, list); err != nil {
 		return err
 	}
@@ -59,7 +50,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 
 func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list", flag.ContinueOnError)
-	c.Flags.setFlags(fset)
+	c.Flags.SetFlags(fset)
 	fset.BoolVar(&c.printValues, "print-values", false, "values are printed when true")
 	return fset, cli.CmdFunc(c.Run)
 }

@@ -6,11 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 
-	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/tradebot/cli"
 )
 
@@ -23,16 +19,7 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	baseURL := &url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(c.ip, fmt.Sprintf("%d", c.port)),
-		Path:   c.basePath,
-	}
-	client := &http.Client{
-		Timeout: c.httpTimeout,
-	}
-
-	db := kvhttp.New(baseURL, client)
+	db := c.Flags.Client()
 	tx, err := db.NewTransaction(ctx)
 	if err != nil {
 		return err
@@ -50,7 +37,7 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 
 func (c *Delete) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("delete", flag.ContinueOnError)
-	c.Flags.setFlags(fset)
+	c.Flags.SetFlags(fset)
 	return fset, cli.CmdFunc(c.Run)
 }
 

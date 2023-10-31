@@ -51,6 +51,10 @@ func (p *Point) String() string {
 	return fmt.Sprintf("%s{%s@%s}", p.Side(), p.Size, p.Price)
 }
 
+func (p *Point) FeeAt(pct decimal.Decimal) decimal.Decimal {
+	return p.Size.Mul(p.Price).Mul(pct).Div(decimal.NewFromFloat(100))
+}
+
 func (p *Point) LogValue() slog.Value {
 	return slog.StringValue(p.String())
 }
