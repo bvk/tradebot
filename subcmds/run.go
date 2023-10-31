@@ -43,7 +43,8 @@ func (c *Run) Synopsis() string {
 func (c *Run) CommandHelp() string {
 	return `
 
-Command "run" starts the tradebot service.
+Command "run" starts the tradebot service. Tradebot service scans the database
+for existing jobs and resumes them automatically.
 
 SECRETS FILE
 

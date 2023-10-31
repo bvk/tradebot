@@ -159,11 +159,11 @@ associated buy has completed every sell point execution generates a little
 profit.
 
 Note that when the ticker price goes completely above the chosen price-range,
-then all buy points will be executed and all sell points will be waiting for
-the ticker to come back down. Similarly, when the ticker price goes completely
-below the chosen price-range then all sell points -- for already completed buys
-if any -- will be executed, and buy points will be waiting for the ticker to
-come back up.
+then all sell points -- for already completed buys if any -- will be executed
+and all buy points will be waiting for the ticker to come back down. Similarly,
+when the ticker price goes completely below the chosen price-range then all buy
+points will be executed, and sell points will be waiting for the ticker to come
+back up.
 
 `
 }
