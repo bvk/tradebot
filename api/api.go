@@ -57,17 +57,8 @@ type LimitResponse struct {
 type LoopRequest struct {
 	Product string
 
-	BuySize decimal.Decimal
-
-	BuyPrice decimal.Decimal
-
-	BuyCancelPrice decimal.Decimal
-
-	SellSize decimal.Decimal
-
-	SellPrice decimal.Decimal
-
-	SellCancelPrice decimal.Decimal
+	Buy  point.Point
+	Sell point.Point
 }
 
 type LoopResponse struct {

@@ -539,41 +539,17 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		}
 	}()
 
-	// if err := req.Check(); err != nil {
-	// 	return err
-	// }
+	if err := req.Check(); err != nil {
+		return nil, err
+	}
 
 	product, err := t.getProduct(ctx, req.Product)
 	if err != nil {
 		return nil, err
 	}
 
-	buyp := &point.Point{
-		Size:   req.BuySize,
-		Price:  req.BuyPrice,
-		Cancel: req.BuyCancelPrice,
-	}
-	if err := buyp.Check(); err != nil {
-		return nil, err
-	}
-	if s := buyp.Side(); s != "BUY" {
-		return nil, fmt.Errorf("buy point %v falls on invalid side", buyp)
-	}
-
-	sellp := &point.Point{
-		Size:   req.SellSize,
-		Price:  req.SellPrice,
-		Cancel: req.SellCancelPrice,
-	}
-	if err := sellp.Check(); err != nil {
-		return nil, err
-	}
-	if s := sellp.Side(); s != "SELL" {
-		return nil, fmt.Errorf("sell point %v falls on invalid side", sellp)
-	}
-
 	uid := path.Join(looper.DefaultKeyspace, uuid.New().String())
-	loop, err := looper.New(uid, product, buyp, sellp)
+	loop, err := looper.New(uid, product, &req.Buy, &req.Sell)
 	if err != nil {
 		return nil, err
 	}

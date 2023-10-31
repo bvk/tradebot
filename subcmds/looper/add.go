@@ -10,6 +10,7 @@ import (
 
 	"github.com/bvkgo/tradebot/api"
 	"github.com/bvkgo/tradebot/cli"
+	"github.com/bvkgo/tradebot/point"
 	"github.com/bvkgo/tradebot/subcmds"
 	"github.com/shopspring/decimal"
 )
@@ -59,13 +60,17 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.LoopRequest{
-		Product:         c.product,
-		BuySize:         decimal.NewFromFloat(c.buySize),
-		BuyPrice:        decimal.NewFromFloat(c.buyPrice),
-		BuyCancelPrice:  decimal.NewFromFloat(c.buyPrice + c.buyCancelOffset),
-		SellSize:        decimal.NewFromFloat(c.sellSize),
-		SellPrice:       decimal.NewFromFloat(c.sellPrice),
-		SellCancelPrice: decimal.NewFromFloat(c.sellPrice - c.sellCancelOffset),
+		Product: c.product,
+		Buy: point.Point{
+			Size:   decimal.NewFromFloat(c.buySize),
+			Price:  decimal.NewFromFloat(c.buyPrice),
+			Cancel: decimal.NewFromFloat(c.buyPrice + c.buyCancelOffset),
+		},
+		Sell: point.Point{
+			Size:   decimal.NewFromFloat(c.sellSize),
+			Price:  decimal.NewFromFloat(c.sellPrice),
+			Cancel: decimal.NewFromFloat(c.sellPrice - c.sellCancelOffset),
+		},
 	}
 	resp, err := subcmds.Post[api.LoopResponse](ctx, &c.ClientFlags, "/trader/loop", req)
 	if err != nil {
