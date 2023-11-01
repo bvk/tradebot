@@ -56,16 +56,11 @@ type Status struct {
 	Pending decimal.Decimal
 }
 
-// New creates a new BUY or SELL limit order at the given price and size.
-//
-// Limit order will be a SELL order when cancel-price is lower than the
-// limit-price or it will be a BUY order when cancel-price is higher than the
-// limit-price. Limit price must never be equal to the cancel-price.
+// New creates a new BUY or SELL limit order at the given price point. Limit
+// orders at the exchange are canceled and recreated automatically as the
+// ticker price crosses the cancel threshold and comes closer to the
+// limit-price.
 func New(uid string, product exchange.Product, point *point.Point) (*Limiter, error) {
-	if err := point.Check(); err != nil {
-		return nil, err
-	}
-
 	v := &Limiter{
 		product:  product,
 		key:      uid,
@@ -275,7 +270,7 @@ func (v *Limiter) updateOrderMap(order *exchange.Order) error {
 		return nil
 	}
 	v.orderMap[order.OrderID] = order
-	if order.Done {
+	if order.Done && v.activeOrderID == order.OrderID {
 		v.activeOrderID = ""
 	}
 	return nil
@@ -299,9 +294,6 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, n int) error {
 }
 
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
-	if err := v.fetchOrderMap(ctx, len(v.orderMap)); err != nil {
-		return err
-	}
 	v.compactOrderMap()
 	gv := &State{
 		ProductID: v.product.ID(),
