@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -27,13 +28,13 @@ func (sf *ServerFlags) SetFlags(fset *flag.FlagSet) {
 
 type ClientFlags struct {
 	ServerFlags
-	basePath    string
+	apiPath     string
 	httpTimeout time.Duration
 }
 
 func (cf *ClientFlags) SetFlags(fset *flag.FlagSet) {
 	cf.ServerFlags.SetFlags(fset)
-	fset.StringVar(&cf.basePath, "server-path", "/", "base path to the api handler")
+	fset.StringVar(&cf.apiPath, "api-path", "/", "base path to the api handler")
 	fset.DurationVar(&cf.httpTimeout, "client-timeout", 1*time.Second, "http client timeout")
 }
 
@@ -41,7 +42,7 @@ func Post[RESP, REQ any](ctx context.Context, cf *ClientFlags, subpath string, r
 	addrURL := &url.URL{
 		Scheme: "http",
 		Host:   net.JoinHostPort(cf.ip, fmt.Sprintf("%d", cf.port)),
-		Path:   path.Join(cf.basePath, subpath),
+		Path:   path.Join(cf.apiPath, subpath),
 	}
 	client := &http.Client{
 		Timeout: cf.httpTimeout,
@@ -61,7 +62,8 @@ func Post[RESP, REQ any](ctx context.Context, cf *ClientFlags, subpath string, r
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("received non-ok http status %d", resp.StatusCode)
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("http status code %d: %s", resp.StatusCode, data)
 	}
 	response := new(RESP)
 	if err := json.NewDecoder(resp.Body).Decode(response); err != nil {

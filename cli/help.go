@@ -94,41 +94,50 @@ func getInheritedFlags(cmdpath []*cmdData) (*flag.FlagSet, int) {
 
 // getSubcommands returns all subcommand names and synopsises as a pair.
 func getSubcommands(cmdpath []*cmdData) [][2]string {
-	var result [][2]string
+	var spcmds [][2]string
 	if len(cmdpath) == 1 {
-		result = [][2]string{
+		spcmds = [][2]string{
 			{"help", "Describe commands and flags"},
 			{"flags", "Describe all known flags"},
 			{"commands", "Lists all command names"},
-			{},
 		}
 	}
 
-	var subcmds [][2]string
+	var subcmds, groups [][2]string
 	if cg, ok := cmdpath[len(cmdpath)-1].cmd.(*cmdGroup); ok {
 		for _, c := range cg.subcmds {
 			n, s := getName(c), getSynopsis(c)
-			subcmds = append(subcmds, [2]string{n, s})
+			if _, ok := c.(*cmdGroup); ok {
+				groups = append(groups, [2]string{n, s})
+			} else {
+				subcmds = append(subcmds, [2]string{n, s})
+			}
 		}
 	}
-
-	// Sort subcommands such that items with no synopsis come first and also
-	// group sorted by name.
-	sort.Slice(subcmds, func(i, j int) bool {
-		a, b := subcmds[i], subcmds[j]
-		if a[1] == "" && b[1] == "" {
-			return a[0] < b[0]
-		}
-		if a[1] != "" && b[1] != "" {
-			return a[0] < b[0]
-		}
-		if a[1] == "" {
-			return true
-		}
-		return false
+	sort.SliceStable(subcmds, func(i, j int) bool {
+		return subcmds[i][0] < subcmds[j][0]
+	})
+	sort.SliceStable(groups, func(i, j int) bool {
+		return groups[i][0] < groups[j][0]
 	})
 
-	return append(result, subcmds...)
+	var all [][2]string
+	if len(spcmds) > 0 {
+		all = append(all, spcmds...)
+	}
+	if len(subcmds) > 0 {
+		if len(all) > 0 {
+			all = append(all, [2]string{})
+		}
+		all = append(all, subcmds...)
+	}
+	if len(groups) > 0 {
+		if len(all) > 0 {
+			all = append(all, [2]string{})
+		}
+		all = append(all, groups...)
+	}
+	return all
 }
 
 func (cg *cmdGroup) printHelp(ctx context.Context, w io.Writer, cmdpath []*cmdData) error {

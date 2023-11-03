@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -160,6 +159,8 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	defer bdb.Close()
 	db := kvbadger.New(bdb, isGoodKey)
 
+	s.AddHandler("/db/", http.StripPrefix("/db", kvhttp.Handler(db)))
+
 	// Start other services.
 	topts := &trader.Options{
 		NoResume: c.noResume,
@@ -181,15 +182,23 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		}
 	}()
 
-	s.AddHandler("/db/", http.StripPrefix("/db", kvhttp.Handler(db)))
+	if err := trader.Start(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		if err := trader.Stop(context.Background()); err != nil {
+			log.Printf("could not stop all jobs (ignored): %v", err)
+		}
+	}()
 
-	slog.InfoContext(ctx, "started tradebot server", "ip", opts.ListenIP, "port", opts.ListenPort)
+	// Wait for the signals
+
+	log.Printf("started tradebot server at %v:%d", opts.ListenIP, opts.ListenPort)
 	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
 	}))
-
-	status := trader.Run(ctx)
-	slog.InfoContext(ctx, "tradebot server is shutting down", "status", status)
+	<-ctx.Done()
+	log.Printf("tradebot server is shutting down")
 	return nil
 }
 

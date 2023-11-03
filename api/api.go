@@ -3,40 +3,9 @@
 package api
 
 import (
-	"github.com/bvkgo/tradebot/limiter"
-	"github.com/bvkgo/tradebot/looper"
 	"github.com/bvkgo/tradebot/point"
-	"github.com/bvkgo/tradebot/waller"
 	"github.com/shopspring/decimal"
 )
-
-type LimitBuyRequest struct {
-	Product string
-
-	BuySize decimal.Decimal
-
-	BuyPrice decimal.Decimal
-
-	BuyCancelPrice decimal.Decimal
-}
-
-type LimitBuyResponse struct {
-	UID string
-}
-
-type LimitSellRequest struct {
-	Product string
-
-	SellSize decimal.Decimal
-
-	SellPrice decimal.Decimal
-
-	SellCancelPrice decimal.Decimal
-}
-
-type LimitSellResponse struct {
-	UID string
-}
 
 type LimitRequest struct {
 	Product string
@@ -78,8 +47,33 @@ type WallResponse struct {
 type ListRequest struct {
 }
 
+type ListResponseItem struct {
+	UID   string
+	Type  string
+	State string
+}
+
 type ListResponse struct {
-	Limiters []*limiter.Status
-	Loopers  []*looper.Status
-	Wallers  []*waller.Status
+	Jobs []*ListResponseItem
+}
+
+type PauseRequest struct {
+	UID string
+}
+type PauseResponse struct {
+	FinalState string
+}
+
+type CancelRequest struct {
+	UID string
+}
+type CancelResponse struct {
+	FinalState string
+}
+
+type ResumeRequest struct {
+	UID string
+}
+type ResumeResponse struct {
+	FinalState string
 }

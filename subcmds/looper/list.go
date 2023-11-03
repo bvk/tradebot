@@ -47,7 +47,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			}
 
 			d, _ := json.Marshal(gv)
-			fmt.Printf("%s\n", d)
+			fmt.Printf("key=%s value=%s\n", k, d)
 		}
 
 		if err := it.Err(); err != nil {

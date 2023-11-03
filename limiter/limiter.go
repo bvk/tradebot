@@ -72,7 +72,6 @@ func New(uid string, product exchange.Product, point *point.Point) (*Limiter, er
 	if err := v.check(); err != nil {
 		return nil, err
 	}
-
 	return v, nil
 }
 
@@ -156,7 +155,7 @@ func (v *Limiter) Run(ctx context.Context, db kv.Database) error {
 		select {
 		case <-ctx.Done():
 			if v.activeOrderID != "" {
-				log.Printf("canceling active limit order %v at point %v", v.activeOrderID, v.point)
+				log.Printf("canceling active limit order %v at point %v (%v)", v.activeOrderID, v.point, context.Cause(ctx))
 				if err := v.cancel(context.TODO()); err != nil {
 					return err
 				}

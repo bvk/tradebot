@@ -14,7 +14,6 @@ import (
 	"github.com/bvkgo/tradebot/cli"
 	"github.com/bvkgo/tradebot/kvutil"
 	"github.com/bvkgo/tradebot/limiter"
-	"github.com/bvkgo/tradebot/looper"
 	"github.com/bvkgo/tradebot/subcmds/db"
 )
 
@@ -48,7 +47,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			}
 
 			d, _ := json.Marshal(gv)
-			fmt.Printf("%s\n", d)
+			fmt.Printf("key=%s value=%s\n", k, d)
 		}
 
 		if err := it.Err(); err != nil {
@@ -67,7 +66,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list", flag.ContinueOnError)
 	c.Flags.SetFlags(fset)
-	fset.StringVar(&c.keyspace, "keyspace", looper.DefaultKeyspace, "keyspace prefix in the db")
+	fset.StringVar(&c.keyspace, "keyspace", limiter.DefaultKeyspace, "keyspace prefix in the db")
 	return fset, cli.CmdFunc(c.Run)
 }
 

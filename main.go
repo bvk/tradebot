@@ -12,6 +12,7 @@ import (
 	"github.com/bvkgo/tradebot/exchange"
 	"github.com/bvkgo/tradebot/subcmds"
 	"github.com/bvkgo/tradebot/subcmds/db"
+	"github.com/bvkgo/tradebot/subcmds/job"
 	"github.com/bvkgo/tradebot/subcmds/limiter"
 	"github.com/bvkgo/tradebot/subcmds/looper"
 	"github.com/bvkgo/tradebot/subcmds/waller"
@@ -25,6 +26,13 @@ func main() {
 		new(db.Set),
 		new(db.Delete),
 		new(db.List),
+	}
+
+	jobCmds := []cli.Command{
+		new(job.List),
+		new(job.Pause),
+		new(job.Resume),
+		new(job.Cancel),
 	}
 
 	limiterCmds := []cli.Command{
@@ -47,7 +55,8 @@ func main() {
 
 	cmds := []cli.Command{
 		new(subcmds.Run),
-		cli.CommandGroup("db", "Manage db content manually", dbCmds...),
+		cli.CommandGroup("job", "Control trader jobs", jobCmds...),
+		cli.CommandGroup("db", "View/update database directly", dbCmds...),
 		cli.CommandGroup("limiter", "Manage limit buys/sells", limiterCmds...),
 		cli.CommandGroup("looper", "Manage buy-sell loops", looperCmds...),
 		cli.CommandGroup("waller", "Manage trades in a price range", wallerCmds...),

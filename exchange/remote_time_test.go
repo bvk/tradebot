@@ -24,12 +24,12 @@ func TestRemoteTimeGob(t *testing.T) {
 	if err := gob.NewDecoder(&zbuf).Decode(zrecovered); err != nil {
 		t.Fatal(err)
 	}
-	if !time.Time(zrecovered.Timepoint).IsZero() {
+	if !zrecovered.Timepoint.Time.IsZero() {
 		t.Fatalf("IsZero: want true, got false")
 	}
 
 	// Check non-zero timepoint is encoded and decoded correctly.
-	v := GobType{Timepoint: RemoteTime(time.Now())}
+	v := GobType{Timepoint: RemoteTime{Time: time.Now()}}
 	var vbuf bytes.Buffer
 	if err := gob.NewEncoder(&vbuf).Encode(&v); err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestRemoteTimeGob(t *testing.T) {
 	if err := gob.NewDecoder(&vbuf).Decode(vrecovered); err != nil {
 		t.Fatal(err)
 	}
-	if !time.Time(vrecovered.Timepoint).Equal(time.Time(v.Timepoint)) {
+	if !vrecovered.Timepoint.Equal(v.Timepoint.Time) {
 		t.Fatalf("Equal: want true, got false")
 	}
 }

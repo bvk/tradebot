@@ -29,14 +29,15 @@ type HealthChecker = func(ctx context.Context, child *os.Process) (retry bool, e
 // program startup before performing any other significant logic, like opening
 // databases, starting servers, etc.
 //
-// Standard input and standard outputs in the background process are replaced
-// with /dev/null; standard library log is redirected to use the syslog
-// backend; current directory of the background process is changed to the root
-// directory.
-//
 // Users are required to pass an unique, application-specific non-empty
 // environment key name to indicate to the background process that it is a
 // child and turn itself into the background.
+//
+// Standard input and outputs of the background process are replaced with
+// `/dev/null`. Standard library's log output is redirected to use the syslog
+// backend. Current working directory of the background process is changed to
+// the root directory. Background process's environment restricted to just
+// PATH, HOME and the user supplied "envkey" variables.
 //
 // Parent process will use the check function to wait for the background
 // process to initialize successfully or die unsuccessfully. Check function is
@@ -85,7 +86,7 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 	attr := &os.ProcAttr{
 		Dir: "/",
 		Env: []string{
-			fmt.Sprintf("PATH=/usr/bin:/bin:/usr/sbin:/sbin"),
+			fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 			fmt.Sprintf("HOME=%s", os.Getenv("HOME")),
 			fmt.Sprintf("%s=%d", envkey, os.Getpid()),
 		},
@@ -106,7 +107,7 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 	if check != nil {
 		for sleep := time.Millisecond; ctx.Err() == nil; sleep = sleep << 2 {
 			if retry, err := check(ctx, proc); err != nil {
-				slog.WarnContext(ctx, "background process is not yet initialized", "error", err)
+				slog.WarnContext(ctx, "background process is not yet initialized (retrying)", "error", err)
 				if retry {
 					time.Sleep(sleep)
 					continue
