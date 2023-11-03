@@ -223,9 +223,16 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 			continue
 		}
 
-		l, err := limiter.Load(ctx, k, r, t.productMap)
+		l, err := limiter.Load(ctx, k, r)
 		if err != nil {
 			return err
+		}
+
+		pid := l.Status().ProductID
+		product, ok := t.productMap[pid]
+		if !ok {
+			log.Printf("limiter %s product %q is not enabled (ignored)", uid, pid)
+			continue
 		}
 
 		if _, loaded := t.limiterMap.LoadOrStore(uid, l); loaded {
@@ -244,7 +251,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 		}
 
 		j := job.New(job.State(state), func(ctx context.Context) error {
-			return l.Run(ctx, t.db)
+			return l.Run(ctx, product, t.db)
 		})
 		if _, loaded := t.jobMap.LoadOrStore(uid, j); loaded {
 			return fmt.Errorf("limiter job for %s already exists", uid)
@@ -273,10 +280,18 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 			continue
 		}
 
-		l, err := looper.Load(ctx, k, r, t.productMap)
+		l, err := looper.Load(ctx, k, r)
 		if err != nil {
 			return err
 		}
+
+		pid := l.Status().ProductID
+		product, ok := t.productMap[pid]
+		if !ok {
+			log.Printf("looper %s product %q is not enabled (ignored)", uid, pid)
+			continue
+		}
+
 		if _, loaded := t.looperMap.LoadOrStore(uid, l); loaded {
 			return fmt.Errorf("looper %s is already loaded", uid)
 		}
@@ -292,7 +307,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 			continue
 		}
 		j := job.New(job.State(state), func(ctx context.Context) error {
-			return l.Run(ctx, t.db)
+			return l.Run(ctx, product, t.db)
 		})
 		if _, loaded := t.jobMap.LoadOrStore(uid, j); loaded {
 			return fmt.Errorf("looper job for %s already exists", uid)
@@ -321,10 +336,18 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 			continue
 		}
 
-		w, err := waller.Load(ctx, k, r, t.productMap)
+		w, err := waller.Load(ctx, k, r)
 		if err != nil {
 			return err
 		}
+
+		pid := w.Status().ProductID
+		product, ok := t.productMap[pid]
+		if !ok {
+			log.Printf("waller %s product %q is not enabled (ignored)", uid, pid)
+			continue
+		}
+
 		if _, loaded := t.wallerMap.LoadOrStore(uid, w); loaded {
 			return fmt.Errorf("waller %s is already loaded", uid)
 		}
@@ -341,7 +364,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 		}
 
 		j := job.New(job.State(state), func(ctx context.Context) error {
-			return w.Run(ctx, t.db)
+			return w.Run(ctx, product, t.db)
 		})
 		if _, loaded := t.jobMap.LoadOrStore(uid, j); loaded {
 			return fmt.Errorf("waller job for %s already exists", uid)
@@ -527,7 +550,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 
 	uid := uuid.New().String()
 	key := path.Join(limiter.DefaultKeyspace, uid)
-	limit, err := limiter.New(key, product, point)
+	limit, err := limiter.New(key, product.ID(), point)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +561,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	t.limiterMap.Store(uid, limit)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return limit.Run(ctx, t.db)
+		return limit.Run(ctx, product, t.db)
 	})
 	t.jobMap.Store(uid, j)
 
@@ -574,7 +597,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 
 	uid := uuid.New().String()
 	key := path.Join(looper.DefaultKeyspace, uid)
-	loop, err := looper.New(key, product, &req.Buy, &req.Sell)
+	loop, err := looper.New(key, req.Product, &req.Buy, &req.Sell)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +607,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	t.looperMap.Store(uid, loop)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return loop.Run(ctx, t.db)
+		return loop.Run(ctx, product, t.db)
 	})
 	t.jobMap.Store(uid, j)
 
@@ -638,7 +661,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 
 	uid := uuid.New().String()
 	key := path.Join(waller.DefaultKeyspace, uid)
-	wall, err := waller.New(key, product, buys, sells)
+	wall, err := waller.New(key, req.Product, buys, sells)
 	if err != nil {
 		return nil, err
 	}
@@ -648,7 +671,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	t.wallerMap.Store(uid, wall)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return wall.Run(ctx, t.db)
+		return wall.Run(ctx, product, t.db)
 	})
 	t.jobMap.Store(uid, j)
 

@@ -21,11 +21,9 @@ import (
 const DefaultKeyspace = "/loopers"
 
 type Looper struct {
-	product exchange.Product
+	productID string
 
 	key string
-
-	tickerCh <-chan *exchange.Ticker
 
 	buyPoint  point.Point
 	sellPoint point.Point
@@ -53,13 +51,12 @@ type Status struct {
 	NumSells int
 }
 
-func New(uid string, product exchange.Product, buy, sell *point.Point) (*Looper, error) {
+func New(uid string, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
-		product:   product,
+		productID: productID,
 		key:       uid,
 		buyPoint:  *buy,
 		sellPoint: *sell,
-		tickerCh:  product.TickerCh(),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -93,7 +90,7 @@ func (v *Looper) String() string {
 func (v *Looper) Status() *Status {
 	return &Status{
 		UID:       v.key,
-		ProductID: v.product.ID(),
+		ProductID: v.productID,
 		BuyPoint:  v.buyPoint,
 		SellPoint: v.sellPoint,
 		NumBuys:   len(v.buys), // FIXME: Remove the incomplete ones?
@@ -101,11 +98,11 @@ func (v *Looper) Status() *Status {
 	}
 }
 
-func (v *Looper) Run(ctx context.Context, db kv.Database) error {
+func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
 	for ctx.Err() == nil {
 		nbuys := len(v.buys)
 		if nbuys == 0 {
-			if err := v.addNewBuy(ctx, db); err != nil {
+			if err := v.addNewBuy(ctx, product, db); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
@@ -115,7 +112,7 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 		}
 
 		if last := v.buys[nbuys-1]; !last.Pending().IsZero() {
-			if err := last.Run(ctx, db); err != nil {
+			if err := last.Run(ctx, product, db); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
@@ -126,7 +123,7 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 
 		nsells := len(v.sells)
 		if nsells < nbuys {
-			if err := v.addNewSell(ctx, db); err != nil {
+			if err := v.addNewSell(ctx, product, db); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
 					time.Sleep(time.Second)
@@ -136,7 +133,7 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 		}
 
 		if last := v.sells[nsells-1]; !last.Pending().IsZero() {
-			if err := last.Run(ctx, db); err != nil {
+			if err := last.Run(ctx, product, db); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
 					time.Sleep(time.Second)
@@ -145,7 +142,7 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 			continue
 		}
 
-		if err := v.addNewBuy(ctx, db); err != nil {
+		if err := v.addNewBuy(ctx, product, db); err != nil {
 			if ctx.Err() == nil {
 				log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 				time.Sleep(time.Second)
@@ -157,19 +154,20 @@ func (v *Looper) Run(ctx context.Context, db kv.Database) error {
 	return context.Cause(ctx)
 }
 
-func (v *Looper) addNewBuy(ctx context.Context, db kv.Database) error {
+func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.Database) error {
 	// Wait for the ticker to go above the buy point price.
+	tickerCh := product.TickerCh()
 	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
-		case ticker := <-v.tickerCh:
+		case ticker := <-tickerCh:
 			p = ticker.Price
 		}
 	}
 
 	uid := path.Join(v.key, fmt.Sprintf("buy-%06d", len(v.buys)))
-	b, err := limiter.New(uid, v.product, &v.buyPoint)
+	b, err := limiter.New(uid, product.ID(), &v.buyPoint)
 	if err != nil {
 		return err
 	}
@@ -181,19 +179,20 @@ func (v *Looper) addNewBuy(ctx context.Context, db kv.Database) error {
 	return nil
 }
 
-func (v *Looper) addNewSell(ctx context.Context, db kv.Database) error {
+func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv.Database) error {
 	// Wait for the ticker to go below the sell point price.
+	tickerCh := product.TickerCh()
 	for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
-		case ticker := <-v.tickerCh:
+		case ticker := <-tickerCh:
 			p = ticker.Price
 		}
 	}
 
 	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.sells)))
-	s, err := limiter.New(uid, v.product, &v.sellPoint)
+	s, err := limiter.New(uid, product.ID(), &v.sellPoint)
 	if err != nil {
 		return err
 	}
@@ -223,7 +222,7 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 		limiters = append(limiters, ss.UID)
 	}
 	gv := &State{
-		ProductID: v.product.ID(),
+		ProductID: v.productID,
 		Limiters:  limiters,
 		BuyPoint:  v.buyPoint,
 		SellPoint: v.sellPoint,
@@ -235,18 +234,14 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	return rw.Set(ctx, v.key, &buf)
 }
 
-func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Looper, error) {
+func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 	gv, err := kvutil.Get[State](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}
-	product, ok := pmap[gv.ProductID]
-	if !ok {
-		return nil, fmt.Errorf("product %q not found", gv.ProductID)
-	}
 	var buys, sells []*limiter.Limiter
 	for _, id := range gv.Limiters {
-		v, err := limiter.Load(ctx, id, r, pmap)
+		v, err := limiter.Load(ctx, id, r)
 		if err != nil {
 			return nil, err
 		}
@@ -263,7 +258,7 @@ func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange
 
 	v := &Looper{
 		key:       uid,
-		product:   product,
+		productID: gv.ProductID,
 		buys:      buys,
 		sells:     sells,
 		buyPoint:  gv.BuyPoint,

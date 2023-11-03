@@ -24,7 +24,7 @@ const DefaultKeyspace = "/wallers"
 type Waller struct {
 	key string
 
-	product exchange.Product
+	productID string
 
 	buyPoints  []*point.Point
 	sellPoints []*point.Point
@@ -50,10 +50,10 @@ type Status struct {
 	// TODO: Add more status data.
 }
 
-func New(uid string, product exchange.Product, buys, sells []*point.Point) (*Waller, error) {
+func New(uid string, productID string, buys, sells []*point.Point) (*Waller, error) {
 	w := &Waller{
 		key:        uid,
-		product:    product,
+		productID:  productID,
 		buyPoints:  buys,
 		sellPoints: sells,
 	}
@@ -63,7 +63,7 @@ func New(uid string, product exchange.Product, buys, sells []*point.Point) (*Wal
 	var loopers []*looper.Looper
 	for i := 0; i < len(buys); i++ {
 		luid := path.Join(uid, fmt.Sprintf("loop-%06d", i))
-		l, err := looper.New(luid, product, buys[i], sells[i])
+		l, err := looper.New(luid, productID, buys[i], sells[i])
 		if err != nil {
 			return nil, err
 		}
@@ -106,13 +106,13 @@ func (w *Waller) String() string {
 func (w *Waller) Status() *Status {
 	return &Status{
 		UID:        w.key,
-		ProductID:  w.product.ID(),
+		ProductID:  w.productID,
 		BuyPoints:  w.buyPoints,
 		SellPoints: w.sellPoints,
 	}
 }
 
-func (w *Waller) Run(ctx context.Context, db kv.Database) error {
+func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -124,7 +124,7 @@ func (w *Waller) Run(ctx context.Context, db kv.Database) error {
 			defer wg.Done()
 
 			for ctx.Err() == nil {
-				if err := loop.Run(ctx, db); err != nil {
+				if err := loop.Run(ctx, product, db); err != nil {
 					if ctx.Err() == nil {
 						log.Printf("wall-looper %v has failed (retry): %v", loop, err)
 						time.Sleep(time.Second)
@@ -146,7 +146,7 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 		loopers = append(loopers, s.UID)
 	}
 	gv := &State{
-		ProductID:  w.product.ID(),
+		ProductID:  w.productID,
 		BuyPoints:  w.buyPoints,
 		SellPoints: w.sellPoints,
 		Loopers:    loopers,
@@ -158,18 +158,14 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	return rw.Set(ctx, w.key, &buf)
 }
 
-func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange.Product) (*Waller, error) {
+func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 	gv, err := kvutil.Get[State](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}
-	product, ok := pmap[gv.ProductID]
-	if !ok {
-		return nil, fmt.Errorf("product %q not found", gv.ProductID)
-	}
 	var loopers []*looper.Looper
 	for _, id := range gv.Loopers {
-		v, err := looper.Load(ctx, id, r, pmap)
+		v, err := looper.Load(ctx, id, r)
 		if err != nil {
 			return nil, err
 		}
@@ -177,7 +173,7 @@ func Load(ctx context.Context, uid string, r kv.Reader, pmap map[string]exchange
 	}
 	w := &Waller{
 		key:        uid,
-		product:    product,
+		productID:  gv.ProductID,
 		loopers:    loopers,
 		buyPoints:  gv.BuyPoints,
 		sellPoints: gv.SellPoints,
