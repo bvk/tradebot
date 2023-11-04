@@ -3,6 +3,7 @@
 package kvutil
 
 import (
+	"bytes"
 	"context"
 	"encoding/gob"
 	"io"
@@ -21,6 +22,14 @@ func Get[T any](ctx context.Context, g kv.Getter, key string) (*T, error) {
 		return nil, err
 	}
 	return gv, nil
+}
+
+func Set[T any](ctx context.Context, s kv.Setter, key string, value *T) error {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(value); err != nil {
+		return err
+	}
+	return s.Set(ctx, key, &buf)
 }
 
 func GetString[T ~string](ctx context.Context, g kv.Getter, key string) (T, error) {

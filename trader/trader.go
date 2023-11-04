@@ -22,7 +22,6 @@ import (
 	"github.com/bvkgo/tradebot/dbutil"
 	"github.com/bvkgo/tradebot/exchange"
 	"github.com/bvkgo/tradebot/job"
-	"github.com/bvkgo/tradebot/kvutil"
 	"github.com/bvkgo/tradebot/limiter"
 	"github.com/bvkgo/tradebot/looper"
 	"github.com/bvkgo/tradebot/point"
@@ -39,6 +38,12 @@ const (
 	JobsKeyspace = "/jobs"
 )
 
+type gobJobState struct {
+	State job.State
+
+	NeedsManualResume bool
+}
+
 type Trader struct {
 	closeCtx   context.Context
 	closeCause context.CancelCauseFunc
@@ -53,7 +58,12 @@ type Trader struct {
 
 	handlerMap map[string]http.Handler
 
-	jobMap     syncmap.Map[string, *job.Job]
+	// jobMap holds all running (or completed) jobs that are *not* manually
+	// paused or canceled. If a job is manually paused or canceled, it is be
+	// removed from this map. TODO: We could periodically scan-and-remove
+	// completed jobs.
+	jobMap syncmap.Map[string, *job.Job]
+
 	limiterMap syncmap.Map[string, *limiter.Limiter]
 	looperMap  syncmap.Map[string, *looper.Looper]
 	wallerMap  syncmap.Map[string, *waller.Waller]
@@ -132,11 +142,11 @@ func (t *Trader) Stop(ctx context.Context) error {
 			}
 		}
 		key := path.Join(JobsKeyspace, id)
-		state := j.State()
-		if err := dbutil.SetString(ctx, t.db, key, state); err != nil {
+		gstate := &gobJobState{State: j.State(), NeedsManualResume: false}
+		if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
-		if job.IsFinal(state) {
+		if job.IsFinal(gstate.State) {
 			t.jobMap.Delete(id)
 		}
 		return true
@@ -164,17 +174,44 @@ func (t *Trader) Start(ctx context.Context) error {
 		return nil
 	}
 
-	count := 0
-	t.jobMap.Range(func(id string, job *job.Job) bool {
-		count++
-		if err := job.Resume(t.closeCtx); err != nil {
-			log.Printf("warning: job %s could not be resumed (ignored)", id)
-			return false
-		}
+	var ids []string
+	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
+		ids = append(ids, id)
 		return true
 	})
-	log.Printf("%d jobs are resumed", count)
+	t.looperMap.Range(func(id string, l *looper.Looper) bool {
+		ids = append(ids, id)
+		return true
+	})
+	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
+		ids = append(ids, id)
+		return true
+	})
 
+	nresumed := 0
+	for _, id := range ids {
+		j, ok := t.jobMap.Load(id)
+		if !ok {
+			v, manual, err := t.createJob(ctx, id)
+			if err != nil {
+				return fmt.Errorf("could not load job %s: %w", id, err)
+			}
+			if manual || job.IsFinal(v.State()) {
+				continue
+			}
+			j = v
+		}
+
+		if err := j.Resume(t.closeCtx); err != nil {
+			log.Printf("warning: job %s could not be resumed (ignored)", id)
+			continue
+		}
+
+		t.jobMap.Store(id, j)
+		nresumed++
+	}
+
+	log.Printf("%d jobs are resumed", nresumed)
 	return nil
 }
 
@@ -222,39 +259,16 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
+		if _, ok := t.limiterMap.Load(uid); ok {
+			continue
+		}
 
 		l, err := limiter.Load(ctx, k, r)
 		if err != nil {
 			return err
 		}
-
-		pid := l.Status().ProductID
-		product, ok := t.productMap[pid]
-		if !ok {
-			log.Printf("limiter %s product %q is not enabled (ignored)", uid, pid)
-			continue
-		}
-
 		if _, loaded := t.limiterMap.LoadOrStore(uid, l); loaded {
 			return fmt.Errorf("limiter %s is already loaded", uid)
-		}
-
-		// Create a job for the limiter.
-		state, err := kvutil.GetString[job.State](ctx, r, path.Join(JobsKeyspace, uid))
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-		if job.IsFinal(state) {
-			continue
-		}
-
-		j := job.New(job.State(state), func(ctx context.Context) error {
-			return l.Run(ctx, product, t.db)
-		})
-		if _, loaded := t.jobMap.LoadOrStore(uid, j); loaded {
-			return fmt.Errorf("limiter job for %s already exists", uid)
 		}
 	}
 
@@ -279,38 +293,16 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
+		if _, ok := t.looperMap.Load(uid); ok {
+			continue
+		}
 
 		l, err := looper.Load(ctx, k, r)
 		if err != nil {
 			return err
 		}
-
-		pid := l.Status().ProductID
-		product, ok := t.productMap[pid]
-		if !ok {
-			log.Printf("looper %s product %q is not enabled (ignored)", uid, pid)
-			continue
-		}
-
 		if _, loaded := t.looperMap.LoadOrStore(uid, l); loaded {
 			return fmt.Errorf("looper %s is already loaded", uid)
-		}
-
-		// Create a job for the looper.
-		state, err := kvutil.GetString[job.State](ctx, r, path.Join(JobsKeyspace, uid))
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-		if job.IsFinal(state) {
-			continue
-		}
-		j := job.New(job.State(state), func(ctx context.Context) error {
-			return l.Run(ctx, product, t.db)
-		})
-		if _, loaded := t.jobMap.LoadOrStore(uid, j); loaded {
-			return fmt.Errorf("looper job for %s already exists", uid)
 		}
 	}
 
@@ -335,39 +327,16 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
+		if _, ok := t.wallerMap.Load(uid); ok {
+			continue
+		}
 
 		w, err := waller.Load(ctx, k, r)
 		if err != nil {
 			return err
 		}
-
-		pid := w.Status().ProductID
-		product, ok := t.productMap[pid]
-		if !ok {
-			log.Printf("waller %s product %q is not enabled (ignored)", uid, pid)
-			continue
-		}
-
 		if _, loaded := t.wallerMap.LoadOrStore(uid, w); loaded {
 			return fmt.Errorf("waller %s is already loaded", uid)
-		}
-
-		// Create a job for the waller.
-		state, err := kvutil.GetString[job.State](ctx, r, path.Join(JobsKeyspace, uid))
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-		if job.IsFinal(state) {
-			continue
-		}
-
-		j := job.New(job.State(state), func(ctx context.Context) error {
-			return w.Run(ctx, product, t.db)
-		})
-		if _, loaded := t.jobMap.LoadOrStore(uid, j); loaded {
-			return fmt.Errorf("waller job for %s already exists", uid)
 		}
 	}
 
@@ -408,123 +377,6 @@ func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, er
 		}
 		w.Write(jsbytes)
 	})
-}
-
-func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.PauseResponse, error) {
-	key := path.Join(JobsKeyspace, req.UID)
-	state, err := dbutil.GetString[job.State](ctx, t.db, key)
-	if err != nil {
-		return nil, err
-	}
-	if !job.IsFinal(state) {
-		j, ok := t.jobMap.Load(req.UID)
-		if !ok {
-			return nil, fmt.Errorf("job map has no job %s", req.UID)
-		}
-		if err := j.Pause(); err != nil {
-			return nil, err
-		}
-		state = j.State()
-		if err := dbutil.SetString(ctx, t.db, key, state); err != nil {
-			return nil, err
-		}
-	}
-	resp := &api.PauseResponse{
-		FinalState: string(state),
-	}
-	return resp, nil
-}
-
-func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.ResumeResponse, error) {
-	key := path.Join(JobsKeyspace, req.UID)
-	state, err := dbutil.GetString[job.State](ctx, t.db, key)
-	if err != nil {
-		return nil, err
-	}
-	if !job.IsFinal(state) {
-		j, ok := t.jobMap.Load(req.UID)
-		if !ok {
-			return nil, fmt.Errorf("job map has no job %s", req.UID)
-		}
-		if err := j.Resume(t.closeCtx); err != nil {
-			return nil, err
-		}
-		state = j.State()
-		if err := dbutil.SetString(ctx, t.db, key, state); err != nil {
-			return nil, err
-		}
-	}
-	resp := &api.ResumeResponse{
-		FinalState: string(state),
-	}
-	return resp, nil
-}
-
-func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.CancelResponse, error) {
-	key := path.Join(JobsKeyspace, req.UID)
-	state, err := dbutil.GetString[job.State](ctx, t.db, key)
-	if err != nil {
-		return nil, err
-	}
-	if !job.IsFinal(state) {
-		j, ok := t.jobMap.Load(req.UID)
-		if !ok {
-			return nil, fmt.Errorf("job map has no job %s", req.UID)
-		}
-		if err := j.Cancel(); err != nil {
-			return nil, err
-		}
-		state = j.State()
-		if err := dbutil.SetString(ctx, t.db, key, state); err != nil {
-			return nil, err
-		}
-	}
-	resp := &api.CancelResponse{
-		FinalState: string(state),
-	}
-	return resp, nil
-}
-
-func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListResponse, error) {
-	getState := func(id string) job.State {
-		if j, ok := t.jobMap.Load(id); ok {
-			return j.State()
-		}
-		key := path.Join(JobsKeyspace, id)
-		v, err := dbutil.GetString[job.State](ctx, t.db, key)
-		if err != nil {
-			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
-			return ""
-		}
-		return v
-	}
-
-	resp := new(api.ListResponse)
-	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
-		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
-			UID:   id,
-			Type:  "Limiter",
-			State: string(getState(id)),
-		})
-		return true
-	})
-	t.looperMap.Range(func(id string, l *looper.Looper) bool {
-		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
-			UID:   id,
-			Type:  "Looper",
-			State: string(getState(id)),
-		})
-		return true
-	})
-	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
-		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
-			UID:   id,
-			Type:  "Waller",
-			State: string(getState(id)),
-		})
-		return true
-	})
-	return resp, nil
 }
 
 func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.LimitResponse, status error) {
@@ -568,7 +420,8 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	if err := dbutil.SetString(ctx, t.db, path.Join(JobsKeyspace, uid), j.State()); err != nil {
+	gstate := &gobJobState{State: j.State()}
+	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
@@ -614,7 +467,8 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	if err := dbutil.SetString(ctx, t.db, path.Join(JobsKeyspace, uid), j.State()); err != nil {
+	gstate := &gobJobState{State: j.State()}
+	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
@@ -678,7 +532,8 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	if err := dbutil.SetString(ctx, t.db, path.Join(JobsKeyspace, uid), j.State()); err != nil {
+	gstate := &gobJobState{State: j.State()}
+	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
