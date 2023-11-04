@@ -19,7 +19,10 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	db := c.Flags.Client()
+	db, err := c.Flags.GetDatabase()
+	if err != nil {
+		return err
+	}
 	tx, err := db.NewTransaction(ctx)
 	if err != nil {
 		return err

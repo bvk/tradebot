@@ -56,7 +56,10 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db := c.Flags.Client()
+	db, err := c.Flags.GetDatabase()
+	if err != nil {
+		return err
+	}
 	if err := kv.WithReader(ctx, db, lister); err != nil {
 		return err
 	}

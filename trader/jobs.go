@@ -42,7 +42,7 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 	} else if wall, ok := t.wallerMap.Load(id); ok {
 		pid, run = wall.Status().ProductID, wall.Run
 	} else {
-		return nil, false, fmt.Errorf("job %s not found: %w", os.ErrNotExist)
+		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
 	}
 
 	product, ok := t.productMap[pid]

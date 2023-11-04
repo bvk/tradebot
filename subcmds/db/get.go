@@ -20,7 +20,10 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	db := c.Flags.Client()
+	db, err := c.Flags.GetDatabase()
+	if err != nil {
+		return err
+	}
 	snap, err := db.NewSnapshot(ctx)
 	if err != nil {
 		return err

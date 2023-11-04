@@ -20,7 +20,10 @@ func (c *Set) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs two (key, value) arguments")
 	}
 
-	db := c.Flags.Client()
+	db, err := c.Flags.GetDatabase()
+	if err != nil {
+		return err
+	}
 	tx, err := db.NewTransaction(ctx)
 	if err != nil {
 		return err
