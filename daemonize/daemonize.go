@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"log/slog"
 	"log/syslog"
 	"os"
 	"os/exec"
@@ -99,7 +98,7 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 	defer func() {
 		if status != nil {
 			if _, err := proc.Wait(); err != nil {
-				slog.ErrorContext(ctx, "could not wait for child process cleanup (ignored)", "error", err)
+				log.Printf("could not wait for child process cleanup (ignored): %v", err)
 			}
 		}
 	}()
@@ -107,7 +106,7 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 	if check != nil {
 		for sleep := time.Millisecond; ctx.Err() == nil; sleep = sleep << 2 {
 			if retry, err := check(ctx, proc); err != nil {
-				slog.WarnContext(ctx, "background process is not yet initialized (retrying)", "error", err)
+				log.Printf("warning: background process is not yet initialized (retrying): %v", err)
 				if retry {
 					time.Sleep(sleep)
 					continue
@@ -136,6 +135,7 @@ func daemonizeChild(envkey string) error {
 	if err != nil {
 		return fmt.Errorf("could not create syslog: %w", err)
 	}
+	log.SetFlags(0)
 	log.SetOutput(syslogger)
 	return nil
 }
