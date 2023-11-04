@@ -23,6 +23,8 @@ type Add struct {
 
 	product string
 
+	feePercentage float64
+
 	beginPriceRange float64
 	endPriceRange   float64
 
@@ -63,6 +65,9 @@ func (c *Add) check() error {
 	if c.buySize < c.sellSize {
 		return fmt.Errorf("buy size cannot be lesser than sell size")
 	}
+	if c.feePercentage < 0 || c.feePercentage >= 100 {
+		return fmt.Errorf("fee percentage should be in between 0-100")
+	}
 	return nil
 }
 
@@ -77,11 +82,14 @@ func (c *Add) buySellPoints() [][2]*point.Point {
 		if err := buy.Check(); err != nil || buy.Side() != "BUY" {
 			log.Fatal(err)
 		}
+		buyFee := buy.Price.Mul(buy.Size).Mul(decimal.NewFromFloat(c.feePercentage / 100))
 		sell := &point.Point{
 			Price:  decimal.NewFromFloat(price + c.sellMargin),
 			Size:   decimal.NewFromFloat(c.sellSize),
 			Cancel: decimal.NewFromFloat(price + c.sellMargin - c.sellCancelOffset),
 		}
+		sellFee := sell.Price.Mul(sell.Size).Mul(decimal.NewFromFloat(c.feePercentage / 100))
+		sell.Price = sell.Price.Add(buyFee).Add(sellFee).Truncate(2) // FIXME: Price changed
 		if err := sell.Check(); err != nil || sell.Side() != "SELL" {
 			log.Fatal(err)
 		}
@@ -139,6 +147,7 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
 	fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
 	fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
+	fset.Float64Var(&c.feePercentage, "fee-pct", 0.15, "exchange fee percentage to adjust sell margin")
 	return fset, cli.CmdFunc(c.Run)
 }
 
