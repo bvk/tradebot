@@ -139,8 +139,8 @@ func (cg *cmdGroup) resolve(ctx context.Context, args []string) ([]*cmdData, []s
 		hasValue := strings.Contains(name, "=")
 		if hasValue {
 			pos := strings.Index(name, "=")
-			name = name[:pos]
 			value = name[pos+1:]
+			name = name[:pos]
 		}
 
 		// check for the flag in all the parent FlagSets
