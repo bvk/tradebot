@@ -10,11 +10,11 @@ import (
 	"path"
 	"strings"
 
+	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/cli"
-	"github.com/bvkgo/tradebot/kvutil"
-	"github.com/bvkgo/tradebot/subcmds/db"
-	"github.com/bvkgo/tradebot/waller"
 )
 
 type List struct {

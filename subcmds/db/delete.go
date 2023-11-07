@@ -7,7 +7,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/bvkgo/tradebot/cli"
+	"github.com/bvk/tradebot/cli"
 )
 
 type Delete struct {

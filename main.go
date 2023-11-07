@@ -7,15 +7,15 @@ import (
 	"log"
 	"os"
 
-	"github.com/bvkgo/tradebot/cli"
-	"github.com/bvkgo/tradebot/coinbase"
-	"github.com/bvkgo/tradebot/exchange"
-	"github.com/bvkgo/tradebot/subcmds"
-	"github.com/bvkgo/tradebot/subcmds/db"
-	"github.com/bvkgo/tradebot/subcmds/job"
-	"github.com/bvkgo/tradebot/subcmds/limiter"
-	"github.com/bvkgo/tradebot/subcmds/looper"
-	"github.com/bvkgo/tradebot/subcmds/waller"
+	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/job"
+	"github.com/bvk/tradebot/subcmds/limiter"
+	"github.com/bvk/tradebot/subcmds/looper"
+	"github.com/bvk/tradebot/subcmds/waller"
 )
 
 var _ exchange.Product = &coinbase.Product{}

@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/looper"
+	"github.com/bvk/tradebot/point"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/exchange"
-	"github.com/bvkgo/tradebot/kvutil"
-	"github.com/bvkgo/tradebot/looper"
-	"github.com/bvkgo/tradebot/point"
 )
 
 const DefaultKeyspace = "/wallers"

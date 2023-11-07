@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/bvkgo/tradebot/api"
-	"github.com/bvkgo/tradebot/cli"
-	"github.com/bvkgo/tradebot/point"
-	"github.com/bvkgo/tradebot/subcmds"
+	"github.com/bvk/tradebot/api"
+	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/subcmds"
 	"github.com/shopspring/decimal"
 )
 

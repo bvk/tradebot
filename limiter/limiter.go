@@ -11,10 +11,10 @@ import (
 	"os"
 	"path"
 
+	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/point"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/exchange"
-	"github.com/bvkgo/tradebot/kvutil"
-	"github.com/bvkgo/tradebot/point"
 	"github.com/shopspring/decimal"
 )
 

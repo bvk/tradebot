@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bvkgo/tradebot/cli"
+	"github.com/bvk/tradebot/cli"
 )
 
 type Set struct {

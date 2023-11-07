@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvkgo/topic/v2"
-	"github.com/bvkgo/tradebot/exchange"
 	"github.com/shopspring/decimal"
 )
 

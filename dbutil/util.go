@@ -5,8 +5,8 @@ package dbutil
 import (
 	"context"
 
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/kvutil"
 )
 
 func Get[T any](ctx context.Context, db kv.Database, key string) (value *T, err error) {

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/bvkgo/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinbase"
 )
 
 type Secrets struct {

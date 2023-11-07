@@ -8,11 +8,11 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/limiter"
+	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/cli"
-	"github.com/bvkgo/tradebot/kvutil"
-	"github.com/bvkgo/tradebot/limiter"
-	"github.com/bvkgo/tradebot/subcmds/db"
 )
 
 type Get struct {

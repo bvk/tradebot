@@ -1,4 +1,4 @@
-module github.com/bvkgo/tradebot
+module github.com/bvk/tradebot
 
 go 1.21.0
 

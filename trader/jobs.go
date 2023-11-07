@@ -10,14 +10,14 @@ import (
 	"os"
 	"path"
 
+	"github.com/bvk/tradebot/api"
+	"github.com/bvk/tradebot/dbutil"
+	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/job"
+	"github.com/bvk/tradebot/limiter"
+	"github.com/bvk/tradebot/looper"
+	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/api"
-	"github.com/bvkgo/tradebot/dbutil"
-	"github.com/bvkgo/tradebot/exchange"
-	"github.com/bvkgo/tradebot/job"
-	"github.com/bvkgo/tradebot/limiter"
-	"github.com/bvkgo/tradebot/looper"
-	"github.com/bvkgo/tradebot/waller"
 )
 
 // createJob creates a job instance for the given trader id. Current state of

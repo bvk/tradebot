@@ -16,12 +16,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/daemonize"
+	"github.com/bvk/tradebot/server"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
-	"github.com/bvkgo/tradebot/cli"
-	"github.com/bvkgo/tradebot/daemonize"
-	"github.com/bvkgo/tradebot/server"
-	"github.com/bvkgo/tradebot/trader"
 	"github.com/dgraph-io/badger/v4"
 )
 

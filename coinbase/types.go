@@ -3,7 +3,7 @@ package coinbase
 import (
 	"slices"
 
-	"github.com/bvkgo/tradebot/exchange"
+	"github.com/bvk/tradebot/exchange"
 )
 
 type ProductType struct {

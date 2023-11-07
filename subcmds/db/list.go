@@ -7,8 +7,8 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/bvk/tradebot/cli"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/tradebot/cli"
 )
 
 type List struct {

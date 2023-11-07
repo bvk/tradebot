@@ -9,8 +9,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvkgo/topic/v2"
-	"github.com/bvkgo/tradebot/exchange"
 )
 
 var doneStatuses []string = []string{

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bvkgo/tradebot/cli"
+	"github.com/bvk/tradebot/cli"
 )
 
 type Get struct {

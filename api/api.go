@@ -3,7 +3,7 @@
 package api
 
 import (
-	"github.com/bvkgo/tradebot/point"
+	"github.com/bvk/tradebot/point"
 	"github.com/shopspring/decimal"
 )
 
