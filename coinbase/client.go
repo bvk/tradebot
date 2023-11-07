@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type Client struct {
@@ -32,6 +34,8 @@ type Client struct {
 
 	client     *http.Client
 	websockets []*Websocket
+
+	limiter *rate.Limiter
 
 	// TODO: Save full *ProductType objects.
 	spotProducts []string
@@ -60,6 +64,7 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		client: &http.Client{
 			Timeout: opts.HttpClientTimeout,
 		},
+		limiter: rate.NewLimiter(30 /* 30 requests per second */, 10),
 	}
 
 	// fetch product list.
@@ -117,6 +122,9 @@ func (c *Client) listProducts(ctx context.Context) ([]string, error) {
 }
 
 func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return err
+	}
 	at := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
@@ -388,11 +396,14 @@ func (c *Client) cancelOrder(ctx context.Context, request *CancelOrderRequest) (
 }
 
 func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, resultPtr interface{}) error {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return err
+	}
+
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return err
 	}
-
 	at := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(payload))
 	if err != nil {
@@ -430,6 +441,9 @@ func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, result
 }
 
 func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload interface{}) (*http.Response, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
