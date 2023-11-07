@@ -40,6 +40,9 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			if !strings.HasPrefix(k, keyspace) {
 				break
 			}
+			if strings.Contains(k, "/loop-") {
+				continue
+			}
 
 			gv, err := kvutil.Get[waller.State](ctx, r, k)
 			if err != nil {

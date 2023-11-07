@@ -40,6 +40,9 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			if !strings.HasPrefix(k, keyspace) {
 				break
 			}
+			if strings.Contains(k, "/buy-") || strings.Contains(k, "/sell-") {
+				continue
+			}
 
 			gv, err := kvutil.Get[looper.State](ctx, r, k)
 			if err != nil {
