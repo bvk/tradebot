@@ -30,7 +30,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 			return err
 		}
 
-		d, _ := json.Marshal(gv)
+		d, _ := json.MarshalIndent(gv, "", "  ")
 		fmt.Printf("%s\n", d)
 		return nil
 	}
