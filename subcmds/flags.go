@@ -35,7 +35,7 @@ type ClientFlags struct {
 func (cf *ClientFlags) SetFlags(fset *flag.FlagSet) {
 	cf.ServerFlags.SetFlags(fset)
 	fset.StringVar(&cf.apiPath, "api-path", "/", "base path to the api handler")
-	fset.DurationVar(&cf.httpTimeout, "client-timeout", 1*time.Second, "http client timeout")
+	fset.DurationVar(&cf.httpTimeout, "client-timeout", 5*time.Second, "http client timeout")
 }
 
 func Post[RESP, REQ any](ctx context.Context, cf *ClientFlags, subpath string, req *REQ) (*RESP, error) {
