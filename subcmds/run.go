@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/bvk/tradebot/cli"
@@ -75,7 +76,7 @@ func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *Run) run(ctx context.Context, args []string) error {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if len(c.dataDir) == 0 {
