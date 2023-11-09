@@ -9,9 +9,9 @@ import (
 	"fmt"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/subcmds/db"
-	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 )
 
@@ -25,7 +25,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	}
 
 	getter := func(ctx context.Context, r kv.Reader) error {
-		gv, err := kvutil.Get[waller.State](ctx, r, args[0])
+		gv, err := kvutil.Get[gobs.WallerState](ctx, r, args[0])
 		if err != nil {
 			return err
 		}

@@ -35,8 +35,6 @@ type Limiter struct {
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
-type State = gobs.LimiterState
-
 type Status struct {
 	UID string
 
@@ -316,7 +314,7 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n
 
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	v.compactOrderMap()
-	gv := &State{
+	gv := &gobs.LimiterState{
 		ProductID: v.productID,
 		Offset:    v.idgen.Offset(),
 		Point:     v.point,
@@ -330,7 +328,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
-	gv, err := kvutil.Get[State](ctx, r, uid)
+	gv, err := kvutil.Get[gobs.LimiterState](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}

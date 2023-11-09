@@ -13,6 +13,7 @@ import (
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
@@ -25,7 +26,7 @@ import (
 // manual resume request from the user.
 func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, error) {
 	key := path.Join(JobsKeyspace, id)
-	gstate, err := dbutil.Get[gobJobState](ctx, t.db, key)
+	gstate, err := dbutil.Get[gobs.TraderJobState](ctx, t.db, key)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, false, err
@@ -79,7 +80,7 @@ func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.Pause
 		return nil, fmt.Errorf("could not pause job %s: %w", req.UID, err)
 	}
 
-	gstate := &gobJobState{
+	gstate := &gobs.TraderJobState{
 		State:             j.State(),
 		NeedsManualResume: true,
 	}
@@ -117,7 +118,7 @@ func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.Res
 		return nil, err
 	}
 
-	gstate := &gobJobState{
+	gstate := &gobs.TraderJobState{
 		State:             j.State(),
 		NeedsManualResume: false,
 	}
@@ -155,7 +156,7 @@ func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.Can
 		return nil, err
 	}
 
-	gstate := &gobJobState{
+	gstate := &gobs.TraderJobState{
 		State: j.State(),
 	}
 	key := path.Join(JobsKeyspace, req.UID)
@@ -176,7 +177,7 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 			return j.State()
 		}
 		key := path.Join(JobsKeyspace, id)
-		v, err := dbutil.Get[gobJobState](ctx, t.db, key)
+		v, err := dbutil.Get[gobs.TraderJobState](ctx, t.db, key)
 		if err != nil {
 			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
 			return ""

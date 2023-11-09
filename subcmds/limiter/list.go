@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/subcmds/db"
@@ -43,7 +44,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 				break
 			}
 
-			gv, err := kvutil.Get[limiter.State](ctx, r, k)
+			gv, err := kvutil.Get[gobs.LimiterState](ctx, r, k)
 			if err != nil {
 				return err
 			}

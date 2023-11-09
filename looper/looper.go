@@ -33,8 +33,6 @@ type Looper struct {
 	sells []*limiter.Limiter
 }
 
-type State = gobs.LooperState
-
 type Status struct {
 	UID string
 
@@ -218,7 +216,7 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 		ss := s.Status()
 		limiters = append(limiters, ss.UID)
 	}
-	gv := &State{
+	gv := &gobs.LooperState{
 		ProductID: v.productID,
 		Limiters:  limiters,
 		BuyPoint:  v.buyPoint,
@@ -232,7 +230,7 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
-	gv, err := kvutil.Get[State](ctx, r, uid)
+	gv, err := kvutil.Get[gobs.LooperState](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}

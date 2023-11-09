@@ -40,8 +40,6 @@ const (
 	JobsKeyspace = "/jobs"
 )
 
-type gobJobState = gobs.TraderJobState
-
 type Trader struct {
 	closeCtx   context.Context
 	closeCause context.CancelCauseFunc
@@ -140,7 +138,7 @@ func (t *Trader) Stop(ctx context.Context) error {
 			}
 		}
 		key := path.Join(JobsKeyspace, id)
-		gstate := &gobJobState{State: j.State(), NeedsManualResume: false}
+		gstate := &gobs.TraderJobState{State: j.State(), NeedsManualResume: false}
 		log.Printf("job %v state is changed to %s", id, gstate.State)
 		if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
@@ -419,7 +417,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobJobState{State: j.State()}
+	gstate := &gobs.TraderJobState{State: j.State()}
 	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
@@ -466,7 +464,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobJobState{State: j.State()}
+	gstate := &gobs.TraderJobState{State: j.State()}
 	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
@@ -531,7 +529,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobJobState{State: j.State()}
+	gstate := &gobs.TraderJobState{State: j.State()}
 	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}

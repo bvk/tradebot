@@ -33,8 +33,6 @@ type Waller struct {
 	loopers []*looper.Looper
 }
 
-type State = gobs.WallerState
-
 type Status struct {
 	UID string
 
@@ -142,7 +140,7 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 		s := l.Status()
 		loopers = append(loopers, s.UID)
 	}
-	gv := &State{
+	gv := &gobs.WallerState{
 		ProductID:  w.productID,
 		BuyPoints:  w.buyPoints,
 		SellPoints: w.sellPoints,
@@ -156,7 +154,7 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
-	gv, err := kvutil.Get[State](ctx, r, uid)
+	gv, err := kvutil.Get[gobs.WallerState](ctx, r, uid)
 	if err != nil {
 		return nil, err
 	}

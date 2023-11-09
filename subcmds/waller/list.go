@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvk/tradebot/waller"
@@ -46,7 +47,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 				continue
 			}
 
-			gv, err := kvutil.Get[waller.State](ctx, r, k)
+			gv, err := kvutil.Get[gobs.WallerState](ctx, r, k)
 			if err != nil {
 				return err
 			}
