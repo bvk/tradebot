@@ -9,10 +9,12 @@ import (
 )
 
 type LimiterState struct {
-	ProductID string
-	Offset    uint64
-	Point     point.Point
-	OrderMap  map[exchange.OrderID]*exchange.Order
+	UID               string
+	ProductID         string
+	Offset            uint64
+	Point             point.Point
+	OrderMap          map[exchange.OrderID]*exchange.Order
+	ClientServerIDMap map[string]string
 }
 
 type LooperState struct {

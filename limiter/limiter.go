@@ -32,6 +32,11 @@ type Limiter struct {
 
 	idgen *idGenerator
 
+	// clientServerMap holds a mapping from client-order-id to
+	// exchange-order-id. We keep this metadata to verify the correctness if
+	// required.
+	clientServerMap map[string]exchange.OrderID
+
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
@@ -53,11 +58,12 @@ type Status struct {
 // limit-price.
 func New(uid string, productID string, point *point.Point) (*Limiter, error) {
 	v := &Limiter{
-		productID: productID,
-		key:       uid,
-		point:     *point,
-		idgen:     newIDGenerator(uid, 0),
-		orderMap:  make(map[exchange.OrderID]*exchange.Order),
+		productID:       productID,
+		key:             uid,
+		point:           *point,
+		idgen:           newIDGenerator(uid, 0),
+		orderMap:        make(map[exchange.OrderID]*exchange.Order),
+		clientServerMap: make(map[string]exchange.OrderID),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -266,6 +272,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		ClientOrderID: clientOrderID.String(),
 		Side:          v.Side(),
 	}
+	v.clientServerMap[clientOrderID.String()] = orderID
 	return orderID, product.OrderUpdatesCh(orderID), nil
 }
 
@@ -315,10 +322,15 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	v.compactOrderMap()
 	gv := &gobs.LimiterState{
-		ProductID: v.productID,
-		Offset:    v.idgen.Offset(),
-		Point:     v.point,
-		OrderMap:  v.orderMap,
+		UID:               v.key,
+		ProductID:         v.productID,
+		Offset:            v.idgen.Offset(),
+		Point:             v.point,
+		OrderMap:          v.orderMap,
+		ClientServerIDMap: make(map[string]string),
+	}
+	for k, v := range v.clientServerMap {
+		gv.ClientServerIDMap[k] = string(v)
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
@@ -332,15 +344,22 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(gv.UID) > 0 && gv.UID != uid {
+		return nil, fmt.Errorf("limiter uid mismatch")
+	}
 	v := &Limiter{
-		productID: gv.ProductID,
-		key:       uid,
-		point:     gv.Point,
-		idgen:     newIDGenerator(uid, gv.Offset),
-		orderMap:  gv.OrderMap,
+		productID:       gv.ProductID,
+		key:             uid,
+		point:           gv.Point,
+		idgen:           newIDGenerator(uid, gv.Offset),
+		orderMap:        gv.OrderMap,
+		clientServerMap: make(map[string]exchange.OrderID),
 	}
 	if v.orderMap == nil {
 		v.orderMap = make(map[exchange.OrderID]*exchange.Order)
+	}
+	for kk, vv := range gv.ClientServerIDMap {
+		v.clientServerMap[kk] = exchange.OrderID(vv)
 	}
 	return v, nil
 }
