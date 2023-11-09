@@ -114,7 +114,6 @@ func (w *Waller) Status() *Status {
 
 func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
 	var wg sync.WaitGroup
-	defer wg.Wait()
 
 	for _, loop := range w.loopers {
 		loop := loop
@@ -133,7 +132,9 @@ func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Databa
 			}
 		}()
 	}
-	return nil
+
+	wg.Wait()
+	return context.Cause(ctx)
 }
 
 func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
