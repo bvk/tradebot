@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
-	"github.com/bvkgo/topic/v2"
+	"github.com/bvkgo/topic"
 )
 
 var doneStatuses []string = []string{
@@ -20,16 +20,22 @@ var doneStatuses []string = []string{
 type orderData struct {
 	serverTime time.Time
 
+	orderID string
+
+	client *Client
+
 	topic *topic.Topic[*exchange.Order]
 
 	ch <-chan *exchange.Order
 }
 
-func newOrderData() *orderData {
+func (c *Client) newOrderData(id string) *orderData {
 	d := &orderData{
-		topic: topic.New[*exchange.Order](),
+		client:  c,
+		orderID: id,
+		topic:   topic.New[*exchange.Order](),
 	}
-	_, d.ch, _ = d.topic.Subscribe(0)
+	_, d.ch, _ = d.topic.Subscribe(0, false /* includeRecent */)
 	return d
 }
 
@@ -45,14 +51,22 @@ func (d *orderData) status() string {
 func (d *orderData) waitForOpen(ctx context.Context) (string, error) {
 	wanted := append(doneStatuses, "OPEN")
 
-	r, ch, _ := d.topic.Subscribe(1)
+	r, ch, _ := d.topic.Subscribe(1, true /* includeRecent */)
 	defer r.Unsubscribe()
 
-	v, _ := topic.Recent(d.topic)
+	timeoutCh := time.After(50 * time.Millisecond)
+
+	var v *exchange.Order
 	for v == nil || !slices.Contains(wanted, v.Status) {
 		select {
 		case <-ctx.Done():
 			return "", context.Cause(ctx)
+		case <-timeoutCh:
+			resp, err := d.client.getOrder(ctx, d.orderID)
+			if err != nil {
+				return "", err
+			}
+			d.topic.SendCh() <- toExchangeOrder(&resp.Order)
 		case v = <-ch:
 			if v == nil {
 				return "", fmt.Errorf("unexpected: topic closed")

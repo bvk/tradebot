@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
@@ -32,12 +33,7 @@ type Waller struct {
 	loopers []*looper.Looper
 }
 
-type State struct {
-	ProductID  string
-	BuyPoints  []*point.Point
-	SellPoints []*point.Point
-	Loopers    []string
-}
+type State = gobs.WallerState
 
 type Status struct {
 	UID string

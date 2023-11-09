@@ -6,12 +6,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path"
+	"time"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvkgo/kv"
@@ -32,12 +35,7 @@ type Limiter struct {
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
-type State struct {
-	ProductID string
-	Offset    uint64
-	Point     point.Point
-	OrderMap  map[exchange.OrderID]*exchange.Order
-}
+type State = gobs.LimiterState
 
 type Status struct {
 	UID string
@@ -139,7 +137,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		}
 	}
 	nlive := len(live)
-	log.Printf("%s: found %d unfinished orders", v.key, nlive)
+	log.Printf("%s:%s: found %d unfinished orders", v.key, v.point, nlive)
 	if nlive > 1 {
 		return fmt.Errorf("found %d live orders (want 0 or 1)", nlive)
 	}
@@ -147,25 +145,34 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 	var activeOrderID exchange.OrderID
 	if nlive != 0 {
 		activeOrderID = live[0].OrderID
-		log.Printf("%s: reusing existing order %s as the active order", v.key, activeOrderID)
+		log.Printf("%s:%s: reusing existing order %s as the active order", v.key, v.point, activeOrderID)
 	}
 
 	var orderUpdatesCh <-chan *exchange.Order
 
+	dirty := true
 	tickerCh := product.TickerCh()
 
 	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
 		select {
 		case <-ctx.Done():
 			if activeOrderID != "" {
-				log.Printf("canceling active limit order %v at point %v (%v)", activeOrderID, v.point, context.Cause(ctx))
+				log.Printf("%s:%s: canceling active limit order %v (%v)", v.key, v.point, activeOrderID, context.Cause(ctx))
 				if err := v.cancel(context.TODO(), product, activeOrderID); err != nil {
 					return err
 				}
 			}
 			return context.Cause(ctx)
 
+		case <-time.After(time.Second):
+			if dirty {
+				if kv.WithReadWriter(ctx, db, v.Save) == nil {
+					dirty = false
+				}
+			}
+
 		case order := <-orderUpdatesCh:
+			dirty = true
 			if err := v.updateOrderMap(order); err != nil {
 				return err
 			}
@@ -180,18 +187,21 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 						if err := v.cancel(ctx, product, activeOrderID); err != nil {
 							return err
 						}
+						dirty = true
+						log.Printf("%s:%s: canceled sell order %q at the exchange", v.key, v.point, activeOrderID)
 						activeOrderID, orderUpdatesCh = "", nil
-						_ = kv.WithReadWriter(ctx, db, v.Save)
 					}
 				}
 				if ticker.Price.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
 						id, ch, err := v.create(ctx, product)
 						if err != nil {
+							log.Printf("%s:%s: could not create new sell-order: %v", v.key, v.point, err)
 							return err
 						}
+						dirty = true
 						activeOrderID, orderUpdatesCh = id, ch
-						_ = kv.WithReadWriter(ctx, db, v.Save)
+						log.Printf("%s:%s: created sell order %q at the exchange", v.key, v.point, activeOrderID)
 					}
 				}
 				continue
@@ -203,18 +213,21 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 						if err := v.cancel(ctx, product, activeOrderID); err != nil {
 							return err
 						}
+						dirty = true
+						log.Printf("%s:%s: canceled buy order %q at the exchange", v.key, v.point, activeOrderID)
 						activeOrderID, orderUpdatesCh = "", nil
-						_ = kv.WithReadWriter(ctx, db, v.Save)
 					}
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
 						id, ch, err := v.create(ctx, product)
 						if err != nil {
+							log.Printf("%s:%s: could not create new buy-order: %v", v.key, v.point, err)
 							return err
 						}
+						dirty = true
 						activeOrderID, orderUpdatesCh = id, ch
-						_ = kv.WithReadWriter(ctx, db, v.Save)
+						log.Printf("%s:%s: created buy order %q at the exchange", v.key, v.point, activeOrderID)
 					}
 				}
 				continue
@@ -222,7 +235,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		}
 	}
 
-	log.Printf("limit order %s is complete (%v pending)", v.key, v.Pending())
+	log.Printf("%s:%s: limit order is complete", v.key, v.point)
 	if err := v.fetchOrderMap(ctx, product, len(v.orderMap)); err != nil {
 		return err
 	}
@@ -246,6 +259,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		log.Printf("limit-buy for size %s at price %s -> %v, %v", size, v.point.Price, orderID, err)
 	}
 	if err != nil {
+		// FIXME: We should undo the client order id generation.
 		return "", nil, err
 	}
 
@@ -290,6 +304,8 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n
 		if err != nil {
 			return err
 		}
+		jsdata, _ := json.Marshal(order)
+		log.Printf("%v:%s:%s: %s", v.key, v.point, id, jsdata)
 		v.orderMap[id] = order
 		if n--; n <= 0 {
 			break

@@ -8,10 +8,10 @@ type ListProductsResponse struct {
 }
 
 type ListOrdersResponse struct {
-	Orders   []OrderType `json:"orders"`
-	Sequence string      `json:"sequence,number"`
-	Cursor   string      `json:"cursor"`
-	HasNext  bool        `json:"has_next"`
+	Orders   []*OrderType `json:"orders"`
+	Sequence string       `json:"sequence,number"`
+	Cursor   string       `json:"cursor"`
+	HasNext  bool         `json:"has_next"`
 }
 
 type GetOrderResponse struct {
@@ -46,7 +46,7 @@ type CreateOrderSuccessResponse struct {
 type CreateOrderErrorResponse struct {
 	Error                 string `json:"error"`
 	Message               string `json:"message"`
-	ErrorDetail           string `json"error_details"`
+	ErrorDetail           string `json:"error_details"`
 	PreviewFailureReason  string `json:"preview_failure_reason"`
 	NewOrderFailureReason string `json:"new_order_failure_reason"`
 }

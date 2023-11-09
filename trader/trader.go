@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"maps"
@@ -20,6 +21,7 @@ import (
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
@@ -38,11 +40,7 @@ const (
 	JobsKeyspace = "/jobs"
 )
 
-type gobJobState struct {
-	State job.State
-
-	NeedsManualResume bool
-}
+type gobJobState = gobs.TraderJobState
 
 type Trader struct {
 	closeCtx   context.Context
@@ -143,6 +141,7 @@ func (t *Trader) Stop(ctx context.Context) error {
 		}
 		key := path.Join(JobsKeyspace, id)
 		gstate := &gobJobState{State: j.State(), NeedsManualResume: false}
+		log.Printf("job %v state is changed to %s", id, gstate.State)
 		if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
@@ -254,7 +253,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 	}
 	defer kv.Close(it)
 
-	for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
 		_, uid := path.Split(k)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
@@ -272,7 +271,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 		}
 	}
 
-	if err := it.Err(); err != nil {
+	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	return nil
@@ -288,7 +287,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 	}
 	defer kv.Close(it)
 
-	for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
 		_, uid := path.Split(k)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
@@ -306,7 +305,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 		}
 	}
 
-	if err := it.Err(); err != nil {
+	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	return nil
@@ -322,7 +321,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 	}
 	defer kv.Close(it)
 
-	for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
 		_, uid := path.Split(k)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
@@ -340,7 +339,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 		}
 	}
 
-	if err := it.Err(); err != nil {
+	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	return nil

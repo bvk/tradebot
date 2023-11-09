@@ -5,8 +5,10 @@ package looper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 
@@ -36,7 +38,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		}
 		defer kv.Close(it)
 
-		for k, _, ok := it.Current(ctx); ok; k, _, ok = it.Next(ctx) {
+		for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
 			if !strings.HasPrefix(k, keyspace) {
 				break
 			}
@@ -53,7 +55,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			fmt.Printf("key=%s value=%s\n", k, d)
 		}
 
-		if err := it.Err(); err != nil {
+		if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
 			return err
 		}
 		return nil

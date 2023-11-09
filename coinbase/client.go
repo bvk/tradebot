@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -36,6 +37,11 @@ type Client struct {
 	websockets []*Websocket
 
 	limiter *rate.Limiter
+
+	// oldFilled and oldCancelled maps hold mapping from client-id to the
+	// corresponding order.
+	oldFilled    map[string]*OrderType
+	oldCancelled map[string]*OrderType
 
 	// TODO: Save full *ProductType objects.
 	spotProducts []string
@@ -64,7 +70,9 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		client: &http.Client{
 			Timeout: opts.HttpClientTimeout,
 		},
-		limiter: rate.NewLimiter(30 /* 30 requests per second */, 10),
+		limiter:      rate.NewLimiter(25, 1),
+		oldFilled:    make(map[string]*OrderType),
+		oldCancelled: make(map[string]*OrderType),
 	}
 
 	// fetch product list.
@@ -74,6 +82,30 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		return nil, err
 	}
 	c.spotProducts = products
+
+	// fetch old filled and canceled orders.
+	from := time.Now().Add(-24 * time.Hour)
+	filled, err := c.listOldOrders(ctx, from, "FILLED")
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range filled {
+		if len(v.ClientOrderID) > 0 {
+			c.oldFilled[v.ClientOrderID] = v
+		}
+	}
+	log.Printf("fetched %d filled orders from %s", len(filled), from)
+
+	cancelled, err := c.listOldOrders(ctx, from, "CANCELLED")
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range cancelled {
+		if len(v.ClientOrderID) > 0 {
+			c.oldCancelled[v.ClientOrderID] = v
+		}
+	}
+	log.Printf("fetched %d cancelled orders from %s", len(cancelled), from)
 
 	c.wg.Add(1)
 	go c.goWatchOrders()
@@ -121,10 +153,26 @@ func (c *Client) listProducts(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
-	if err := c.limiter.Wait(ctx); err != nil {
-		return err
+func (c *Client) listOldOrders(ctx context.Context, from time.Time, status string) ([]*OrderType, error) {
+	var result []*OrderType
+
+	values := make(url.Values)
+	values.Add("limit", "100")
+	values.Add("start_date", from.Format(time.RFC3339))
+	values.Add("order_status", status)
+	for i := 0; i == 0 || values != nil; i++ {
+		resp, cont, err := c.listOrders(ctx, values)
+		if err != nil {
+			return nil, err
+		}
+		values = cont
+
+		result = append(result, resp.Orders...)
 	}
+	return result, nil
+}
+
+func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
 	at := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
@@ -136,6 +184,9 @@ func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface
 	req.Header.Add("CB-ACCESS-KEY", c.key)
 	req.Header.Add("CB-ACCESS-SIGN", signature)
 	req.Header.Add("CB-ACCESS-TIMESTAMP", strconv.FormatInt(at.Unix(), 10))
+	if err := c.limiter.Wait(ctx); err != nil {
+		return err
+	}
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
@@ -231,7 +282,7 @@ func (c *Client) handleUserChannelMsg(ctx context.Context, msg *MessageType) err
 					old.(*orderData).websocketUpdate(serverTime, order)
 					continue
 				}
-				data := newOrderData()
+				data := c.newOrderData(order.OrderID)
 				data.websocketUpdate(serverTime, order)
 				if old, ok := c.orderDataMap.LoadOrStore(string(order.OrderID), data); ok {
 					data.Close()
@@ -246,7 +297,7 @@ func (c *Client) handleUserChannelMsg(ctx context.Context, msg *MessageType) err
 					old.(*orderData).websocketUpdate(serverTime, order)
 					continue
 				}
-				data := newOrderData()
+				data := c.newOrderData(order.OrderID)
 				data.websocketUpdate(serverTime, order)
 				if old, ok := c.orderDataMap.LoadOrStore(string(order.OrderID), data); ok {
 					data.Close()
@@ -255,75 +306,6 @@ func (c *Client) handleUserChannelMsg(ctx context.Context, msg *MessageType) err
 			}
 		}
 	}
-	return nil
-}
-
-func (c *Client) goPollOrders() {
-	defer c.wg.Done()
-
-	// Question: Are there cases when websocket is down for soo long?
-	//
-	// When a websocket is down, OPEN orders may get FILLED and the corresponding
-	// event may never show up in the new websocket data. Any user waiting on
-	// such order will get stuck without periodic polling logic.
-
-	// When we create an order, coinbase api returns an order-id, but that
-	// doesn't guarantee the order is active. It may take somemore time before
-	// our order becomes active (i.e., status=OPEN).
-	//
-	// If we want to make sure that our order is active, we have two options:
-	//
-	// 1. Use GetOrder api to fetch order status in a "loop" till it is active
-	//
-	//   This requires (a) at least two or more http requests (2) a loop till
-	//   order becomes active, which means, a time.Sleep with arbitrary
-	//   time.Duration between the iterations
-	//
-	// 2. Listen to the "user" channel on the websocket for the status changes
-	//
-	//   This requires us to handle lost notifications when websocket is dropped.
-	//   It may also happen that websocket connection is stuck (not receiving
-	//   data) and is not immediately identified due to tcp timeouts, in which
-	//   case we need to fallback to GetOrder api.
-	//
-	// Given the above mentioned issues, we use a mixed approach. Whenever we
-	// create an order, we hope to receive a notification from the websocket in a
-	// given timeout. If no notification is received from the websocket we poll
-	// for the order status using the GetOrder api.
-	//
-	// POLLING
-	//
-	// Client object maintains status => list of OrderIDs mapping for each kind
-	// of order status. Every order created is placed in a mapping representing
-	// order ids with UNKOWN status. Also, when an order is completed, it will be
-	// removed from all mappings, so that mappings are bounded by number of live
-	// orders.
-	//
-	// An asynchronous goroutine is used to poll for the status of order
-	// ids. This goroutine is awakened whenever we need to use GetOrder api to
-	// fetch for one or more orders' statuses.
-	//
-	// In the healthy case, websocket receives order status notifications and
-	// immediately *moves* order ids into their target status and wakes up any
-	// waiters. If the asynchronous goroutine wakes up it typically finds that no
-	// order ids are present in the UNKNOWN status mapping.
-
-	// for c.ctx.Err() == nil {
-	// 	select {
-	// 	case <-c.ctx.Done():
-	// 		return
-	// 	case <-c.pollCh:
-	// 		if err := c.pollOrders(c.ctx); err != nil {
-	// 			if c.ctx.Err() == nil {
-	// 				slog.WarnContext(c.ctx, "could not poll for orders", "error", err)
-	// 				c.sleep(c.opts.PollOrdersRetryInterval)
-	// 			}
-	// 		}
-	// 	}
-	// }
-}
-
-func (c *Client) pollOrders(ctx context.Context) error {
 	return nil
 }
 
@@ -358,7 +340,43 @@ func (c *Client) getOrder(ctx context.Context, orderID string) (*GetOrderRespons
 	return resp, nil
 }
 
+func (c *Client) recreateOldOrder(clientOrderID string) (string, bool) {
+	var old *OrderType
+	if v, ok := c.oldFilled[clientOrderID]; ok {
+		old = v
+	} else if v, ok := c.oldCancelled[clientOrderID]; ok {
+		old = v
+	}
+	if old == nil {
+		return "", false
+	}
+
+	data := c.newOrderData(old.OrderID)
+	if old, ok := c.orderDataMap.LoadOrStore(old.OrderID, data); ok {
+		data.Close()
+		data = old.(*orderData)
+	}
+	data.topic.SendCh() <- toExchangeOrder(old)
+	return old.OrderID, true
+}
+
 func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (*CreateOrderResponse, error) {
+	var old *OrderType
+	if v, ok := c.oldFilled[request.ClientOrderID]; ok {
+		old = v
+	} else if v, ok := c.oldCancelled[request.ClientOrderID]; ok {
+		old = v
+	}
+	if old != nil {
+		data := c.newOrderData(old.OrderID)
+		if old, ok := c.orderDataMap.LoadOrStore(old.OrderID, data); ok {
+			data.Close()
+			data = old.(*orderData)
+		}
+		data.topic.SendCh() <- toExchangeOrder(old)
+		return &CreateOrderResponse{OrderID: old.OrderID, Success: true}, nil
+	}
+
 	url := &url.URL{
 		Scheme: "https",
 		Host:   c.opts.RestHostname,
@@ -370,11 +388,13 @@ func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (
 	}
 
 	if resp.Success {
-		data := newOrderData()
-		if old, ok := c.orderDataMap.LoadOrStore(string(resp.OrderID), data); ok {
+		data := c.newOrderData(resp.OrderID)
+		if old, ok := c.orderDataMap.LoadOrStore(resp.OrderID, data); ok {
 			data.Close()
 			data = old.(*orderData)
 		}
+		// We need to wait here to confirm the order because orders need sometime
+		// before they can be canceled by their ids.
 		if _, err := data.waitForOpen(ctx); err != nil {
 			return nil, err
 		}
@@ -396,10 +416,6 @@ func (c *Client) cancelOrder(ctx context.Context, request *CancelOrderRequest) (
 }
 
 func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, resultPtr interface{}) error {
-	if err := c.limiter.Wait(ctx); err != nil {
-		return err
-	}
-
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -415,6 +431,9 @@ func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, result
 	req.Header.Add("CB-ACCESS-KEY", c.key)
 	req.Header.Add("CB-ACCESS-SIGN", signature)
 	req.Header.Add("CB-ACCESS-TIMESTAMP", strconv.FormatInt(at.Unix(), 10))
+	if err := c.limiter.Wait(ctx); err != nil {
+		return err
+	}
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
@@ -441,9 +460,6 @@ func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, result
 }
 
 func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload interface{}) (*http.Response, error) {
-	if err := c.limiter.Wait(ctx); err != nil {
-		return nil, err
-	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -460,5 +476,9 @@ func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload in
 	req.Header.Add("CB-ACCESS-KEY", c.key)
 	req.Header.Add("CB-ACCESS-SIGN", signature)
 	req.Header.Add("CB-ACCESS-TIMESTAMP", strconv.FormatInt(at.Unix(), 10))
+
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
 	return c.client.Do(req)
 }

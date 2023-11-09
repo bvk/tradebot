@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
-	"github.com/bvkgo/topic/v2"
+	"github.com/bvkgo/topic"
 	"github.com/shopspring/decimal"
 )
 
@@ -52,7 +52,7 @@ func (c *Client) NewProduct(product string) (_ *Product, status error) {
 		tickerTopic: topic.New[*exchange.Ticker](),
 	}
 
-	recvr, ch, err := p.tickerTopic.Subscribe(1)
+	recvr, ch, err := p.tickerTopic.Subscribe(1, false /* includeRecent */)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +181,7 @@ func (p *Product) watch(ctx context.Context) (status error) {
 }
 
 func (p *Product) TickerCh() <-chan *exchange.Ticker {
-	_, ch, _ := p.tickerTopic.Subscribe(1 /* limit */)
+	_, ch, _ := p.tickerTopic.Subscribe(1 /* limit */, true /* includeRecent */)
 	return ch
 }
 
@@ -194,6 +194,11 @@ func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exc
 }
 
 func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
+	// check if this is a retry request for the clientOrderID.
+	if v, ok := p.client.recreateOldOrder(clientOrderID); ok {
+		return exchange.OrderID(v), nil
+	}
+
 	req := &CreateOrderRequest{
 		ClientOrderID: clientOrderID,
 		ProductID:     p.productID,
@@ -217,6 +222,11 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 }
 
 func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
+	// check if this is a retry request for the clientOrderID.
+	if v, ok := p.client.recreateOldOrder(clientOrderID); ok {
+		return exchange.OrderID(v), nil
+	}
+
 	req := &CreateOrderRequest{
 		ClientOrderID: clientOrderID,
 		ProductID:     p.productID,
@@ -256,9 +266,11 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) er
 	return nil
 }
 
+// List returns open orders in the product.
 func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
 	values := make(url.Values)
 	values.Set("product_id", p.productID)
+	values.Set("limit", "100")
 	values.Set("order_status", "OPEN")
 
 	var responses []*ListOrdersResponse
@@ -279,7 +291,7 @@ func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
 	var orders []*exchange.Order
 	for _, resp := range responses {
 		for _, ord := range resp.Orders {
-			orders = append(orders, toExchangeOrder(&ord))
+			orders = append(orders, toExchangeOrder(ord))
 		}
 	}
 	return orders, nil
@@ -288,7 +300,7 @@ func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
 func (p *Product) OrderUpdatesCh(id exchange.OrderID) <-chan *exchange.Order {
 	if v, ok := p.client.orderDataMap.Load(string(id)); ok {
 		data := v.(*orderData)
-		_, ch, _ := data.topic.Subscribe(1 /* limit */)
+		_, ch, _ := data.topic.Subscribe(1 /* limit */, true /* includeRecent */)
 		return ch
 	}
 	return nil

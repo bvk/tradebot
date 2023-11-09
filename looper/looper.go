@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/point"
@@ -32,12 +33,7 @@ type Looper struct {
 	sells []*limiter.Limiter
 }
 
-type State struct {
-	ProductID string
-	Limiters  []string
-	BuyPoint  point.Point
-	SellPoint point.Point
-}
+type State = gobs.LooperState
 
 type Status struct {
 	UID string
@@ -100,7 +96,8 @@ func (v *Looper) Status() *Status {
 
 func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
 	for ctx.Err() == nil {
-		nbuys := len(v.buys)
+		nbuys, nsells := len(v.buys), len(v.sells)
+
 		if nbuys == 0 {
 			if err := v.addNewBuy(ctx, product, db); err != nil {
 				if ctx.Err() == nil {
@@ -121,7 +118,6 @@ func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Databa
 			continue
 		}
 
-		nsells := len(v.sells)
 		if nsells < nbuys {
 			if err := v.addNewSell(ctx, product, db); err != nil {
 				if ctx.Err() == nil {
@@ -180,16 +176,17 @@ func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.
 }
 
 func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv.Database) error {
-	// Wait for the ticker to go below the sell point price.
-	tickerCh := product.TickerCh()
-	for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
-		select {
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		case ticker := <-tickerCh:
-			p = ticker.Price
-		}
-	}
+	// // Wait for the ticker to go below the sell point price.
+	// tickerCh := product.TickerCh()
+	// for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
+	// 	log.Printf("%v:%v:%v waiting for the ticker price to go below sell point", v.key, v.buyPoint, v.sellPoint)
+	// 	select {
+	// 	case <-ctx.Done():
+	// 		return context.Cause(ctx)
+	// 	case ticker := <-tickerCh:
+	// 		p = ticker.Price
+	// 	}
+	// }
 
 	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.sells)))
 	s, err := limiter.New(uid, product.ID(), &v.sellPoint)
