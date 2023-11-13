@@ -45,3 +45,22 @@ func TestIDGenOffset(t *testing.T) {
 		t.Fatalf("want %v, got %v", a, b)
 	}
 }
+
+func TestIDGenRevert(t *testing.T) {
+	g1 := newIDGenerator(t.Name(), 0)
+	idMap := make(map[uint64]uuid.UUID)
+	for i := 0; i < 100; i++ {
+		idMap[g1.Offset()] = g1.NextID()
+	}
+
+	g2 := newIDGenerator(t.Name(), 0)
+	for i := 0; i < rand.Intn(20); i++ {
+		g2.NextID()
+	}
+
+	g2.RevertID()
+	wanted := idMap[g2.Offset()]
+	if id := g2.NextID(); wanted != id {
+		t.Fatalf("want %v, got %v", wanted, id)
+	}
+}

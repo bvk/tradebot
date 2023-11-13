@@ -35,6 +35,13 @@ func (v *idGenerator) NextID() uuid.UUID {
 	return id
 }
 
+func (v *idGenerator) RevertID() {
+	if v.next > 0 {
+		v.next--
+		v.cache = nil
+	}
+}
+
 func (v *idGenerator) prepare(from, n uint64) []uuid.UUID {
 	var buf [16 + 8]byte
 	copy(buf[:16], []byte(v.base[:]))

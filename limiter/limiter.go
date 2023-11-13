@@ -250,7 +250,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		log.Printf("limit-buy for size %s at price %s -> %v, %v", size, v.point.Price, orderID, err)
 	}
 	if err != nil {
-		// FIXME: We should undo the client order id generation.
+		v.idgen.RevertID()
 		return "", nil, err
 	}
 
