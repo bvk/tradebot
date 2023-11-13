@@ -14,9 +14,9 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -60,6 +60,11 @@ func New(key, secret string, opts *Options) (*Client, error) {
 	}
 	opts.setDefaults()
 
+	jar, err := cookiejar.New(nil /* options */)
+	if err != nil {
+		return nil, fmt.Errorf("could not create cookiejar: %w", err)
+	}
+
 	ctx, cancel := context.WithCancelCause(context.Background())
 	c := &Client{
 		ctx:    ctx,
@@ -68,6 +73,7 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		key:    key,
 		secret: []byte(secret),
 		client: &http.Client{
+			Jar:     jar,
 			Timeout: opts.HttpClientTimeout,
 		},
 		limiter:      rate.NewLimiter(25, 1),
@@ -172,18 +178,43 @@ func (c *Client) listOldOrders(ctx context.Context, from time.Time, status strin
 	return result, nil
 }
 
+func (c *Client) now() string {
+	type ServerTime struct {
+		Epoch float64 `json:"epoch"`
+	}
+
+	for ; true; time.Sleep(time.Second) {
+		resp, err := http.Get("https://api.exchange.coinbase.com/time")
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			continue
+		}
+		var st ServerTime
+		if err := json.Unmarshal(body, &st); err != nil {
+			continue
+		}
+		return fmt.Sprintf("%d", int64(st.Epoch))
+	}
+
+	return "0"
+}
+
 func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
-	at := time.Now()
+	at := c.now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
 		return err
 	}
-	sdata := fmt.Sprintf("%s%s%s%s", strconv.FormatInt(at.Unix(), 10), req.Method, url.Path, "")
+	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, "")
 	signature := c.sign(sdata)
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Cache-Control", "no-store")
 	req.Header.Add("CB-ACCESS-KEY", c.key)
 	req.Header.Add("CB-ACCESS-SIGN", signature)
-	req.Header.Add("CB-ACCESS-TIMESTAMP", strconv.FormatInt(at.Unix(), 10))
+	req.Header.Add("CB-ACCESS-TIMESTAMP", at)
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
@@ -420,17 +451,18 @@ func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, result
 	if err != nil {
 		return err
 	}
-	at := time.Now()
+	at := c.now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
-	sdata := fmt.Sprintf("%s%s%s%s", strconv.FormatInt(at.Unix(), 10), req.Method, url.Path, payload)
+	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, payload)
 	signature := c.sign(sdata)
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Cache-Control", "no-store")
 	req.Header.Add("CB-ACCESS-KEY", c.key)
 	req.Header.Add("CB-ACCESS-SIGN", signature)
-	req.Header.Add("CB-ACCESS-TIMESTAMP", strconv.FormatInt(at.Unix(), 10))
+	req.Header.Add("CB-ACCESS-TIMESTAMP", at)
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
@@ -465,17 +497,18 @@ func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload in
 		return nil, err
 	}
 
-	at := time.Now()
+	at := c.now()
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	sdata := fmt.Sprintf("%s%s%s%s", strconv.FormatInt(at.Unix(), 10), req.Method, url.Path, data)
+	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, data)
 	signature := c.sign(sdata)
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Cache-Control", "no-store")
 	req.Header.Add("CB-ACCESS-KEY", c.key)
 	req.Header.Add("CB-ACCESS-SIGN", signature)
-	req.Header.Add("CB-ACCESS-TIMESTAMP", strconv.FormatInt(at.Unix(), 10))
+	req.Header.Add("CB-ACCESS-TIMESTAMP", at)
 
 	if err := c.limiter.Wait(ctx); err != nil {
 		return nil, err

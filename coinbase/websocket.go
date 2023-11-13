@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -90,7 +89,7 @@ func (w *Websocket) Subscribe(ctx context.Context, channel string) error {
 		ProductIDs: w.products,
 		Channel:    channel,
 		APIKey:     w.client.key,
-		Timestamp:  strconv.FormatInt(time.Now().Unix(), 10),
+		Timestamp:  w.client.now(),
 		Signature:  "",
 	}
 	subdata := fmt.Sprintf("%s%s%s", submsg.Timestamp, submsg.Channel, strings.Join(submsg.ProductIDs, ","))
@@ -122,7 +121,7 @@ func (w *Websocket) Unsubscribe(ctx context.Context, channel string) error {
 		ProductIDs: w.products,
 		Channel:    channel,
 		APIKey:     w.client.key,
-		Timestamp:  strconv.FormatInt(time.Now().Unix(), 10),
+		Timestamp:  w.client.now(),
 		Signature:  "",
 	}
 	unsubdata := fmt.Sprintf("%s%s%s", unsubmsg.Timestamp, unsubmsg.Channel, strings.Join(unsubmsg.ProductIDs, ","))
