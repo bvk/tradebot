@@ -49,8 +49,6 @@ func (f *Flags) GetDatabase() (kv.Database, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not open the database: %w", err)
 		}
-		defer bdb.Close()
-
 		return kvbadger.New(bdb, isGoodKey), nil
 	}
 
