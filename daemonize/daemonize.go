@@ -108,7 +108,9 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 			if retry, err := check(ctx, proc); err != nil {
 				log.Printf("warning: background process is not yet initialized (retrying): %v", err)
 				if retry {
-					time.Sleep(sleep)
+					sctx, cancel := context.WithTimeout(ctx, sleep)
+					<-sctx.Done()
+					cancel()
 					continue
 				}
 				return fmt.Errorf("background process isn't initialized: %w", err)
