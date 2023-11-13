@@ -199,7 +199,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		summary.value = summary.value.Add(pdata.value)
 		summary.feePct = summary.fees.Mul(Hundred).Div(summary.value).InexactFloat64()
 		summary.profit = summary.profit.Add(pdata.profit)
-		summary.unsoldFees = summary.unsoldSize.Add(pdata.unsoldFees)
+		summary.unsoldFees = summary.unsoldFees.Add(pdata.unsoldFees)
 		summary.unsoldSize = summary.unsoldSize.Add(pdata.unsoldSize)
 		summary.unsoldValue = summary.unsoldValue.Add(pdata.unsoldValue)
 
