@@ -52,6 +52,8 @@ type Trader struct {
 
 	coinbaseClient *coinbase.Client
 
+	exchangeMap map[string]exchange.Exchange
+
 	handlerMap map[string]http.Handler
 
 	// jobMap holds all running (or completed) jobs that are *not* manually
@@ -82,7 +84,7 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 		opts := &coinbase.Options{}
 		client, err := coinbase.New(secrets.Coinbase.Key, secrets.Coinbase.Secret, opts)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}
 		coinbaseClient = client
 	}
@@ -93,9 +95,11 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 		coinbaseClient: coinbaseClient,
 		db:             db,
 		opts:           *opts,
+		exchangeMap:    make(map[string]exchange.Exchange),
 		handlerMap:     make(map[string]http.Handler),
 		productMap:     make(map[string]exchange.Product),
 	}
+	t.exchangeMap["coinbase"] = coinbaseClient
 
 	// FIXME: We need to find a cleaner way to load default products. We need it
 	// before REST api is enabled.
@@ -107,6 +111,8 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	t.handlerMap["/trader/loop"] = httpPostJSONHandler(t.doLoop)
 	t.handlerMap["/trader/limit"] = httpPostJSONHandler(t.doLimit)
 	t.handlerMap["/trader/wall"] = httpPostJSONHandler(t.doWall)
+
+	t.handlerMap["/exchange/get"] = httpPostJSONHandler(t.doExchangeGet)
 
 	// TODO: Resume existing traders.
 

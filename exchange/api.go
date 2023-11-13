@@ -55,3 +55,7 @@ type Product interface {
 
 	// Retire(id OrderID)
 }
+
+type Exchange interface {
+	GetOrder(ctx context.Context, id OrderID) (*Order, error)
+}

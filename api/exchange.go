@@ -1,0 +1,30 @@
+// Copyright (c) 2023 BVK Chaitanya
+
+package api
+
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
+
+type ExchangeGetRequest struct {
+	Name string
+
+	OrderID string
+}
+
+type ExchangeGetResponse struct {
+	Error string
+
+	OrderID       string
+	ClientOrderID string
+	Side          string
+	CreateTime    time.Time
+	Fee           decimal.Decimal
+	FilledSize    decimal.Decimal
+	FilledPrice   decimal.Decimal
+	Status        string
+	Done          bool
+	DoneReason    string
+}

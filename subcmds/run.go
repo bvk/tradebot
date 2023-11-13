@@ -198,6 +198,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
 	}))
+
 	<-ctx.Done()
 	log.Printf("tradebot server is shutting down")
 	return nil

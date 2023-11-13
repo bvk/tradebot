@@ -98,7 +98,7 @@ func New(key, secret string, opts *Options) (*Client, error) {
 	products, err := c.listProducts(c.ctx)
 	if err != nil {
 		cancel(os.ErrClosed)
-		return nil, err
+		return nil, fmt.Errorf("could not list products: %w", err)
 	}
 	c.spotProducts = products
 
@@ -106,7 +106,7 @@ func New(key, secret string, opts *Options) (*Client, error) {
 	from := time.Now().Add(-24 * time.Hour)
 	filled, err := c.listOldOrders(ctx, from, "FILLED")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not list old filled orders: %w", err)
 	}
 	for _, v := range filled {
 		if len(v.ClientOrderID) > 0 {
@@ -117,7 +117,7 @@ func New(key, secret string, opts *Options) (*Client, error) {
 
 	cancelled, err := c.listOldOrders(ctx, from, "CANCELLED")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not list old canceled orders: %w", err)
 	}
 	for _, v := range cancelled {
 		if len(v.ClientOrderID) > 0 {
@@ -271,7 +271,7 @@ func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("http GET is unsuccessful", "status", resp.StatusCode)
+		slog.Error("http GET is unsuccessful", "status", resp.StatusCode, "url", url.String())
 		return fmt.Errorf("http GET returned %d", resp.StatusCode)
 	}
 	var body io.Reader = resp.Body
@@ -403,6 +403,14 @@ func (c *Client) listOrders(ctx context.Context, values url.Values) (_ *ListOrde
 		return resp, values, nil
 	}
 	return resp, nil, nil
+}
+
+func (c *Client) GetOrder(ctx context.Context, orderID exchange.OrderID) (*exchange.Order, error) {
+	resp, err := c.getOrder(ctx, string(orderID))
+	if err != nil {
+		return nil, fmt.Errorf("could not get order %s: %w", orderID, err)
+	}
+	return toExchangeOrder(&resp.Order), nil
 }
 
 func (c *Client) getOrder(ctx context.Context, orderID string) (*GetOrderResponse, error) {
