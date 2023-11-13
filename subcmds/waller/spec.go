@@ -39,7 +39,7 @@ func (s *Spec) SetFlags(fset *flag.FlagSet) {
 	fset.Float64Var(&s.buySize, "buy-size", 0, "asset buy-size for the trade")
 	fset.Float64Var(&s.sellSize, "sell-size", 0, "asset sell-size for the trade")
 	fset.Float64Var(&s.cancelOffset, "cancel-offset", 50, "cancel-at price offset for the buy/sell points")
-	fset.Float64Var(&s.feePercentage, "fee-pct", 0.15, "exchange fee percentage to adjust sell margin")
+	fset.Float64Var(&s.feePercentage, "fee-pct", 0.25, "exchange fee percentage to adjust sell margin")
 }
 
 func (s *Spec) BuySellPairs() []*point.Pair {
@@ -225,22 +225,13 @@ func (s *Spec) NumSellsPerYear(targetPercentage float64) int {
 }
 
 func (s *Spec) Budget() decimal.Decimal {
-	var sum decimal.Decimal
-	for _, pair := range s.pairs {
-		sum = sum.Add(pair.Buy.Value())
-		sum = sum.Add(pair.FeesAt(s.feePercentage))
-	}
-	return sum
+	return BudgetWithFeeAt(s.pairs, s.feePercentage)
 }
 
-func (s *Spec) MedianLockinAmount() decimal.Decimal {
-	return s.lockinAmount(s.pairs[len(s.pairs)/2])
-}
-
-func (s *Spec) lockinAmount(p *point.Pair) decimal.Decimal {
+func (s *Spec) LockinAmountAt(tickerPrice decimal.Decimal) decimal.Decimal {
 	var sum decimal.Decimal
 	for _, pair := range s.pairs {
-		if pair.Buy.Price.GreaterThanOrEqual(p.Buy.Price) && pair.Buy.Price.LessThan(p.Sell.Price) {
+		if pair.Buy.Price.LessThan(tickerPrice) {
 			sum = sum.Add(pair.Buy.Value())
 			sum = sum.Add(pair.FeesAt(s.feePercentage))
 		}

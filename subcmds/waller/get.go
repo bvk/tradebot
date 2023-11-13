@@ -110,12 +110,6 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return b
 	}
 
-	var (
-		Hundred       = decimal.NewFromInt(100)
-		MonthsPerYear = decimal.NewFromInt(12)
-		DaysPerYear   = decimal.NewFromInt(365)
-	)
-
 	pairs := wall.BuySellPairs()
 	buyDataMap := make(map[int]*BuyData)
 	sellDataMap := make(map[int]*SellData)

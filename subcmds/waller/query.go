@@ -15,6 +15,8 @@ var aprs = []float64{5, 10, 20, 30}
 
 type Query struct {
 	spec Spec
+
+	lockinPrice float64
 }
 
 func (c *Query) run(ctx context.Context, args []string) error {
@@ -23,12 +25,19 @@ func (c *Query) run(ctx context.Context, args []string) error {
 	}
 	pairs := c.spec.BuySellPairs()
 
+	var lockinPrice decimal.Decimal
+	if c.lockinPrice != 0 {
+		lockinPrice = decimal.NewFromFloat(c.lockinPrice)
+	} else {
+		lockinPrice = pairs[0].Buy.Price.Add(pairs[len(pairs)-1].Buy.Price).Div(Two)
+	}
+
 	fmt.Printf("Budget required: %s\n", c.spec.Budget().StringFixed(2))
 	fmt.Printf("Fee percentage: %.2f%%\n", c.spec.feePercentage)
 
 	fmt.Println()
 	fmt.Printf("Num Buy/Sell pairs: %d\n", len(pairs))
-	fmt.Printf("Median lockin amount: %s\n", c.spec.MedianLockinAmount().StringFixed(2))
+	fmt.Printf("Max lockin at price %s: %s\n", lockinPrice.StringFixed(2), c.spec.LockinAmountAt(lockinPrice).StringFixed(2))
 
 	fmt.Println()
 	fmt.Printf("Minimum loop fee: %s\n", c.spec.MinLoopFee().StringFixed(2))
@@ -71,6 +80,7 @@ func (c *Query) run(ctx context.Context, args []string) error {
 func (c *Query) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("query", flag.ContinueOnError)
 	c.spec.SetFlags(fset)
+	fset.Float64Var(&c.lockinPrice, "lockin-price", 0, "ticker price for the expected lockin amount")
 	return fset, cli.CmdFunc(c.run)
 }
 
