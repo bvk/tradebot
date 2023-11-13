@@ -17,7 +17,7 @@ type Point struct {
 }
 
 func (p Point) String() string {
-	return fmt.Sprintf("%s:%s@%s", p.Side(), p.Size, p.Price)
+	return fmt.Sprintf("%s:%s@%s", p.Side(), p.Size, p.Price.StringFixed(2))
 }
 
 func (p *Point) LogValue() slog.Value {
@@ -47,6 +47,10 @@ func (p *Point) Check() error {
 		return fmt.Errorf("cancel-price cannot be equal to the price")
 	}
 	return nil
+}
+
+func (p *Point) Equal(v *Point) bool {
+	return p.Size.Equal(v.Size) && p.Price.Equal(v.Price) && p.Cancel.Equal(v.Cancel)
 }
 
 // Side returns "BUY" or "SELL" side for the point. Side is determined by

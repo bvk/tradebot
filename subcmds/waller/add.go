@@ -147,7 +147,7 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.sellSize, "sell-size", 0, "asset sell-size for the trade")
 	fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 50, "asset buy-cancel-at price-offset for the trade")
 	fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 50, "asset sell-cancel-at price-offset for the trade")
-	fset.Float64Var(&c.feePercentage, "fee-pct", 0.15, "exchange fee percentage to adjust sell margin")
+	fset.Float64Var(&c.feePercentage, "fee-pct", 0.40, "exchange fee percentage to adjust sell margin")
 	return fset, cli.CmdFunc(c.Run)
 }
 

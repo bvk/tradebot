@@ -11,6 +11,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+var aprs = []float64{5, 10, 20, 30}
+
 type Query struct {
 	spec Spec
 }
@@ -21,40 +23,39 @@ func (c *Query) run(ctx context.Context, args []string) error {
 	}
 	pairs := c.spec.BuySellPairs()
 
-	fmt.Printf("Budget required: %s\n", c.spec.Budget().Round(2))
+	fmt.Printf("Budget required: %s\n", c.spec.Budget().StringFixed(2))
 	fmt.Printf("Fee percentage: %.2f%%\n", c.spec.feePercentage)
 
 	fmt.Println()
 	fmt.Printf("Num Buy/Sell pairs: %d\n", len(pairs))
-	fmt.Printf("Median lockin amount: %s\n", c.spec.MedianLockinAmount().Round(2))
+	fmt.Printf("Median lockin amount: %s\n", c.spec.MedianLockinAmount().StringFixed(2))
 
 	fmt.Println()
-	fmt.Printf("Minimum loop fee: %s\n", c.spec.MinLoopFee().Round(2))
-	fmt.Printf("Minimum price margin: %s\n", c.spec.MinPriceMargin().Round(2))
-	fmt.Printf("Minimum profit margin: %s\n", c.spec.MinProfitMargin().Round(2))
+	fmt.Printf("Minimum loop fee: %s\n", c.spec.MinLoopFee().StringFixed(2))
+	fmt.Printf("Minimum price margin: %s\n", c.spec.MinPriceMargin().StringFixed(2))
+	fmt.Printf("Minimum profit margin: %s\n", c.spec.MinProfitMargin().StringFixed(2))
 
 	fmt.Println()
-	fmt.Printf("Maximum loop fee: %s\n", c.spec.MaxLoopFee().Round(2))
-	fmt.Printf("Maximum price margin: %s\n", c.spec.MaxPriceMargin().Round(2))
-	fmt.Printf("Maximum profit margin: %s\n", c.spec.MaxProfitMargin().Round(2))
+	fmt.Printf("Maximum loop fee: %s\n", c.spec.MaxLoopFee().StringFixed(2))
+	fmt.Printf("Maximum price margin: %s\n", c.spec.MaxPriceMargin().StringFixed(2))
+	fmt.Printf("Maximum profit margin: %s\n", c.spec.MaxProfitMargin().StringFixed(2))
 
 	nsells := []int{1, 5, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100}
 	fmt.Println()
 	for _, nsell := range nsells {
 		perYear := c.spec.AvgProfitMargin().Mul(decimal.NewFromInt(int64(nsell)))
 		rate := perYear.Div(c.spec.Budget()).Mul(decimal.NewFromInt(100))
-		fmt.Printf("Return rate for %d sells per year: %s%%\n", nsell, rate.Round(3))
+		fmt.Printf("Return rate for %d sells per year: %s%%\n", nsell, rate.StringFixed(3))
 	}
 	fmt.Println()
 	for _, nsell := range nsells {
 		perYear := c.spec.AvgProfitMargin().Mul(decimal.NewFromInt(int64(nsell * 12)))
 		rate := perYear.Div(c.spec.Budget()).Mul(decimal.NewFromInt(100))
-		fmt.Printf("Return rate for %d sells per month: %s%%\n", nsell, rate.Round(3))
+		fmt.Printf("Return rate for %d sells per month: %s%%\n", nsell, rate.StringFixed(3))
 	}
 
-	rates := []float64{5, 10, 20, 30}
 	fmt.Println()
-	for _, rate := range rates {
+	for _, rate := range aprs {
 		nsells := c.spec.NumSellsPerYear(rate)
 		fmt.Printf("For %.1f%% return\n", rate)
 		fmt.Println()

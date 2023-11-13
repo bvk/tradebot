@@ -99,19 +99,6 @@ func (v *Limiter) Status() *Status {
 	}
 }
 
-func (v *Limiter) GetOrders(ctx context.Context, product exchange.Product) ([]*exchange.Order, error) {
-	if err := v.fetchOrderMap(ctx, product, len(v.orderMap)); err != nil {
-		return nil, err
-	}
-	v.compactOrderMap()
-
-	var orders []*exchange.Order
-	for _, order := range v.orderMap {
-		orders = append(orders, order)
-	}
-	return orders, nil
-}
-
 func (v *Limiter) Pending() decimal.Decimal {
 	var filled decimal.Decimal
 	for _, order := range v.orderMap {

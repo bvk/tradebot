@@ -39,6 +39,10 @@ func (p *Pair) Check() error {
 	return nil
 }
 
+func (p *Pair) Equal(v *Pair) bool {
+	return p.Buy.Equal(&v.Buy) && p.Sell.Equal(&v.Sell)
+}
+
 // PriceMargin returns the difference between sell and buy price points.
 func (p *Pair) PriceMargin() decimal.Decimal {
 	return p.Sell.Price.Sub(p.Buy.Price)

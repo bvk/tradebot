@@ -247,3 +247,12 @@ func (s *Spec) lockinAmount(p *point.Pair) decimal.Decimal {
 	}
 	return sum
 }
+
+func BudgetWithFeeAt(pairs []*point.Pair, feePct float64) decimal.Decimal {
+	var sum decimal.Decimal
+	for _, pair := range pairs {
+		sum = sum.Add(pair.Buy.Value())
+		sum = sum.Add(pair.FeesAt(feePct))
+	}
+	return sum
+}

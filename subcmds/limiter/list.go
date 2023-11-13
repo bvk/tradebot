@@ -4,7 +4,6 @@ package limiter
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"strings"
 
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/gobs"
-	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvkgo/kv"
@@ -44,13 +41,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 				break
 			}
 
-			gv, err := kvutil.Get[gobs.LimiterState](ctx, r, k)
-			if err != nil {
-				return err
-			}
-
-			d, _ := json.Marshal(gv)
-			fmt.Printf("key=%s value=%s\n", k, d)
+			fmt.Println(k)
 		}
 
 		if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
