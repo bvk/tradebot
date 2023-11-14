@@ -23,6 +23,15 @@ type ProductType struct {
 	BaseMaxSize  BigFloat `json:"base_max_size"`
 }
 
+type CandleType struct {
+	Start  string `json:"start"`
+	Low    string `json:"low"`
+	High   string `json:"high"`
+	Open   string `json:"open"`
+	Close  string `json:"close"`
+	Volume string `json:"volume"`
+}
+
 type MessageType struct {
 	Type string `json:"type"`
 

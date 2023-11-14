@@ -41,6 +41,10 @@ type GetProductResponse struct {
 	QuoteDisplaySymbol        string          `json:"quote_display_symbol,omitempty"`
 }
 
+type GetProductCandlesResponse struct {
+	Candles []*CandleType `json:"candles"`
+}
+
 type ListOrdersResponse struct {
 	Orders   []*OrderType `json:"orders"`
 	Sequence string       `json:"sequence,number"`
