@@ -25,7 +25,7 @@ func TestProductCandles(t *testing.T) {
 	}()
 
 	from := time.Now().Add(-24 * time.Hour)
-	resp, err := c.getProductCandles(c.ctx, "BCH-USD", from, OneHourCandle)
+	resp, err := c.getProductCandles(c.ctx, "BCH-USD", from, OneMinuteCandle)
 	if err != nil {
 		t.Fatal(err)
 	}

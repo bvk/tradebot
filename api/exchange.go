@@ -5,6 +5,7 @@ package api
 import (
 	"time"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
@@ -27,4 +28,20 @@ type ExchangeGetOrderResponse struct {
 	Status        string
 	Done          bool
 	DoneReason    string
+}
+
+type ExchangeGetCandlesRequest struct {
+	ExchangeName string
+	ProductID    string
+
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+type ExchangeGetCandlesResponse struct {
+	Error string
+
+	Candles []*gobs.Candle
+
+	Continue *ExchangeGetCandlesRequest
 }

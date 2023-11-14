@@ -4,7 +4,9 @@ package exchange
 
 import (
 	"context"
+	"time"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
@@ -58,4 +60,5 @@ type Product interface {
 
 type Exchange interface {
 	GetOrder(ctx context.Context, id OrderID) (*Order, error)
+	GetHourCandles(ctx context.Context, productID string, from time.Time) ([]*gobs.Candle, error)
 }

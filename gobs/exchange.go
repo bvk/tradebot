@@ -27,3 +27,16 @@ type Order struct {
 	Done       bool
 	DoneReason string
 }
+
+type Candle struct {
+	StartTime RemoteTime
+	EndTime   RemoteTime
+
+	Low  decimal.Decimal
+	High decimal.Decimal
+
+	Open  decimal.Decimal
+	Close decimal.Decimal
+
+	Volume decimal.Decimal
+}

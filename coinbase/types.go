@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/shopspring/decimal"
 )
 
 type ProductType struct {
@@ -24,12 +25,12 @@ type ProductType struct {
 }
 
 type CandleType struct {
-	Start  string `json:"start"`
-	Low    string `json:"low"`
-	High   string `json:"high"`
-	Open   string `json:"open"`
-	Close  string `json:"close"`
-	Volume string `json:"volume"`
+	Start  int64           `json:"start,string"`
+	Low    decimal.Decimal `json:"low,string"`
+	High   decimal.Decimal `json:"high,string"`
+	Open   decimal.Decimal `json:"open,string"`
+	Close  decimal.Decimal `json:"close,string"`
+	Volume decimal.Decimal `json:"volume,string"`
 }
 
 type MessageType struct {
