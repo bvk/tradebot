@@ -36,7 +36,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		}
 		defer kv.Close(it)
 
-		for k, _, err := it.Fetch(ctx, false); err == nil; _, _, err = it.Fetch(ctx, true) {
+		for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
 			if !strings.HasPrefix(k, keyspace) {
 				break
 			}

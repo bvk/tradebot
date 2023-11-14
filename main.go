@@ -38,19 +38,23 @@ func main() {
 		new(limiter.Add),
 		new(limiter.List),
 		new(limiter.Get),
+		new(limiter.Upgrade),
 	}
 
 	looperCmds := []cli.Command{
 		new(looper.Add),
 		new(looper.List),
 		new(looper.Get),
+		new(looper.Upgrade),
 	}
 
 	wallerCmds := []cli.Command{
 		new(waller.Add),
 		new(waller.List),
 		new(waller.Get),
+		new(waller.Status),
 		new(waller.Query),
+		new(waller.Upgrade),
 	}
 
 	exchangeCmds := []cli.Command{

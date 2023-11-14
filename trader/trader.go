@@ -144,8 +144,7 @@ func (t *Trader) Stop(ctx context.Context) error {
 			}
 		}
 		key := path.Join(JobsKeyspace, id)
-		gstate := &gobs.TraderJobState{State: j.State(), NeedsManualResume: false}
-		log.Printf("job %v state is changed to %s", id, gstate.State)
+		gstate := &gobs.TraderJobState{CurrentState: string(j.State()), NeedsManualResume: false}
 		if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
@@ -258,7 +257,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 	defer kv.Close(it)
 
 	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		_, uid := path.Split(k)
+		uid := strings.TrimPrefix(k, limiter.DefaultKeyspace)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
@@ -292,7 +291,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 	defer kv.Close(it)
 
 	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		_, uid := path.Split(k)
+		uid := strings.TrimPrefix(k, looper.DefaultKeyspace)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
@@ -326,7 +325,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 	defer kv.Close(it)
 
 	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		_, uid := path.Split(k)
+		uid := strings.TrimPrefix(k, waller.DefaultKeyspace)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
@@ -404,8 +403,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	}
 
 	uid := uuid.New().String()
-	key := path.Join(limiter.DefaultKeyspace, uid)
-	limit, err := limiter.New(key, product.ID(), point)
+	limit, err := limiter.New(uid, product.ID(), point)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +421,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobs.TraderJobState{State: j.State()}
+	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
 	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
@@ -452,8 +450,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	}
 
 	uid := uuid.New().String()
-	key := path.Join(looper.DefaultKeyspace, uid)
-	loop, err := looper.New(key, req.Product, &req.Buy, &req.Sell)
+	loop, err := looper.New(uid, req.Product, &req.Buy, &req.Sell)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +467,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobs.TraderJobState{State: j.State()}
+	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
 	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
@@ -517,8 +514,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	}
 
 	uid := uuid.New().String()
-	key := path.Join(waller.DefaultKeyspace, uid)
-	wall, err := waller.New(key, req.Product, buys, sells)
+	wall, err := waller.New(uid, req.Product, buys, sells)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +531,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err := j.Resume(t.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobs.TraderJobState{State: j.State()}
+	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
 	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}

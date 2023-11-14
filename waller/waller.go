@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +23,10 @@ import (
 	"github.com/bvkgo/kv"
 )
 
-const DefaultKeyspace = "/wallers"
+const DefaultKeyspace = "/wallers/"
 
 type Waller struct {
-	key string
+	uid string
 
 	productID string
 
@@ -46,7 +49,7 @@ type Status struct {
 
 func New(uid string, productID string, buys, sells []*point.Point) (*Waller, error) {
 	w := &Waller{
-		key:        uid,
+		uid:        uid,
 		productID:  productID,
 		buyPoints:  buys,
 		sellPoints: sells,
@@ -68,8 +71,8 @@ func New(uid string, productID string, buys, sells []*point.Point) (*Waller, err
 }
 
 func (w *Waller) check() error {
-	if len(w.key) == 0 || !path.IsAbs(w.key) {
-		return fmt.Errorf("waller uid/key %q is invalid", w.key)
+	if len(w.uid) == 0 {
+		return fmt.Errorf("waller uid is empty")
 	}
 	if a, b := len(w.buyPoints), len(w.sellPoints); a != b {
 		return fmt.Errorf("number of buys %d must match sells %d", a, b)
@@ -94,12 +97,12 @@ func (w *Waller) check() error {
 }
 
 func (w *Waller) String() string {
-	return "waller:" + w.key
+	return "waller:" + w.uid
 }
 
 func (w *Waller) Status() *Status {
 	return &Status{
-		UID:        w.key,
+		UID:        w.uid,
 		ProductID:  w.productID,
 		BuyPoints:  w.buyPoints,
 		SellPoints: w.sellPoints,
@@ -135,31 +138,61 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	var loopers []string
 	for _, l := range w.loopers {
 		if err := l.Save(ctx, rw); err != nil {
-			return err
+			return fmt.Errorf("could not save looper state: %w", err)
 		}
 		s := l.Status()
 		loopers = append(loopers, s.UID)
 	}
 	gv := &gobs.WallerState{
-		ProductID:  w.productID,
-		BuyPoints:  w.buyPoints,
-		SellPoints: w.sellPoints,
-		Loopers:    loopers,
+		V2: &gobs.WallerStateV2{
+			ProductID:  w.productID,
+			LooperIDs:  loopers,
+			TradePairs: make([]*gobs.Pair, len(w.buyPoints)),
+		},
+	}
+	for i := range w.buyPoints {
+		gv.V2.TradePairs[i] = &gobs.Pair{
+			Buy: gobs.Point{
+				Size:   w.buyPoints[i].Size,
+				Price:  w.buyPoints[i].Price,
+				Cancel: w.buyPoints[i].Cancel,
+			},
+			Sell: gobs.Point{
+				Size:   w.sellPoints[i].Size,
+				Price:  w.sellPoints[i].Price,
+				Cancel: w.sellPoints[i].Cancel,
+			},
+		}
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
-		return err
+		return fmt.Errorf("could not encode waller state: %w", err)
 	}
-	return rw.Set(ctx, w.key, &buf)
+	key := w.uid
+	if !strings.HasPrefix(key, DefaultKeyspace) {
+		key = path.Join(DefaultKeyspace, w.uid)
+	}
+	if err := rw.Set(ctx, key, &buf); err != nil {
+		return fmt.Errorf("could not save waller state: %w", err)
+	}
+	return nil
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
-	gv, err := kvutil.Get[gobs.WallerState](ctx, r, uid)
+	key := uid
+	if !strings.HasPrefix(key, DefaultKeyspace) {
+		key = path.Join(DefaultKeyspace, uid)
+	}
+	gv, err := kvutil.Get[gobs.WallerState](ctx, r, key)
+	if errors.Is(err, os.ErrNotExist) {
+		gv, err = kvutil.Get[gobs.WallerState](ctx, r, uid)
+	}
 	if err != nil {
 		return nil, err
 	}
+	gv.Upgrade()
 	var loopers []*looper.Looper
-	for _, id := range gv.Loopers {
+	for _, id := range gv.V2.LooperIDs {
 		v, err := looper.Load(ctx, id, r)
 		if err != nil {
 			return nil, err
@@ -167,11 +200,23 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 		loopers = append(loopers, v)
 	}
 	w := &Waller{
-		key:        uid,
-		productID:  gv.ProductID,
+		uid:        uid,
+		productID:  gv.V2.ProductID,
 		loopers:    loopers,
-		buyPoints:  gv.BuyPoints,
-		sellPoints: gv.SellPoints,
+		buyPoints:  make([]*point.Point, len(gv.V2.TradePairs)),
+		sellPoints: make([]*point.Point, len(gv.V2.TradePairs)),
+	}
+	for i, pair := range gv.V2.TradePairs {
+		w.buyPoints[i] = &point.Point{
+			Size:   pair.Buy.Size,
+			Price:  pair.Buy.Price,
+			Cancel: pair.Buy.Cancel,
+		}
+		w.sellPoints[i] = &point.Point{
+			Size:   pair.Sell.Size,
+			Price:  pair.Sell.Price,
+			Cancel: pair.Sell.Cancel,
+		}
 	}
 	if err := w.check(); err != nil {
 		return nil, err

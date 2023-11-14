@@ -32,6 +32,9 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 			return nil, false, err
 		}
 	}
+	if gstate.CurrentState != "" {
+		gstate.State = job.State(gstate.CurrentState)
+	}
 
 	var pid string
 	var run func(context.Context, exchange.Product, kv.Database) error
@@ -82,6 +85,7 @@ func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.Pause
 
 	gstate := &gobs.TraderJobState{
 		State:             j.State(),
+		CurrentState:      string(j.State()),
 		NeedsManualResume: true,
 	}
 	key := path.Join(JobsKeyspace, req.UID)
@@ -120,6 +124,7 @@ func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.Res
 
 	gstate := &gobs.TraderJobState{
 		State:             j.State(),
+		CurrentState:      string(j.State()),
 		NeedsManualResume: false,
 	}
 	key := path.Join(JobsKeyspace, req.UID)
@@ -157,7 +162,8 @@ func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.Can
 	}
 
 	gstate := &gobs.TraderJobState{
-		State: j.State(),
+		State:        j.State(),
+		CurrentState: string(j.State()),
 	}
 	key := path.Join(JobsKeyspace, req.UID)
 	if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
@@ -181,6 +187,9 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 		if err != nil {
 			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
 			return ""
+		}
+		if v.CurrentState != "" {
+			return job.State(v.CurrentState)
 		}
 		return v.State
 	}

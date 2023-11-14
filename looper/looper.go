@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
@@ -19,12 +22,12 @@ import (
 	"github.com/bvkgo/kv"
 )
 
-const DefaultKeyspace = "/loopers"
+const DefaultKeyspace = "/loopers/"
 
 type Looper struct {
 	productID string
 
-	key string
+	uid string
 
 	buyPoint  point.Point
 	sellPoint point.Point
@@ -48,7 +51,7 @@ type Status struct {
 func New(uid string, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
 		productID: productID,
-		key:       uid,
+		uid:       uid,
 		buyPoint:  *buy,
 		sellPoint: *sell,
 	}
@@ -59,8 +62,8 @@ func New(uid string, productID string, buy, sell *point.Point) (*Looper, error) 
 }
 
 func (v *Looper) check() error {
-	if len(v.key) == 0 || !path.IsAbs(v.key) {
-		return fmt.Errorf("looper uid/key %q is invalid", v.key)
+	if len(v.uid) == 0 {
+		return fmt.Errorf("looper uid is empty")
 	}
 	if err := v.buyPoint.Check(); err != nil {
 		return fmt.Errorf("buy point %v is invalid", v.buyPoint)
@@ -78,12 +81,12 @@ func (v *Looper) check() error {
 }
 
 func (v *Looper) String() string {
-	return "looper:" + v.key
+	return "looper:" + v.uid
 }
 
 func (v *Looper) Status() *Status {
 	return &Status{
-		UID:       v.key,
+		UID:       v.uid,
 		ProductID: v.productID,
 		BuyPoint:  v.buyPoint,
 		SellPoint: v.sellPoint,
@@ -160,7 +163,7 @@ func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.
 		}
 	}
 
-	uid := path.Join(v.key, fmt.Sprintf("buy-%06d", len(v.buys)))
+	uid := path.Join(v.uid, fmt.Sprintf("buy-%06d", len(v.buys)))
 	b, err := limiter.New(uid, product.ID(), &v.buyPoint)
 	if err != nil {
 		return err
@@ -177,7 +180,7 @@ func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv
 	// // Wait for the ticker to go below the sell point price.
 	// tickerCh := product.TickerCh()
 	// for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
-	// 	log.Printf("%v:%v:%v waiting for the ticker price to go below sell point", v.key, v.buyPoint, v.sellPoint)
+	// 	log.Printf("%v:%v:%v waiting for the ticker price to go below sell point", v.uid, v.buyPoint, v.sellPoint)
 	// 	select {
 	// 	case <-ctx.Done():
 	// 		return context.Cause(ctx)
@@ -186,7 +189,7 @@ func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv
 	// 	}
 	// }
 
-	uid := path.Join(v.key, fmt.Sprintf("sell-%06d", len(v.sells)))
+	uid := path.Join(v.uid, fmt.Sprintf("sell-%06d", len(v.sells)))
 	s, err := limiter.New(uid, product.ID(), &v.sellPoint)
 	if err != nil {
 		return err
@@ -201,41 +204,70 @@ func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv
 
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	var limiters []string
-	// TODO: We can avoid saving already completed limiters repeatedly.
 	for _, b := range v.buys {
 		if err := b.Save(ctx, rw); err != nil {
-			return err
+			return fmt.Errorf("could not save child limiter: %w", err)
 		}
 		s := b.Status()
 		limiters = append(limiters, s.UID)
 	}
 	for _, s := range v.sells {
 		if err := s.Save(ctx, rw); err != nil {
-			return err
+			return fmt.Errorf("could not save child limiter: %w", err)
 		}
 		ss := s.Status()
 		limiters = append(limiters, ss.UID)
 	}
 	gv := &gobs.LooperState{
-		ProductID: v.productID,
-		Limiters:  limiters,
-		BuyPoint:  v.buyPoint,
-		SellPoint: v.sellPoint,
+		V2: &gobs.LooperStateV2{
+			ProductID:  v.productID,
+			LimiterIDs: limiters,
+			TradePair: gobs.Pair{
+				Buy: gobs.Point{
+					Size:   v.buyPoint.Size,
+					Price:  v.buyPoint.Price,
+					Cancel: v.buyPoint.Cancel,
+				},
+				Sell: gobs.Point{
+					Size:   v.sellPoint.Size,
+					Price:  v.sellPoint.Price,
+					Cancel: v.sellPoint.Cancel,
+				},
+			},
+		},
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
-		return err
+		return fmt.Errorf("could not encode looper state: %w", err)
 	}
-	return rw.Set(ctx, v.key, &buf)
+	key := v.uid
+	if !strings.HasPrefix(key, DefaultKeyspace) {
+		v := strings.TrimPrefix(v.uid, "/wallers")
+		key = path.Join(DefaultKeyspace, v)
+	}
+	if err := rw.Set(ctx, key, &buf); err != nil {
+		return fmt.Errorf("could not save looper state: %w", err)
+	}
+	_ = rw.Delete(ctx, v.uid)
+	return nil
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
-	gv, err := kvutil.Get[gobs.LooperState](ctx, r, uid)
+	key := uid
+	if !strings.HasPrefix(key, DefaultKeyspace) {
+		v := strings.TrimPrefix(uid, "/wallers")
+		key = path.Join(DefaultKeyspace, v)
+	}
+	gv, err := kvutil.Get[gobs.LooperState](ctx, r, key)
+	if errors.Is(err, os.ErrNotExist) {
+		gv, err = kvutil.Get[gobs.LooperState](ctx, r, uid)
+	}
 	if err != nil {
 		return nil, err
 	}
+	gv.Upgrade()
 	var buys, sells []*limiter.Limiter
-	for _, id := range gv.Limiters {
+	for _, id := range gv.V2.LimiterIDs {
 		v, err := limiter.Load(ctx, id, r)
 		if err != nil {
 			return nil, err
@@ -252,12 +284,20 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 	}
 
 	v := &Looper{
-		key:       uid,
-		productID: gv.ProductID,
+		uid:       uid,
+		productID: gv.V2.ProductID,
 		buys:      buys,
 		sells:     sells,
-		buyPoint:  gv.BuyPoint,
-		sellPoint: gv.SellPoint,
+		buyPoint: point.Point{
+			Size:   gv.V2.TradePair.Buy.Size,
+			Price:  gv.V2.TradePair.Buy.Price,
+			Cancel: gv.V2.TradePair.Buy.Cancel,
+		},
+		sellPoint: point.Point{
+			Size:   gv.V2.TradePair.Sell.Size,
+			Price:  gv.V2.TradePair.Sell.Price,
+			Cancel: gv.V2.TradePair.Sell.Cancel,
+		},
 	}
 	if err := v.check(); err != nil {
 		return nil, err

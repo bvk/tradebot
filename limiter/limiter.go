@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
@@ -21,12 +23,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const DefaultKeyspace = "/limiters"
+const DefaultKeyspace = "/limiters/"
 
 type Limiter struct {
 	productID string
 
-	key string
+	uid string
 
 	point point.Point
 
@@ -59,7 +61,7 @@ type Status struct {
 func New(uid string, productID string, point *point.Point) (*Limiter, error) {
 	v := &Limiter{
 		productID:       productID,
-		key:             uid,
+		uid:             uid,
 		point:           *point,
 		idgen:           newIDGenerator(uid, 0),
 		orderMap:        make(map[exchange.OrderID]*exchange.Order),
@@ -72,8 +74,8 @@ func New(uid string, productID string, point *point.Point) (*Limiter, error) {
 }
 
 func (v *Limiter) check() error {
-	if len(v.key) == 0 || !path.IsAbs(v.key) {
-		return fmt.Errorf("limiter uid/key %q is invalid", v.key)
+	if len(v.uid) == 0 {
+		return fmt.Errorf("limiter uid is empty")
 	}
 	if err := v.point.Check(); err != nil {
 		return fmt.Errorf("limiter buy/sell point is invalid: %w", err)
@@ -82,7 +84,7 @@ func (v *Limiter) check() error {
 }
 
 func (v *Limiter) String() string {
-	return "limiter:" + v.key
+	return "limiter:" + v.uid
 }
 
 func (v *Limiter) Side() string {
@@ -91,7 +93,7 @@ func (v *Limiter) Side() string {
 
 func (v *Limiter) Status() *Status {
 	return &Status{
-		UID:       v.key,
+		UID:       v.uid,
 		ProductID: v.productID,
 		Side:      v.point.Side(),
 		Point:     v.point,
@@ -135,7 +137,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 	var activeOrderID exchange.OrderID
 	if nlive != 0 {
 		activeOrderID = live[0].OrderID
-		log.Printf("%s:%s: reusing existing order %s as the active order", v.key, v.point, activeOrderID)
+		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
 
 	var orderUpdatesCh <-chan *exchange.Order
@@ -147,7 +149,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		select {
 		case <-ctx.Done():
 			if activeOrderID != "" {
-				log.Printf("%s:%s: canceling active limit order %v (%v)", v.key, v.point, activeOrderID, context.Cause(ctx))
+				log.Printf("%s:%s: canceling active limit order %v (%v)", v.uid, v.point, activeOrderID, context.Cause(ctx))
 				if err := v.cancel(context.TODO(), product, activeOrderID); err != nil {
 					return err
 				}
@@ -219,7 +221,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		}
 	}
 
-	log.Printf("%s:%s: limit %s order is complete", v.key, v.point, v.Side())
+	log.Printf("%s:%s: limit %s order is complete", v.uid, v.point, v.Side())
 	if err := v.fetchOrderMap(ctx, product, len(v.orderMap)); err != nil {
 		return err
 	}
@@ -247,7 +249,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	}
 	if err != nil {
 		v.idgen.RevertID()
-		log.Printf("%s:%s: create limit %s order with client-order-id %s has failed (in %s): %v", v.key, v.point, v.Side(), clientOrderID, latency, err)
+		log.Printf("%s:%s: create limit %s order with client-order-id %s has failed (in %s): %v", v.uid, v.point, v.Side(), clientOrderID, latency, err)
 		return "", nil, err
 	}
 
@@ -258,16 +260,16 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	}
 	v.clientServerMap[clientOrderID.String()] = orderID
 
-	log.Printf("%s:%s: created a new limit %s order %s with client-order-id %s in %s", v.key, v.point, v.Side(), orderID, clientOrderID, latency)
+	log.Printf("%s:%s: created a new limit %s order %s with client-order-id %s in %s", v.uid, v.point, v.Side(), orderID, clientOrderID, latency)
 	return orderID, product.OrderUpdatesCh(orderID), nil
 }
 
 func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID exchange.OrderID) error {
 	if err := product.Cancel(ctx, activeOrderID); err != nil {
-		log.Printf("%s:%s: cancel limit %s order %s has failed: %v", v.key, v.point, v.Side(), activeOrderID, err)
+		log.Printf("%s:%s: cancel limit %s order %s has failed: %v", v.uid, v.point, v.Side(), activeOrderID, err)
 		return err
 	}
-	log.Printf("%s:%s: canceled the limit %s order %s", v.key, v.point, v.Side(), activeOrderID)
+	log.Printf("%s:%s: canceled the limit %s order %s", v.uid, v.point, v.Side(), activeOrderID)
 	return nil
 }
 
@@ -298,7 +300,7 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n
 			return err
 		}
 		jsdata, _ := json.Marshal(order)
-		log.Printf("%v:%s:%s: %s", v.key, v.point, id, jsdata)
+		log.Printf("%v:%s:%s: %s", v.uid, v.point, id, jsdata)
 		v.orderMap[id] = order
 		if n--; n <= 0 {
 			break
@@ -310,44 +312,97 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	v.compactOrderMap()
 	gv := &gobs.LimiterState{
-		UID:               v.key,
-		ProductID:         v.productID,
-		Offset:            v.idgen.Offset(),
-		Point:             v.point,
-		OrderMap:          v.orderMap,
-		ClientServerIDMap: make(map[string]string),
+		V2: &gobs.LimiterStateV2{
+			ProductID:      v.productID,
+			ClientIDOffset: v.idgen.Offset(),
+			TradePoint: gobs.Point{
+				Size:   v.point.Size,
+				Price:  v.point.Price,
+				Cancel: v.point.Cancel,
+			},
+			ClientServerIDMap: make(map[string]string),
+			ServerIDOrderMap:  make(map[string]*gobs.Order),
+		},
 	}
 	for k, v := range v.clientServerMap {
-		gv.ClientServerIDMap[k] = string(v)
+		gv.V2.ClientServerIDMap[k] = string(v)
+	}
+	for k, v := range v.orderMap {
+		order := &gobs.Order{
+			ServerOrderID: string(v.OrderID),
+			ClientOrderID: v.ClientOrderID,
+			CreateTime:    gobs.RemoteTime{Time: v.CreateTime.Time},
+			Side:          v.Side,
+			Status:        v.Status,
+			FilledFee:     v.Fee,
+			FilledSize:    v.FilledSize,
+			FilledPrice:   v.FilledPrice,
+			Done:          v.Done,
+			DoneReason:    v.DoneReason,
+		}
+		gv.V2.ServerIDOrderMap[string(k)] = order
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
-		return err
+		return fmt.Errorf("could not encode limiter state: %w", err)
 	}
-	return rw.Set(ctx, v.key, &buf)
+	key := v.uid
+	if !strings.HasPrefix(key, DefaultKeyspace) {
+		v := strings.TrimPrefix(v.uid, "/wallers")
+		key = path.Join(DefaultKeyspace, v)
+	}
+	if err := rw.Set(ctx, key, &buf); err != nil {
+		return fmt.Errorf("could not save limiter state: %w", err)
+	}
+	_ = rw.Delete(ctx, v.uid)
+	return nil
 }
 
 func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
-	gv, err := kvutil.Get[gobs.LimiterState](ctx, r, uid)
+	key := uid
+	if !strings.HasPrefix(key, DefaultKeyspace) {
+		v := strings.TrimPrefix(uid, "/wallers")
+		key = path.Join(DefaultKeyspace, v)
+	}
+	gv, err := kvutil.Get[gobs.LimiterState](ctx, r, key)
+	if errors.Is(err, os.ErrNotExist) {
+		gv, err = kvutil.Get[gobs.LimiterState](ctx, r, uid)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not load limiter state: %w", err)
 	}
-	if len(gv.UID) > 0 && gv.UID != uid {
-		return nil, fmt.Errorf("limiter uid mismatch")
-	}
+	gv.Upgrade()
 	v := &Limiter{
-		productID:       gv.ProductID,
-		key:             uid,
-		point:           gv.Point,
-		idgen:           newIDGenerator(uid, gv.Offset),
-		orderMap:        gv.OrderMap,
+		uid:       uid,
+		productID: gv.V2.ProductID,
+		idgen:     newIDGenerator(uid, gv.V2.ClientIDOffset),
+
+		point: point.Point{
+			Size:   gv.V2.TradePoint.Size,
+			Price:  gv.V2.TradePoint.Price,
+			Cancel: gv.V2.TradePoint.Cancel,
+		},
+
+		orderMap:        make(map[exchange.OrderID]*exchange.Order),
 		clientServerMap: make(map[string]exchange.OrderID),
 	}
-	if v.orderMap == nil {
-		v.orderMap = make(map[exchange.OrderID]*exchange.Order)
-	}
-	for kk, vv := range gv.ClientServerIDMap {
+	for kk, vv := range gv.V2.ClientServerIDMap {
 		v.clientServerMap[kk] = exchange.OrderID(vv)
+	}
+	for kk, vv := range gv.V2.ServerIDOrderMap {
+		order := &exchange.Order{
+			OrderID:       exchange.OrderID(vv.ServerOrderID),
+			ClientOrderID: vv.ClientOrderID,
+			CreateTime:    exchange.RemoteTime{Time: vv.CreateTime.Time},
+			Side:          vv.Side,
+			Status:        vv.Status,
+			Fee:           vv.FilledFee,
+			FilledSize:    vv.FilledSize,
+			FilledPrice:   vv.FilledPrice,
+			Done:          vv.Done,
+			DoneReason:    vv.DoneReason,
+		}
+		v.orderMap[exchange.OrderID(kk)] = order
 	}
 	return v, nil
 }
