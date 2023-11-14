@@ -13,31 +13,31 @@ import (
 	"github.com/bvk/tradebot/subcmds"
 )
 
-type Get struct {
+type GetOrder struct {
 	subcmds.ClientFlags
 
 	name string
 }
 
-func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("get", flag.ContinueOnError)
+func (c *GetOrder) Command() (*flag.FlagSet, cli.CmdFunc) {
+	fset := flag.NewFlagSet("get-order", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	fset.StringVar(&c.name, "name", "coinbase", "name of the exchange")
 	return fset, cli.CmdFunc(c.run)
 }
 
-func (c *Get) run(ctx context.Context, args []string) error {
+func (c *GetOrder) run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("this command takes one (order-id) argument")
 	}
 
-	req := &api.ExchangeGetRequest{
+	req := &api.ExchangeGetOrderRequest{
 		Name:    c.name,
 		OrderID: args[0],
 	}
-	resp, err := subcmds.Post[api.ExchangeGetResponse](ctx, &c.ClientFlags, "/exchange/get", req)
+	resp, err := subcmds.Post[api.ExchangeGetOrderResponse](ctx, &c.ClientFlags, "/exchange/get-order", req)
 	if err != nil {
-		return fmt.Errorf("POST request to exchange/get failed: %w", err)
+		return fmt.Errorf("POST request to exchange/get-order failed: %w", err)
 	}
 	jsdata, _ := json.MarshalIndent(resp, "", "  ")
 	fmt.Printf("%s\n", jsdata)

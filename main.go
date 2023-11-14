@@ -52,7 +52,7 @@ func main() {
 	}
 
 	exchangeCmds := []cli.Command{
-		new(exchange.Get),
+		new(exchange.GetOrder),
 	}
 
 	cmds := []cli.Command{

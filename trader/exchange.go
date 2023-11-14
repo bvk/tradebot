@@ -12,16 +12,16 @@ import (
 	"github.com/bvk/tradebot/exchange"
 )
 
-func (t *Trader) doExchangeGet(ctx context.Context, req *api.ExchangeGetRequest) (*api.ExchangeGetResponse, error) {
+func (t *Trader) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrderRequest) (*api.ExchangeGetOrderResponse, error) {
 	ex, ok := t.exchangeMap[strings.ToLower(req.Name)]
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.Name, os.ErrNotExist)
 	}
 	order, err := ex.GetOrder(ctx, exchange.OrderID(req.OrderID))
 	if err != nil {
-		return &api.ExchangeGetResponse{Error: err.Error()}, nil
+		return &api.ExchangeGetOrderResponse{Error: err.Error()}, nil
 	}
-	resp := &api.ExchangeGetResponse{
+	resp := &api.ExchangeGetOrderResponse{
 		OrderID:       string(order.OrderID),
 		ClientOrderID: order.ClientOrderID,
 		Side:          order.Side,

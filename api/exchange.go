@@ -8,13 +8,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type ExchangeGetRequest struct {
+type ExchangeGetOrderRequest struct {
 	Name string
 
 	OrderID string
 }
 
-type ExchangeGetResponse struct {
+type ExchangeGetOrderResponse struct {
 	Error string
 
 	OrderID       string
