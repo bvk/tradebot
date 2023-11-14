@@ -69,18 +69,18 @@ type TickerEventType struct {
 }
 
 type OrderEventType struct {
-	OrderID            string     `json:"order_id"`
-	ClientOrderID      string     `json:"client_order_id"`
-	Status             string     `json:"status"`
-	ProductID          string     `json:"product_id"`
-	CreatedTime        RemoteTime `json:"creation_time"`
-	OrderSide          string     `json:"order_side"`
-	OrderType          string     `json:"order_type"`
-	CancelReason       string     `json:"cancel_reason"`
-	RejectReason       string     `json:"reject_reason"`
-	CumulativeQuantity BigFloat   `json:"cumulative_quantity"`
-	TotalFees          BigFloat   `json:"total_fees"`
-	AvgPrice           BigFloat   `json:"avg_price"`
+	OrderID            string              `json:"order_id"`
+	ClientOrderID      string              `json:"client_order_id"`
+	Status             string              `json:"status"`
+	ProductID          string              `json:"product_id"`
+	CreatedTime        exchange.RemoteTime `json:"creation_time"`
+	OrderSide          string              `json:"order_side"`
+	OrderType          string              `json:"order_type"`
+	CancelReason       string              `json:"cancel_reason"`
+	RejectReason       string              `json:"reject_reason"`
+	CumulativeQuantity BigFloat            `json:"cumulative_quantity"`
+	TotalFees          BigFloat            `json:"total_fees"`
+	AvgPrice           BigFloat            `json:"avg_price"`
 }
 
 type OrderType struct {
@@ -97,9 +97,9 @@ type OrderType struct {
 	ProductID   string `json:"product_id"`
 	ProductType string `json:"product_type"`
 
-	Side        string     `json:"side"`
-	CreatedTime RemoteTime `json:"created_time"`
-	Settled     bool       `json:"settled"`
+	Side        string              `json:"side"`
+	CreatedTime exchange.RemoteTime `json:"created_time"`
+	Settled     bool                `json:"settled"`
 
 	FilledSize     BigFloat `json:"filled_size"`
 	AvgFilledPrice BigFloat `json:"average_filled_price"`

@@ -218,7 +218,7 @@ func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product,
 
 	product, ok := t.productMap[name]
 	if !ok {
-		p, err := t.coinbaseClient.NewProduct(name)
+		p, err := t.coinbaseClient.NewProduct(t.closeCtx, name)
 		if err != nil {
 			return nil, err
 		}

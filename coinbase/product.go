@@ -27,28 +27,36 @@ type Product struct {
 
 	productID string
 
+	productData *GetProductResponse
+
 	tickerCh    <-chan *exchange.Ticker
 	tickerTopic *topic.Topic[*exchange.Ticker]
 	tickerRecvr *topic.Receiver[*exchange.Ticker]
 }
 
-func (c *Client) NewProduct(product string) (_ *Product, status error) {
-	if !slices.Contains(c.spotProducts, product) {
+func (c *Client) NewProduct(ctx context.Context, name string) (_ *Product, status error) {
+	if !slices.Contains(c.spotProducts, name) {
 		return nil, os.ErrInvalid
 	}
 
-	ctx, cancel := context.WithCancelCause(c.ctx)
+	product, err := c.getProduct(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	pctx, pcancel := context.WithCancelCause(c.ctx)
 	defer func() {
 		if status != nil {
-			cancel(status)
+			pcancel(status)
 		}
 	}()
 
 	p := &Product{
-		ctx:         ctx,
-		cancel:      cancel,
+		ctx:         pctx,
+		cancel:      pcancel,
 		client:      c,
-		productID:   product,
+		productID:   name,
+		productData: product,
 		tickerTopic: topic.New[*exchange.Ticker](),
 	}
 
@@ -56,9 +64,13 @@ func (c *Client) NewProduct(product string) (_ *Product, status error) {
 	if err != nil {
 		return nil, err
 	}
-
 	p.tickerCh = ch
 	p.tickerRecvr = recvr
+
+	p.tickerTopic.SendCh() <- &exchange.Ticker{
+		Timestamp: c.now(),
+		Price:     product.Price,
+	}
 
 	p.wg.Add(1)
 	go p.goWatchPrice()
@@ -193,6 +205,13 @@ func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exc
 }
 
 func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
+	if size.LessThan(p.productData.BaseMinSize) {
+		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize, os.ErrInvalid)
+	}
+	if size.GreaterThan(p.productData.BaseMaxSize) {
+		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize, os.ErrInvalid)
+	}
+
 	// check if this is a retry request for the clientOrderID.
 	if v, ok := p.client.recreateOldOrder(clientOrderID); ok {
 		return exchange.OrderID(v), nil
@@ -221,6 +240,13 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 }
 
 func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
+	if size.LessThan(p.productData.BaseMinSize) {
+		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize, os.ErrInvalid)
+	}
+	if size.GreaterThan(p.productData.BaseMaxSize) {
+		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize, os.ErrInvalid)
+	}
+
 	// check if this is a retry request for the clientOrderID.
 	if v, ok := p.client.recreateOldOrder(clientOrderID); ok {
 		return exchange.OrderID(v), nil

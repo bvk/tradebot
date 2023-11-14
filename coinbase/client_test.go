@@ -53,7 +53,7 @@ func TestClient(t *testing.T) {
 		return
 	}
 
-	bch, err := c.NewProduct("BCH-USD")
+	bch, err := c.NewProduct(c.ctx, "BCH-USD")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -89,7 +89,7 @@ func (w *Websocket) Subscribe(ctx context.Context, channel string) error {
 		ProductIDs: w.products,
 		Channel:    channel,
 		APIKey:     w.client.key,
-		Timestamp:  w.client.now(),
+		Timestamp:  fmt.Sprintf("%d", w.client.now().Unix()),
 		Signature:  "",
 	}
 	subdata := fmt.Sprintf("%s%s%s", submsg.Timestamp, submsg.Channel, strings.Join(submsg.ProductIDs, ","))
@@ -121,7 +121,7 @@ func (w *Websocket) Unsubscribe(ctx context.Context, channel string) error {
 		ProductIDs: w.products,
 		Channel:    channel,
 		APIKey:     w.client.key,
-		Timestamp:  w.client.now(),
+		Timestamp:  fmt.Sprintf("%d", w.client.now().Unix()),
 		Signature:  "",
 	}
 	unsubdata := fmt.Sprintf("%s%s%s", unsubmsg.Timestamp, unsubmsg.Channel, strings.Join(unsubmsg.ProductIDs, ","))

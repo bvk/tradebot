@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"golang.org/x/time/rate"
 )
 
@@ -212,6 +213,19 @@ func (c *Client) listProducts(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
+func (c *Client) getProduct(ctx context.Context, name string) (*GetProductResponse, error) {
+	url := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/api/v3/brokerage/products/" + name,
+	}
+	resp := new(GetProductResponse)
+	if err := c.httpGetJSON(ctx, url, resp); err != nil {
+		return nil, fmt.Errorf("could not http-get product %q: %w", name, err)
+	}
+	return resp, nil
+}
+
 func (c *Client) listOldOrders(ctx context.Context, from time.Time, status string) ([]*OrderType, error) {
 	var result []*OrderType
 
@@ -231,13 +245,12 @@ func (c *Client) listOldOrders(ctx context.Context, from time.Time, status strin
 	return result, nil
 }
 
-func (c *Client) now() string {
-	at := time.Now().Add(-c.timeAdjustment)
-	return fmt.Sprintf("%d", at.Unix())
+func (c *Client) now() exchange.RemoteTime {
+	return exchange.RemoteTime{Time: time.Now().Add(-c.timeAdjustment)}
 }
 
 func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {
-	at := c.now()
+	at := fmt.Sprintf("%d", c.now().Unix())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
 		return err
@@ -485,7 +498,7 @@ func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, result
 	if err != nil {
 		return err
 	}
-	at := c.now()
+	at := fmt.Sprintf("%d", c.now().Unix())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(payload))
 	if err != nil {
 		return err
@@ -531,7 +544,7 @@ func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload in
 		return nil, err
 	}
 
-	at := c.now()
+	at := fmt.Sprintf("%d", c.now().Unix())
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(data))
 	if err != nil {
 		return nil, err
