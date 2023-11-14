@@ -51,6 +51,12 @@ type Client struct {
 
 	// concurrent map[string]*orderData
 	oldOrderDataMap sync.Map
+
+	// timeAdjustment is positive when local time is found to be ahead of the
+	// server time, in which case, this value must be subtracted from the local
+	// time before the local time can be used as a timestamp in the signature
+	// calculations.
+	timeAdjustment time.Duration
 }
 
 // New creates a client for coinbase exchange.
@@ -59,6 +65,11 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		opts = new(Options)
 	}
 	opts.setDefaults()
+
+	adjustment, err := findTimeAdjustment(context.Background())
+	if err != nil {
+		return nil, err
+	}
 
 	jar, err := cookiejar.New(nil /* options */)
 	if err != nil {
@@ -76,9 +87,10 @@ func New(key, secret string, opts *Options) (*Client, error) {
 			Jar:     jar,
 			Timeout: opts.HttpClientTimeout,
 		},
-		limiter:      rate.NewLimiter(25, 1),
-		oldFilled:    make(map[string]*OrderType),
-		oldCancelled: make(map[string]*OrderType),
+		limiter:        rate.NewLimiter(25, 1),
+		oldFilled:      make(map[string]*OrderType),
+		oldCancelled:   make(map[string]*OrderType),
+		timeAdjustment: adjustment,
 	}
 
 	// fetch product list.
@@ -138,6 +150,47 @@ func (c *Client) sleep(d time.Duration) error {
 	}
 }
 
+func findTimeAdjustment(ctx context.Context) (time.Duration, error) {
+	type ServerTime struct {
+		ISO string `json:"iso"`
+	}
+
+	for ; ctx.Err() == nil; time.Sleep(time.Second) {
+		start := time.Now()
+		resp, err := http.Get("https://api.exchange.coinbase.com/time")
+		stop := time.Now()
+
+		latency := stop.Sub(start)
+		if latency > 100*time.Millisecond {
+			continue // retry
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return 0, fmt.Errorf("could not ready server time response: %w", err)
+		}
+
+		var st ServerTime
+		if err := json.Unmarshal(body, &st); err != nil {
+			return 0, fmt.Errorf("could not unmarshal server time response: %w", err)
+		}
+
+		stime, err := time.Parse("2006-01-02T15:04:05.999Z", st.ISO)
+		if err != nil {
+			return 0, fmt.Errorf("could not parse server timestamp: %w", err)
+		}
+
+		ltime := start.Add(latency / 2)
+		adjust := ltime.Sub(stime)
+		if adjust < 0 {
+			return 0, nil
+		}
+		return adjust, nil
+	}
+
+	return 0, context.Cause(ctx)
+}
+
 func (c *Client) listProducts(ctx context.Context) ([]string, error) {
 	values := make(url.Values)
 	values.Set("product_type", "SPOT")
@@ -179,27 +232,8 @@ func (c *Client) listOldOrders(ctx context.Context, from time.Time, status strin
 }
 
 func (c *Client) now() string {
-	type ServerTime struct {
-		Epoch float64 `json:"epoch"`
-	}
-
-	for ; true; time.Sleep(time.Second) {
-		resp, err := http.Get("https://api.exchange.coinbase.com/time")
-		if err != nil {
-			continue
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-		var st ServerTime
-		if err := json.Unmarshal(body, &st); err != nil {
-			continue
-		}
-		return fmt.Sprintf("%d", int64(st.Epoch))
-	}
-
-	return "0"
+	at := time.Now().Add(-c.timeAdjustment)
+	return fmt.Sprintf("%d", at.Unix())
 }
 
 func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface{}) error {

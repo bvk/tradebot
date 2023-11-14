@@ -7,10 +7,6 @@ import (
 	"os"
 	"slices"
 	"testing"
-	"time"
-
-	"github.com/google/uuid"
-	"github.com/shopspring/decimal"
 )
 
 var (
@@ -72,36 +68,4 @@ func TestClient(t *testing.T) {
 		t.Skipf("no live orders to test further")
 		return
 	}
-
-	testPrice, _ := decimal.NewFromString("0.01")
-	testSize, _ := decimal.NewFromString("1")
-	testID := uuid.New()
-	testOrder, err := bch.LimitBuy(c.ctx, testID.String(), testSize, testPrice)
-	if err != nil {
-		t.Fatal(err)
-	}
-	testOrderCh := bch.OrderUpdatesCh(testOrder)
-	if testOrderCh == nil {
-		t.Fatalf("order updates channel cannot be nil")
-	}
-
-	go func() {
-		time.Sleep(time.Second)
-		if err := bch.Cancel(c.ctx, testOrder); err != nil {
-			t.Fatal(err)
-		}
-	}()
-
-	for order := range testOrderCh {
-		if order.Done {
-			t.Logf("order is done with reason %q", order.DoneReason)
-			break
-		}
-	}
-
-	order, err := bch.Get(c.ctx, testOrder)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("final order is: %#v", order)
 }

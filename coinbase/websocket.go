@@ -166,10 +166,10 @@ func (w *Websocket) readMessage(ctx context.Context) (*MessageType, error) {
 		return nil, err
 	}
 
-	// // Log only user channel messages.
-	// if smsg := string(msg); strings.Contains(smsg, `"channel":"user"`) {
-	// 	slog.InfoContext(ctx, smsg)
-	// }
+	// Log only user channel messages.
+	if smsg := string(msg); strings.Contains(smsg, `"channel":"user"`) {
+		slog.InfoContext(ctx, smsg)
+	}
 
 	m := new(MessageType)
 	if err := json.Unmarshal(msg, m); err != nil {

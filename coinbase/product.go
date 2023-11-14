@@ -56,14 +56,13 @@ func (c *Client) NewProduct(product string) (_ *Product, status error) {
 	if err != nil {
 		return nil, err
 	}
+
 	p.tickerCh = ch
 	p.tickerRecvr = recvr
 
 	p.wg.Add(1)
 	go p.goWatchPrice()
 
-	// Wait till initial ticker price is received.
-	<-p.tickerCh
 	return p, nil
 }
 
