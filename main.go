@@ -23,6 +23,8 @@ func main() {
 		new(db.Set),
 		new(db.Delete),
 		new(db.List),
+		new(db.Backup),
+		new(db.Restore),
 	}
 
 	jobCmds := []cli.Command{

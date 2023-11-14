@@ -20,7 +20,7 @@ func (c *Set) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs two (key, value) arguments")
 	}
 
-	db, err := c.Flags.GetDatabase()
+	db, err := c.Flags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}

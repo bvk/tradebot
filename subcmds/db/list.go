@@ -43,7 +43,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.Flags.GetDatabase()
+	db, err := c.Flags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
