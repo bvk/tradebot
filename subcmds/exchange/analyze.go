@@ -52,7 +52,7 @@ func (c *Analyze) getCandles(ctx context.Context, start, end time.Time) ([]*gobs
 	for {
 		resp, err := subcmds.Post[api.ExchangeGetCandlesResponse](ctx, &c.ClientFlags, "/exchange/get-candles", req)
 		if err != nil {
-			return nil, fmt.Errorf("POST request to exchange/get-order failed: %w", err)
+			return nil, fmt.Errorf("POST request to exchange/get-candles failed: %w", err)
 		}
 		candles = append(candles, resp.Candles...)
 		if resp.Continue == nil {

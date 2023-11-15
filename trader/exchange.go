@@ -38,6 +38,18 @@ func (t *Trader) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 	return resp, nil
 }
 
+func (t *Trader) doGetProduct(ctx context.Context, req *api.ExchangeGetProductRequest) (*api.ExchangeGetProductResponse, error) {
+	ex, ok := t.exchangeMap[strings.ToLower(req.ExchangeName)]
+	if !ok {
+		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
+	}
+	product, err := ex.GetProduct(ctx, req.ProductID)
+	if err != nil {
+		return &api.ExchangeGetProductResponse{Error: err.Error()}, nil
+	}
+	return &api.ExchangeGetProductResponse{Product: product}, nil
+}
+
 func (t *Trader) doGetCandles(ctx context.Context, req *api.ExchangeGetCandlesRequest) (*api.ExchangeGetCandlesResponse, error) {
 	ex, ok := t.exchangeMap[strings.ToLower(req.ExchangeName)]
 	if !ok {

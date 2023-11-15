@@ -30,6 +30,17 @@ type ExchangeGetOrderResponse struct {
 	DoneReason    string
 }
 
+type ExchangeGetProductRequest struct {
+	ExchangeName string
+	ProductID    string
+}
+
+type ExchangeGetProductResponse struct {
+	Error string
+
+	Product *gobs.Product
+}
+
 type ExchangeGetCandlesRequest struct {
 	ExchangeName string
 	ProductID    string

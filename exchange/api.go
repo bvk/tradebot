@@ -59,6 +59,7 @@ type Product interface {
 }
 
 type Exchange interface {
+	GetProduct(ctx context.Context, id string) (*gobs.Product, error)
 	GetOrder(ctx context.Context, id OrderID) (*Order, error)
 	GetHourCandles(ctx context.Context, productID string, from time.Time) ([]*gobs.Candle, error)
 }

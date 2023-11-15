@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"golang.org/x/time/rate"
 )
 
@@ -225,6 +226,33 @@ func (c *Client) getProduct(ctx context.Context, productID string) (*GetProductR
 		return nil, fmt.Errorf("could not http-get product %q: %w", productID, err)
 	}
 	return resp, nil
+}
+
+func (c *Client) GetProduct(ctx context.Context, productID string) (*gobs.Product, error) {
+	resp, err := c.getProduct(ctx, productID)
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch product %q info: %w", productID, err)
+	}
+	product := &gobs.Product{
+		ProductID: resp.ProductID,
+		Status:    resp.Status,
+		Price:     resp.Price,
+
+		BaseName:          resp.BaseName,
+		BaseMinSize:       resp.BaseMinSize,
+		BaseMaxSize:       resp.BaseMaxSize,
+		BaseIncrement:     resp.BaseIncrement,
+		BaseDisplaySymbol: resp.BaseDisplaySymbol,
+		BaseCurrencyID:    resp.BaseCurrencyID,
+
+		QuoteName:          resp.QuoteName,
+		QuoteMinSize:       resp.QuoteMinSize,
+		QuoteMaxSize:       resp.QuoteMaxSize,
+		QuoteIncrement:     resp.QuoteIncrement,
+		QuoteDisplaySymbol: resp.QuoteDisplaySymbol,
+		QuoteCurrencyID:    resp.QuoteCurrencyID,
+	}
+	return product, nil
 }
 
 func (c *Client) listOldOrders(ctx context.Context, from time.Time, status string) ([]*OrderType, error) {

@@ -40,3 +40,24 @@ type Candle struct {
 
 	Volume decimal.Decimal
 }
+
+type Product struct {
+	ProductID string
+	Status    string
+
+	Price decimal.Decimal
+
+	BaseName          string
+	BaseCurrencyID    string
+	BaseDisplaySymbol string
+	BaseMinSize       decimal.Decimal
+	BaseMaxSize       decimal.Decimal
+	BaseIncrement     decimal.Decimal
+
+	QuoteName          string
+	QuoteCurrencyID    string
+	QuoteDisplaySymbol string
+	QuoteMinSize       decimal.Decimal
+	QuoteMaxSize       decimal.Decimal
+	QuoteIncrement     decimal.Decimal
+}
