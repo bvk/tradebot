@@ -77,8 +77,9 @@ func (p *Point) Value() decimal.Decimal {
 }
 
 // SellPoint returns a sell point for the input buy point with the given profit
-// margin. Returned sell point uses the size as the buy point and the same
-// cancel price offset as the buy point, but on the opposite side.
+// margin. Returned sell point uses the full size of the buy point as the sell
+// size and uses the same cancel price offset as the buy point, but on the
+// opposite side.
 //
 // Returns non-nil error if the input point is not a buy point or cancel offset
 // becomes inappropriate.

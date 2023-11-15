@@ -49,7 +49,7 @@ func (s *Spec) BuySellPairs() []*point.Pair {
 func (s *Spec) setDefaults() {
 }
 
-func (s *Spec) check() error {
+func (s *Spec) Check() error {
 	s.setDefaults()
 
 	if s.beginPriceRange <= 0 || s.endPriceRange <= 0 {

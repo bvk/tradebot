@@ -20,7 +20,7 @@ type Query struct {
 }
 
 func (c *Query) run(ctx context.Context, args []string) error {
-	if err := c.spec.check(); err != nil {
+	if err := c.spec.Check(); err != nil {
 		return err
 	}
 	pairs := c.spec.BuySellPairs()
