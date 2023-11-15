@@ -193,6 +193,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 	gv.Upgrade()
 	var loopers []*looper.Looper
 	for _, id := range gv.V2.LooperIDs {
+		id := strings.TrimPrefix(id, DefaultKeyspace) // TODO: Remove after prod rollout.
 		v, err := looper.Load(ctx, id, r)
 		if err != nil {
 			return nil, err

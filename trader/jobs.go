@@ -32,8 +32,9 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 			return nil, false, err
 		}
 	}
+	var state job.State
 	if gstate.CurrentState != "" {
-		gstate.State = job.State(gstate.CurrentState)
+		state = job.State(gstate.CurrentState)
 	}
 
 	var pid string
@@ -54,7 +55,7 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		return nil, false, fmt.Errorf("job %s product %q is not enabled (ignored)", id, pid)
 	}
 
-	j := job.New(gstate.State, func(ctx context.Context) error {
+	j := job.New(state, func(ctx context.Context) error {
 		return run(ctx, product, t.db)
 	})
 	return j, gstate.NeedsManualResume, nil
@@ -84,7 +85,6 @@ func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.Pause
 	}
 
 	gstate := &gobs.TraderJobState{
-		State:             j.State(),
 		CurrentState:      string(j.State()),
 		NeedsManualResume: true,
 	}
@@ -95,7 +95,7 @@ func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.Pause
 	t.jobMap.Delete(req.UID)
 
 	resp := &api.PauseResponse{
-		FinalState: string(gstate.State),
+		FinalState: gstate.CurrentState,
 	}
 	return resp, nil
 }
@@ -123,7 +123,6 @@ func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.Res
 	}
 
 	gstate := &gobs.TraderJobState{
-		State:             j.State(),
 		CurrentState:      string(j.State()),
 		NeedsManualResume: false,
 	}
@@ -134,7 +133,7 @@ func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.Res
 	t.jobMap.Store(req.UID, j)
 
 	resp := &api.ResumeResponse{
-		FinalState: string(gstate.State),
+		FinalState: gstate.CurrentState,
 	}
 	return resp, nil
 }
@@ -162,7 +161,6 @@ func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.Can
 	}
 
 	gstate := &gobs.TraderJobState{
-		State:        j.State(),
 		CurrentState: string(j.State()),
 	}
 	key := path.Join(JobsKeyspace, req.UID)
@@ -172,7 +170,7 @@ func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.Can
 	t.jobMap.Delete(req.UID)
 
 	resp := &api.CancelResponse{
-		FinalState: string(gstate.State),
+		FinalState: gstate.CurrentState,
 	}
 	return resp, nil
 }
@@ -188,10 +186,7 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
 			return ""
 		}
-		if v.CurrentState != "" {
-			return job.State(v.CurrentState)
-		}
-		return v.State
+		return job.State(v.CurrentState)
 	}
 
 	resp := new(api.ListResponse)

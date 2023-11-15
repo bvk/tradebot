@@ -256,11 +256,11 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 	key := uid
 	if !strings.HasPrefix(key, DefaultKeyspace) {
 		v := strings.TrimPrefix(uid, "/wallers")
-		key = path.Join(DefaultKeyspace, v)
+		key = path.Join(DefaultKeyspace, v) // TODO: Make this default
 	}
 	gv, err := kvutil.Get[gobs.LooperState](ctx, r, key)
 	if errors.Is(err, os.ErrNotExist) {
-		gv, err = kvutil.Get[gobs.LooperState](ctx, r, uid)
+		gv, err = kvutil.Get[gobs.LooperState](ctx, r, uid) // TODO: Remove after prod rollout
 	}
 	if err != nil {
 		return nil, err

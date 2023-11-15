@@ -144,11 +144,12 @@ func (t *Trader) Stop(ctx context.Context) error {
 			}
 		}
 		key := path.Join(JobsKeyspace, id)
-		gstate := &gobs.TraderJobState{CurrentState: string(j.State()), NeedsManualResume: false}
+		state := j.State()
+		gstate := &gobs.TraderJobState{CurrentState: string(state), NeedsManualResume: false}
 		if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
-		if job.IsFinal(gstate.State) {
+		if job.IsFinal(state) {
 			t.jobMap.Delete(id)
 		}
 		return true
