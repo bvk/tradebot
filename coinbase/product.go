@@ -69,7 +69,7 @@ func (c *Client) NewProduct(ctx context.Context, name string) (_ *Product, statu
 
 	p.tickerTopic.SendCh() <- &exchange.Ticker{
 		Timestamp: c.now(),
-		Price:     product.Price,
+		Price:     product.Price.Decimal,
 	}
 
 	p.wg.Add(1)
@@ -205,11 +205,11 @@ func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exc
 }
 
 func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
-	if size.LessThan(p.productData.BaseMinSize) {
-		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize, os.ErrInvalid)
+	if size.LessThan(p.productData.BaseMinSize.Decimal) {
+		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
 	}
-	if size.GreaterThan(p.productData.BaseMaxSize) {
-		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize, os.ErrInvalid)
+	if size.GreaterThan(p.productData.BaseMaxSize.Decimal) {
+		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize.Decimal, os.ErrInvalid)
 	}
 
 	// check if this is a retry request for the clientOrderID.
@@ -223,8 +223,8 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 		Side:          "BUY",
 		Order: OrderConfigType{
 			LimitGTC: &LimitLimitGTCType{
-				BaseSize:   BigFloat{size},
-				LimitPrice: BigFloat{price},
+				BaseSize:   NullDecimal{Decimal: size},
+				LimitPrice: NullDecimal{Decimal: price},
 			},
 		},
 	}
@@ -240,11 +240,11 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 }
 
 func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
-	if size.LessThan(p.productData.BaseMinSize) {
-		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize, os.ErrInvalid)
+	if size.LessThan(p.productData.BaseMinSize.Decimal) {
+		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
 	}
-	if size.GreaterThan(p.productData.BaseMaxSize) {
-		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize, os.ErrInvalid)
+	if size.GreaterThan(p.productData.BaseMaxSize.Decimal) {
+		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize.Decimal, os.ErrInvalid)
 	}
 
 	// check if this is a retry request for the clientOrderID.
@@ -258,8 +258,8 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 		Side:          "SELL",
 		Order: OrderConfigType{
 			LimitGTC: &LimitLimitGTCType{
-				BaseSize:   BigFloat{size},
-				LimitPrice: BigFloat{price},
+				BaseSize:   NullDecimal{Decimal: size},
+				LimitPrice: NullDecimal{Decimal: price},
 			},
 		},
 	}

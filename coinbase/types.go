@@ -1,10 +1,11 @@
+// Copyright (c) 2023 BVK Chaitanya
+
 package coinbase
 
 import (
 	"slices"
 
 	"github.com/bvk/tradebot/exchange"
-	"github.com/shopspring/decimal"
 )
 
 type ProductType struct {
@@ -12,25 +13,25 @@ type ProductType struct {
 	Status     string `json:"status"`
 	IsDisabled bool   `json:"is_disabled"`
 
-	Price     BigFloat `json:"price"`
-	BaseName  string   `json:"base_name"`
-	QuoteName string   `json:"quote_name"`
-	BaseIncr  BigFloat `json:"base_increment"`
-	QuoteIncr BigFloat `json:"quote_increment"`
+	Price     NullDecimal `json:"price"`
+	BaseName  string      `json:"base_name"`
+	QuoteName string      `json:"quote_name"`
+	BaseIncr  NullDecimal `json:"base_increment"`
+	QuoteIncr NullDecimal `json:"quote_increment"`
 
-	QuoteMinSize BigFloat `json:"quote_min_size"`
-	QuoteMaxSize BigFloat `json:"quote_max_size"`
-	BaseMinSize  BigFloat `json:"base_min_size"`
-	BaseMaxSize  BigFloat `json:"base_max_size"`
+	QuoteMinSize NullDecimal `json:"quote_min_size"`
+	QuoteMaxSize NullDecimal `json:"quote_max_size"`
+	BaseMinSize  NullDecimal `json:"base_min_size"`
+	BaseMaxSize  NullDecimal `json:"base_max_size"`
 }
 
 type CandleType struct {
-	Start  int64           `json:"start,string"`
-	Low    decimal.Decimal `json:"low,string"`
-	High   decimal.Decimal `json:"high,string"`
-	Open   decimal.Decimal `json:"open,string"`
-	Close  decimal.Decimal `json:"close,string"`
-	Volume decimal.Decimal `json:"volume,string"`
+	Start  int64       `json:"start,string"`
+	Low    NullDecimal `json:"low"`
+	High   NullDecimal `json:"high"`
+	Open   NullDecimal `json:"open"`
+	Close  NullDecimal `json:"close"`
+	Volume NullDecimal `json:"volume"`
 }
 
 type MessageType struct {
@@ -60,22 +61,22 @@ type EventType struct {
 }
 
 type UpdateEventType struct {
-	Side        string   `json:"side"`
-	EventTime   string   `json:"event_time"`
-	PriceLevel  BigFloat `json:"price_level"`
-	NewQuantity BigFloat `json:"new_quantity"`
+	Side        string      `json:"side"`
+	EventTime   string      `json:"event_time"`
+	PriceLevel  NullDecimal `json:"price_level"`
+	NewQuantity NullDecimal `json:"new_quantity"`
 }
 
 type TickerEventType struct {
-	Type        string   `json:"type"`
-	ProductID   string   `json:"product_id"`
-	Price       BigFloat `json:"price"`
-	Volume24H   BigFloat `json:"volume_24_h"`
-	Low24H      BigFloat `json:"low_24_h"`
-	High24H     BigFloat `json:"high_24_h"`
-	Low52W      BigFloat `json:"low_52_w"`
-	High52W     BigFloat `json:"high_52_w"`
-	PricePct24H BigFloat `json:"price_percent_chg_24_h"`
+	Type        string      `json:"type"`
+	ProductID   string      `json:"product_id"`
+	Price       NullDecimal `json:"price"`
+	Volume24H   NullDecimal `json:"volume_24_h"`
+	Low24H      NullDecimal `json:"low_24_h"`
+	High24H     NullDecimal `json:"high_24_h"`
+	Low52W      NullDecimal `json:"low_52_w"`
+	High52W     NullDecimal `json:"high_52_w"`
+	PricePct24H NullDecimal `json:"price_percent_chg_24_h"`
 }
 
 type OrderEventType struct {
@@ -88,9 +89,9 @@ type OrderEventType struct {
 	OrderType          string              `json:"order_type"`
 	CancelReason       string              `json:"cancel_reason"`
 	RejectReason       string              `json:"reject_reason"`
-	CumulativeQuantity BigFloat            `json:"cumulative_quantity"`
-	TotalFees          BigFloat            `json:"total_fees"`
-	AvgPrice           BigFloat            `json:"avg_price"`
+	CumulativeQuantity NullDecimal         `json:"cumulative_quantity"`
+	TotalFees          NullDecimal         `json:"total_fees"`
+	AvgPrice           NullDecimal         `json:"avg_price"`
 }
 
 type OrderType struct {
@@ -111,13 +112,13 @@ type OrderType struct {
 	CreatedTime exchange.RemoteTime `json:"created_time"`
 	Settled     bool                `json:"settled"`
 
-	FilledSize     BigFloat `json:"filled_size"`
-	AvgFilledPrice BigFloat `json:"average_filled_price"`
-	NumberOfFills  string   `json:"number_of_fills"`
-	FilledValue    BigFloat `json:"filled_value"`
+	FilledSize     NullDecimal `json:"filled_size"`
+	AvgFilledPrice NullDecimal `json:"average_filled_price"`
+	NumberOfFills  string      `json:"number_of_fills"`
+	FilledValue    NullDecimal `json:"filled_value"`
 
-	Fee       BigFloat `json:"fee"`
-	TotalFees BigFloat `json:"total_fees"`
+	Fee       NullDecimal `json:"fee"`
+	TotalFees NullDecimal `json:"total_fees"`
 
 	RejectReason  string `json:"reject_reason"`
 	RejectMessage string `json:"reject_message"`
@@ -146,36 +147,36 @@ func toExchangeOrder(v *OrderType) *exchange.Order {
 }
 
 type MarketMarketIOCType struct {
-	QuoteSize BigFloat `json:"quote_size"`
-	BaseSize  BigFloat `json:"base_size"`
+	QuoteSize NullDecimal `json:"quote_size"`
+	BaseSize  NullDecimal `json:"base_size"`
 }
 
 type LimitLimitGTCType struct {
-	BaseSize   BigFloat `json:"base_size"`
-	LimitPrice BigFloat `json:"limit_price"`
-	PostOnly   bool     `json:"post_only"`
+	BaseSize   NullDecimal `json:"base_size"`
+	LimitPrice NullDecimal `json:"limit_price"`
+	PostOnly   bool        `json:"post_only"`
 }
 
 type LimitLimitGTDType struct {
-	BaseSize   BigFloat `json:"base_size"`
-	LimitPrice BigFloat `json:"limit_price"`
-	PostOnly   bool     `json:"post_only"`
-	EndTime    string   `json:"end_time"`
+	BaseSize   NullDecimal `json:"base_size"`
+	LimitPrice NullDecimal `json:"limit_price"`
+	PostOnly   bool        `json:"post_only"`
+	EndTime    string      `json:"end_time"`
 }
 
 type StopLimitStopLimitGTCType struct {
-	BaseSize      BigFloat `json:"base_size"`
-	LimitPrice    BigFloat `json:"limit_price"`
-	StopPrice     BigFloat `json:"stop_price"`
-	StopDirection string   `json:"stop_direction"`
+	BaseSize      NullDecimal `json:"base_size"`
+	LimitPrice    NullDecimal `json:"limit_price"`
+	StopPrice     NullDecimal `json:"stop_price"`
+	StopDirection string      `json:"stop_direction"`
 }
 
 type StopLimitStopLimitGTDType struct {
-	BaseSize      BigFloat `json:"base_size"`
-	LimitPrice    BigFloat `json:"limit_price"`
-	StopPrice     BigFloat `json:"stop_price"`
-	StopDirection string   `json:"stop_direction"`
-	EndTime       string   `json:"end_time"`
+	BaseSize      NullDecimal `json:"base_size"`
+	LimitPrice    NullDecimal `json:"limit_price"`
+	StopPrice     NullDecimal `json:"stop_price"`
+	StopDirection string      `json:"stop_direction"`
+	EndTime       string      `json:"end_time"`
 }
 
 type OrderConfigType struct {

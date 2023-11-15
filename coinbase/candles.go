@@ -76,11 +76,11 @@ func (c *Client) GetHourCandles(ctx context.Context, productID string, from time
 		start := time.Unix(c.Start, 0).UTC()
 		gc := &gobs.Candle{
 			StartTime: gobs.RemoteTime{Time: start},
-			Low:       c.Low,
-			High:      c.High,
-			Open:      c.Open,
-			Close:     c.Close,
-			Volume:    c.Volume,
+			Low:       c.Low.Decimal,
+			High:      c.High.Decimal,
+			Open:      c.Open.Decimal,
+			Close:     c.Close.Decimal,
+			Volume:    c.Volume.Decimal,
 		}
 		gc.EndTime = gobs.RemoteTime{Time: start.Add(time.Hour)}
 		cs = append(cs, gc)

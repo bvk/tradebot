@@ -4,11 +4,11 @@ package coinbase
 
 import "github.com/shopspring/decimal"
 
-type BigFloat struct {
-	decimal.Decimal
+type NullDecimal struct {
+	Decimal decimal.Decimal
 }
 
-func (v *BigFloat) UnmarshalJSON(raw []byte) error {
+func (v *NullDecimal) UnmarshalJSON(raw []byte) error {
 	if s := string(raw); s == "" || s == `""` {
 		v.Decimal = decimal.Zero
 		return nil
@@ -21,6 +21,6 @@ func (v *BigFloat) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-func (v *BigFloat) MarshalJSON() ([]byte, error) {
+func (v NullDecimal) MarshalJSON() ([]byte, error) {
 	return v.Decimal.MarshalJSON()
 }

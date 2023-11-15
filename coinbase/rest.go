@@ -2,48 +2,46 @@
 
 package coinbase
 
-import "github.com/shopspring/decimal"
-
 type ListProductsResponse struct {
 	NumProducts int32         `json:"num_products"`
 	Products    []ProductType `json:"products"`
 }
 
 type GetProductResponse struct {
-	ProductID string `json:"product_id,omitempty"`
-	Status    string `json:"status,omitempty"`
+	ProductID string `json:"product_id"`
+	Status    string `json:"status"`
 
-	Price                    decimal.Decimal `json:"price,omitempty,string"`
-	PricePercentageChange24h decimal.Decimal `json:"price_percentage_change_24h,omitempty,string"`
+	Price                    NullDecimal `json:"price"`
+	PricePercentageChange24h NullDecimal `json:"price_percentage_change_24h"`
 
-	Volume24h                 decimal.Decimal `json:"volume_24h,omitempty,string"`
-	VolumePercentageChange24h decimal.Decimal `json:"volume_percentage_change_24h,omitempty,string"`
+	Volume24h                 NullDecimal `json:"volume_24h"`
+	VolumePercentageChange24h NullDecimal `json:"volume_percentage_change_24h"`
 
-	BaseIncrement     decimal.Decimal `json:"base_increment,omitempty,string"`
-	BaseMinSize       decimal.Decimal `json:"base_min_size,omitempty,string"`
-	BaseMaxSize       decimal.Decimal `json:"base_max_size,omitempty,string"`
-	BaseName          string          `json:"base_name,omitempty"`
-	BaseCurrencyID    string          `json:"base_currency_id,omitempty"`
-	BaseDisplaySymbol string          `json:"base_display_symbol,omitempty"`
+	BaseIncrement     NullDecimal `json:"base_increment"`
+	BaseMinSize       NullDecimal `json:"base_min_size"`
+	BaseMaxSize       NullDecimal `json:"base_max_size"`
+	BaseName          string      `json:"base_name"`
+	BaseCurrencyID    string      `json:"base_currency_id"`
+	BaseDisplaySymbol string      `json:"base_display_symbol"`
 
-	QuoteIncrement     decimal.Decimal `json:"quote_increment,omitempty,string"`
-	QuoteMinSize       decimal.Decimal `json:"quote_min_size,omitempty,string"`
-	QuoteMaxSize       decimal.Decimal `json:"quote_max_size,omitempty,string"`
-	QuoteName          string          `json:"quote_name,omitempty"`
-	QuoteCurrencyID    string          `json:"quote_currency_id,omitempty"`
-	QuoteDisplaySymbol string          `json:"quote_display_symbol,omitempty"`
+	QuoteIncrement     NullDecimal `json:"quote_increment"`
+	QuoteMinSize       NullDecimal `json:"quote_min_size"`
+	QuoteMaxSize       NullDecimal `json:"quote_max_size"`
+	QuoteName          string      `json:"quote_name"`
+	QuoteCurrencyID    string      `json:"quote_currency_id"`
+	QuoteDisplaySymbol string      `json:"quote_display_symbol"`
 
-	Watched                  bool   `json:"watched,omitempty"`
-	IsDisabled               bool   `json:"is_disabled,omitempty"`
-	New                      bool   `json:"new,omitempty"`
-	CancelOnly               bool   `json:"cancel_only,omitempty"`
-	LimitOnly                bool   `json:"limit_only,omitempty"`
-	PostOnly                 bool   `json:"post_only,omitempty"`
-	TradingDisabled          bool   `json:"trading_disabled,omitempty"`
-	AuctionMode              bool   `json:"auction_mode,omitempty"`
-	ProductType              string `json:"product_type,omitempty"`
-	FcmTradingSessionDetails string `json:"fcm_trading_session_details,omitempty"`
-	MidMarketPrice           string `json:"mid_market_price,omitempty"`
+	Watched                  bool   `json:"watched"`
+	IsDisabled               bool   `json:"is_disabled"`
+	New                      bool   `json:"new"`
+	CancelOnly               bool   `json:"cancel_only"`
+	LimitOnly                bool   `json:"limit_only"`
+	PostOnly                 bool   `json:"post_only"`
+	TradingDisabled          bool   `json:"trading_disabled"`
+	AuctionMode              bool   `json:"auction_mode"`
+	ProductType              string `json:"product_type"`
+	FcmTradingSessionDetails string `json:"fcm_trading_session_details"`
+	MidMarketPrice           string `json:"mid_market_price"`
 }
 
 type GetProductCandlesResponse struct {

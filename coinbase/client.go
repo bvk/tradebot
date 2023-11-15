@@ -236,19 +236,19 @@ func (c *Client) GetProduct(ctx context.Context, productID string) (*gobs.Produc
 	product := &gobs.Product{
 		ProductID: resp.ProductID,
 		Status:    resp.Status,
-		Price:     resp.Price,
+		Price:     resp.Price.Decimal,
 
 		BaseName:          resp.BaseName,
-		BaseMinSize:       resp.BaseMinSize,
-		BaseMaxSize:       resp.BaseMaxSize,
-		BaseIncrement:     resp.BaseIncrement,
+		BaseMinSize:       resp.BaseMinSize.Decimal,
+		BaseMaxSize:       resp.BaseMaxSize.Decimal,
+		BaseIncrement:     resp.BaseIncrement.Decimal,
 		BaseDisplaySymbol: resp.BaseDisplaySymbol,
 		BaseCurrencyID:    resp.BaseCurrencyID,
 
 		QuoteName:          resp.QuoteName,
-		QuoteMinSize:       resp.QuoteMinSize,
-		QuoteMaxSize:       resp.QuoteMaxSize,
-		QuoteIncrement:     resp.QuoteIncrement,
+		QuoteMinSize:       resp.QuoteMinSize.Decimal,
+		QuoteMaxSize:       resp.QuoteMaxSize.Decimal,
+		QuoteIncrement:     resp.QuoteIncrement.Decimal,
 		QuoteDisplaySymbol: resp.QuoteDisplaySymbol,
 		QuoteCurrencyID:    resp.QuoteCurrencyID,
 	}
@@ -304,14 +304,14 @@ func (c *Client) httpGetJSON(ctx context.Context, url *url.URL, result interface
 		return fmt.Errorf("http GET returned %d", resp.StatusCode)
 	}
 	var body io.Reader = resp.Body
-	/////
-	// data, err := ioutil.ReadAll(resp.Body)
+
+	// data, err := io.ReadAll(resp.Body)
 	// if err != nil {
 	// 	return err
 	// }
-	// slog.Info("response body", "data", data)
+	// log.Printf("response body: %s", data)
 	// body = bytes.NewReader(data)
-	/////
+
 	if err := json.NewDecoder(body).Decode(result); err != nil {
 		slog.Error("could not decode response to json", "error", err)
 		return err
