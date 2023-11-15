@@ -59,7 +59,7 @@ func main() {
 
 	exchangeCmds := []cli.Command{
 		new(exchange.GetOrder),
-		new(exchange.GetCandles),
+		new(exchange.Analyze),
 	}
 
 	cmds := []cli.Command{
