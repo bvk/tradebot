@@ -4,21 +4,25 @@ package trader
 
 import (
 	"context"
+	"crypto/md5"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
+	"github.com/google/uuid"
 )
 
 // createJob creates a job instance for the given trader id. Current state of
@@ -191,28 +195,101 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 
 	resp := new(api.ListResponse)
 	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
+		name, _ := t.idNameMap.Load(id)
 		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
 			UID:   id,
 			Type:  "Limiter",
 			State: string(getState(id)),
+			Name:  name,
 		})
 		return true
 	})
 	t.looperMap.Range(func(id string, l *looper.Looper) bool {
+		name, _ := t.idNameMap.Load(id)
 		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
 			UID:   id,
 			Type:  "Looper",
 			State: string(getState(id)),
+			Name:  name,
 		})
 		return true
 	})
 	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
+		name, _ := t.idNameMap.Load(id)
 		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
 			UID:   id,
 			Type:  "Waller",
 			State: string(getState(id)),
+			Name:  name,
 		})
 		return true
 	})
 	return resp, nil
+}
+
+func (t *Trader) doRename(ctx context.Context, req *api.RenameRequest) (*api.RenameResponse, error) {
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("invalid rename request: %w", err)
+	}
+
+	// TODO: If NewName is empty, we should just delete the OldName.
+
+	uid := req.UID
+
+	rename := func(ctx context.Context, rw kv.ReadWriter) error {
+		if len(uid) == 0 {
+			checksum := md5.Sum([]byte(req.OldName))
+			key := path.Join(NamesKeyspace, uuid.UUID(checksum).String())
+			old, err := kvutil.Get[gobs.NameData](ctx, rw, key)
+			if err != nil {
+				return fmt.Errorf("could not load old name data: %w", err)
+			}
+			if !strings.HasPrefix(old.Data, JobsKeyspace) {
+				return fmt.Errorf("old name is not a job: %w", os.ErrInvalid)
+			}
+			if err := rw.Delete(ctx, key); err != nil {
+				return fmt.Errorf("could not delete old name: %w", err)
+			}
+			uid = strings.TrimPrefix(old.Data, JobsKeyspace)
+		}
+
+		// Only valid jobs can be named.
+		if _, ok := t.jobMap.Load(uid); !ok {
+			if _, _, err := t.createJob(ctx, uid); err != nil {
+				return fmt.Errorf("job %s not found: %w", uid, os.ErrNotExist)
+			}
+		}
+
+		checksum := md5.Sum([]byte(req.NewName))
+		nkey := path.Join(NamesKeyspace, uuid.UUID(checksum).String())
+		if _, err := rw.Get(ctx, nkey); err == nil {
+			return fmt.Errorf("new name already exists: %w", os.ErrExist)
+		}
+
+		jkey := path.Join(JobsKeyspace, uid)
+		state, err := kvutil.Get[gobs.TraderJobState](ctx, rw, jkey)
+		if err != nil {
+			return fmt.Errorf("could not load job state: %w", err)
+		}
+		state.JobName = req.NewName
+		if err := kvutil.Set(ctx, rw, jkey, state); err != nil {
+			return fmt.Errorf("could not update job name: %w", err)
+		}
+
+		v := &gobs.NameData{
+			Name: req.NewName,
+			Data: path.Join(JobsKeyspace, uid),
+		}
+		if err := kvutil.Set(ctx, rw, nkey, v); err != nil {
+			return fmt.Errorf("could not set new name: %w", err)
+		}
+
+		return nil
+	}
+	if err := kv.WithReadWriter(ctx, t.db, rename); err != nil {
+		return nil, err
+	}
+
+	t.idNameMap.Store(uid, req.NewName)
+	return &api.RenameResponse{UID: uid}, nil
 }

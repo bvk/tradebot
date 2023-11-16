@@ -51,6 +51,7 @@ type ListResponseItem struct {
 	UID   string
 	Type  string
 	State string
+	Name  string
 }
 
 type ListResponse struct {
