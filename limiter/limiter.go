@@ -145,12 +145,13 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 	dirty := true
 	tickerCh := product.TickerCh()
 
+	localCtx := context.Background()
 	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
 		select {
 		case <-ctx.Done():
 			if activeOrderID != "" {
 				log.Printf("%s:%s: canceling active limit order %v (%v)", v.uid, v.point, activeOrderID, context.Cause(ctx))
-				if err := v.cancel(context.TODO(), product, activeOrderID); err != nil {
+				if err := v.cancel(localCtx, product, activeOrderID); err != nil {
 					return err
 				}
 			}
@@ -176,7 +177,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 			if v.Side() == "SELL" {
 				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
-						if err := v.cancel(ctx, product, activeOrderID); err != nil {
+						if err := v.cancel(localCtx, product, activeOrderID); err != nil {
 							return err
 						}
 						dirty = true
@@ -185,7 +186,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 				}
 				if ticker.Price.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, ch, err := v.create(ctx, product)
+						id, ch, err := v.create(localCtx, product)
 						if err != nil {
 							return err
 						}
@@ -199,7 +200,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 			if v.Side() == "BUY" {
 				if ticker.Price.GreaterThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
-						if err := v.cancel(ctx, product, activeOrderID); err != nil {
+						if err := v.cancel(localCtx, product, activeOrderID); err != nil {
 							return err
 						}
 						dirty = true
@@ -208,7 +209,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, ch, err := v.create(ctx, product)
+						id, ch, err := v.create(localCtx, product)
 						if err != nil {
 							return err
 						}
