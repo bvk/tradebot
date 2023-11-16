@@ -28,6 +28,9 @@ func (c *Add) check() error {
 	if err := c.spec.Check(); err != nil {
 		return err
 	}
+	if c.product == "" {
+		return fmt.Errorf("product name must be specified")
+	}
 	return nil
 }
 
@@ -93,7 +96,7 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	c.ClientFlags.SetFlags(fset)
 	c.spec.SetFlags(fset)
 	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
-	fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
+	fset.StringVar(&c.product, "product", "", "product id for the trade")
 	return fset, cli.CmdFunc(c.Run)
 }
 

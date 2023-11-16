@@ -207,7 +207,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 	}
 	summary.budget = BudgetWithFeeAt(pairs, summary.feePct)
 	duration := time.Now().Sub(summary.firstOrderTime)
-	numDays := int64(duration / time.Hour / 24)
+	numDays := int64(duration/time.Hour/24) + 1
 	profitPerYear := summary.profit.Div(decimal.NewFromInt(numDays)).Mul(DaysPerYear)
 	summary.apr = profitPerYear.Mul(Hundred).Div(summary.budget)
 
