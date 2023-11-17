@@ -5,9 +5,10 @@ package api
 import (
 	"time"
 
-	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
+
+const ExchangeGetOrderPath = "/exchange/get-order"
 
 type ExchangeGetOrderRequest struct {
 	Name string
@@ -28,31 +29,4 @@ type ExchangeGetOrderResponse struct {
 	Status        string
 	Done          bool
 	DoneReason    string
-}
-
-type ExchangeGetProductRequest struct {
-	ExchangeName string
-	ProductID    string
-}
-
-type ExchangeGetProductResponse struct {
-	Error string
-
-	Product *gobs.Product
-}
-
-type ExchangeGetCandlesRequest struct {
-	ExchangeName string
-	ProductID    string
-
-	StartTime time.Time
-	EndTime   time.Time
-}
-
-type ExchangeGetCandlesResponse struct {
-	Error string
-
-	Candles []*gobs.Candle
-
-	Continue *ExchangeGetCandlesRequest
 }

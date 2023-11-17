@@ -35,9 +35,9 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 		Name:    c.name,
 		OrderID: args[0],
 	}
-	resp, err := subcmds.Post[api.ExchangeGetOrderResponse](ctx, &c.ClientFlags, "/exchange/get-order", req)
+	resp, err := subcmds.Post[api.ExchangeGetOrderResponse](ctx, &c.ClientFlags, api.ExchangeGetOrderPath, req)
 	if err != nil {
-		return fmt.Errorf("POST request to exchange/get-order failed: %w", err)
+		return fmt.Errorf("POST request to get-order failed: %w", err)
 	}
 	jsdata, _ := json.MarshalIndent(resp, "", "  ")
 	fmt.Printf("%s\n", jsdata)

@@ -118,9 +118,9 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	t.handlerMap[api.LoopPath] = httpPostJSONHandler(t.doLoop)
 	t.handlerMap[api.WallPath] = httpPostJSONHandler(t.doWall)
 
-	t.handlerMap["/exchange/get-order"] = httpPostJSONHandler(t.doExchangeGetOrder)
-	t.handlerMap["/exchange/get-product"] = httpPostJSONHandler(t.doGetProduct)
-	t.handlerMap["/exchange/get-candles"] = httpPostJSONHandler(t.doGetCandles)
+	t.handlerMap[api.ExchangeGetOrderPath] = httpPostJSONHandler(t.doExchangeGetOrder)
+	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
+	t.handlerMap[api.ExchangeGetCandlesPath] = httpPostJSONHandler(t.doGetCandles)
 
 	// TODO: Resume existing traders.
 

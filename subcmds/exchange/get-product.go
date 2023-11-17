@@ -35,9 +35,9 @@ func (c *GetProduct) run(ctx context.Context, args []string) error {
 		ExchangeName: c.name,
 		ProductID:    args[0],
 	}
-	resp, err := subcmds.Post[api.ExchangeGetProductResponse](ctx, &c.ClientFlags, "/exchange/get-product", req)
+	resp, err := subcmds.Post[api.ExchangeGetProductResponse](ctx, &c.ClientFlags, api.ExchangeGetProductPath, req)
 	if err != nil {
-		return fmt.Errorf("POST request to exchange/get-product failed: %w", err)
+		return fmt.Errorf("POST request to get-product failed: %w", err)
 	}
 
 	jsdata, _ := json.MarshalIndent(resp, "", "  ")
