@@ -7,14 +7,11 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
-type Point struct {
-	Size   decimal.Decimal
-	Price  decimal.Decimal
-	Cancel decimal.Decimal
-}
+type Point gobs.Point
 
 func (p Point) String() string {
 	return fmt.Sprintf("%s:%s@%s", p.Side(), p.Size, p.Price.StringFixed(2))
