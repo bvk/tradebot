@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kv/kvmemdb"
@@ -77,4 +79,20 @@ func (f *Flags) GetDatabase(ctx context.Context) (kv.Database, error) {
 	addrURL := f.ClientFlags.AddressURL()
 	addrURL.Path = path.Join(addrURL.Path, f.dbURLPath)
 	return kvhttp.New(addrURL, f.ClientFlags.HttpClient()), nil
+}
+
+func (f *Flags) ResolveName(ctx context.Context, arg string) (string, error) {
+	name := arg
+	if strings.HasPrefix(arg, "name:") {
+		name = strings.TrimPrefix(arg, "name:")
+	}
+	db, err := f.GetDatabase(ctx)
+	if err != nil {
+		return "", fmt.Errorf("could not create database client: %w", err)
+	}
+	v, err := trader.ResolveName(ctx, db, name)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve name %q: %w", arg, err)
+	}
+	return v, nil
 }
