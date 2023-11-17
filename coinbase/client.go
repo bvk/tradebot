@@ -476,21 +476,21 @@ func (c *Client) recreateOldOrder(clientOrderID string) (string, bool) {
 }
 
 func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (*CreateOrderResponse, error) {
-	var old *OrderType
-	if v, ok := c.oldFilled[request.ClientOrderID]; ok {
-		old = v
-	} else if v, ok := c.oldCancelled[request.ClientOrderID]; ok {
-		old = v
-	}
-	if old != nil {
-		data := c.newOrderData(old.OrderID)
-		if old, ok := c.orderDataMap.LoadOrStore(old.OrderID, data); ok {
-			data.Close()
-			data = old.(*orderData)
-		}
-		data.topic.SendCh() <- toExchangeOrder(old)
-		return &CreateOrderResponse{OrderID: old.OrderID, Success: true}, nil
-	}
+	// var old *OrderType
+	// if v, ok := c.oldFilled[request.ClientOrderID]; ok {
+	// 	old = v
+	// } else if v, ok := c.oldCancelled[request.ClientOrderID]; ok {
+	// 	old = v
+	// }
+	// if old != nil {
+	// 	data := c.newOrderData(old.OrderID)
+	// 	if old, ok := c.orderDataMap.LoadOrStore(old.OrderID, data); ok {
+	// 		data.Close()
+	// 		data = old.(*orderData)
+	// 	}
+	// 	data.topic.SendCh() <- toExchangeOrder(old)
+	// 	return &CreateOrderResponse{OrderID: old.OrderID, Success: true}, nil
+	// }
 
 	url := &url.URL{
 		Scheme: "https",
@@ -550,7 +550,11 @@ func (c *Client) httpPostJSON(ctx context.Context, url *url.URL, request, result
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
+	s := time.Now()
 	resp, err := c.client.Do(req)
+	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
+		log.Printf("warning: post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout)
+	}
 	if err != nil {
 		return err
 	}
