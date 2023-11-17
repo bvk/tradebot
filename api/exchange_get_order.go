@@ -3,9 +3,7 @@
 package api
 
 import (
-	"time"
-
-	"github.com/shopspring/decimal"
+	"github.com/bvk/tradebot/gobs"
 )
 
 const ExchangeGetOrderPath = "/exchange/get-order"
@@ -19,14 +17,5 @@ type ExchangeGetOrderRequest struct {
 type ExchangeGetOrderResponse struct {
 	Error string
 
-	OrderID       string
-	ClientOrderID string
-	Side          string
-	CreateTime    time.Time
-	Fee           decimal.Decimal
-	FilledSize    decimal.Decimal
-	FilledPrice   decimal.Decimal
-	Status        string
-	Done          bool
-	DoneReason    string
+	Order *gobs.Order
 }

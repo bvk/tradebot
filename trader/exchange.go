@@ -12,6 +12,7 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 )
 
 func (t *Trader) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrderRequest) (*api.ExchangeGetOrderResponse, error) {
@@ -24,16 +25,18 @@ func (t *Trader) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 		return &api.ExchangeGetOrderResponse{Error: err.Error()}, nil
 	}
 	resp := &api.ExchangeGetOrderResponse{
-		OrderID:       string(order.OrderID),
-		ClientOrderID: order.ClientOrderID,
-		Side:          order.Side,
-		CreateTime:    order.CreateTime.Time,
-		Fee:           order.Fee,
-		FilledSize:    order.FilledSize,
-		FilledPrice:   order.FilledPrice,
-		Status:        order.Status,
-		Done:          order.Done,
-		DoneReason:    order.DoneReason,
+		Order: &gobs.Order{
+			ServerOrderID: string(order.OrderID),
+			ClientOrderID: order.ClientOrderID,
+			Side:          order.Side,
+			Status:        order.Status,
+			CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
+			FilledFee:     order.Fee,
+			FilledSize:    order.FilledSize,
+			FilledPrice:   order.FilledPrice,
+			Done:          order.Done,
+			DoneReason:    order.DoneReason,
+		},
 	}
 	return resp, nil
 }
