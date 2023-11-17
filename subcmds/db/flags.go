@@ -7,13 +7,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"time"
 
+	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kv/kvmemdb"
@@ -22,9 +20,9 @@ import (
 )
 
 type Flags struct {
-	port        int
-	ip          string
-	basePath    string
+	subcmds.ClientFlags
+
+	dbURLPath   string
 	httpTimeout time.Duration
 
 	dataDir string
@@ -42,10 +40,8 @@ func (f *Flags) SetFlags(fset *flag.FlagSet) {
 
 	fset.StringVar(&f.fromBackup, "from-backup", "", "Path to a database backup file")
 
-	fset.IntVar(&f.port, "port", 10000, "TCP port number for the db endpoint")
-	fset.StringVar(&f.ip, "ip", "127.0.0.1", "TCP ip address for the db endpoint")
-	fset.StringVar(&f.basePath, "base-path", "/db", "path to db api handler")
-	fset.DurationVar(&f.httpTimeout, "http-timeout", 1*time.Second, "http client timeout")
+	f.ClientFlags.SetFlags(fset)
+	fset.StringVar(&f.dbURLPath, "db-url-path", "/db", "path to db api handler")
 }
 
 func (f *Flags) GetDatabase(ctx context.Context) (kv.Database, error) {
@@ -78,14 +74,7 @@ func (f *Flags) GetDatabase(ctx context.Context) (kv.Database, error) {
 		return kvbadger.New(bdb, isGoodKey), nil
 	}
 
-	baseURL := &url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(f.ip, fmt.Sprintf("%d", f.port)),
-		Path:   f.basePath,
-	}
-	client := &http.Client{
-		Timeout: f.httpTimeout,
-	}
-
-	return kvhttp.New(baseURL, client), nil
+	addrURL := f.ClientFlags.AddressURL()
+	addrURL.Path = path.Join(addrURL.Path, f.dbURLPath)
+	return kvhttp.New(addrURL, f.ClientFlags.HttpClient()), nil
 }
