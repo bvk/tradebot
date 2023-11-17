@@ -432,22 +432,17 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		}
 	}()
 
-	product, err := t.getProduct(ctx, req.Product)
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("invalid limit request: %w", err)
+	}
+
+	product, err := t.getProduct(ctx, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
 
-	point := &point.Point{
-		Size:   req.Size,
-		Price:  req.Price,
-		Cancel: req.CancelPrice,
-	}
-	if err := point.Check(); err != nil {
-		return nil, err
-	}
-
 	uid := uuid.New().String()
-	limit, err := limiter.New(uid, product.ID(), point)
+	limit, err := limiter.New(uid, product.ID(), req.TradePoint)
 	if err != nil {
 		return nil, err
 	}

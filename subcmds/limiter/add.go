@@ -10,6 +10,7 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/shopspring/decimal"
 )
@@ -67,10 +68,12 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.LimitRequest{
-		Product:     c.product,
-		Size:        decimal.NewFromFloat(c.size),
-		Price:       decimal.NewFromFloat(c.price),
-		CancelPrice: decimal.NewFromFloat(cancelPrice),
+		ProductID: c.product,
+		TradePoint: &point.Point{
+			Size:   decimal.NewFromFloat(c.size),
+			Price:  decimal.NewFromFloat(c.price),
+			Cancel: decimal.NewFromFloat(cancelPrice),
+		},
 	}
 	resp, err := subcmds.Post[api.LimitResponse](ctx, &c.ClientFlags, api.LimitPath, req)
 	if err != nil {

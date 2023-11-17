@@ -2,22 +2,32 @@
 
 package api
 
-import "github.com/shopspring/decimal"
+import (
+	"fmt"
+
+	"github.com/bvk/tradebot/point"
+)
 
 const LimitPath = "/trader/limit"
 
 type LimitRequest struct {
-	Product string
+	ProductID string
 
-	Size decimal.Decimal
-
-	Price decimal.Decimal
-
-	CancelPrice decimal.Decimal
+	TradePoint *point.Point
 }
 
 type LimitResponse struct {
 	UID string
 
 	Side string
+}
+
+func (r *LimitRequest) Check() error {
+	if len(r.ProductID) == 0 {
+		return fmt.Errorf("product id cannot be empty")
+	}
+	if err := r.TradePoint.Check(); err != nil {
+		return fmt.Errorf("invalid trade point: %w", err)
+	}
+	return nil
 }
