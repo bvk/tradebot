@@ -82,6 +82,8 @@ func (c *Get) unmarshal(r io.Reader) (any, error) {
 		v = new(gobs.WallerState)
 	case "KeyValue":
 		v = new(gobs.KeyValue)
+	case "NameData":
+		v = new(gobs.NameData)
 	default:
 		return nil, fmt.Errorf("unsupported type name %q", c.typename)
 	}
