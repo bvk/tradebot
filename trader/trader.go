@@ -108,15 +108,15 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	// FIXME: We need to find a cleaner way to load default products. We need it
 	// before REST api is enabled.
 
-	t.handlerMap["/trader/list"] = httpPostJSONHandler(t.doList)
-	t.handlerMap["/trader/cancel"] = httpPostJSONHandler(t.doCancel)
-	t.handlerMap["/trader/resume"] = httpPostJSONHandler(t.doResume)
-	t.handlerMap["/trader/pause"] = httpPostJSONHandler(t.doPause)
-	t.handlerMap[api.RenamePath] = httpPostJSONHandler(t.doRename)
+	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
+	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
+	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
+	t.handlerMap[api.JobPausePath] = httpPostJSONHandler(t.doPause)
+	t.handlerMap[api.JobRenamePath] = httpPostJSONHandler(t.doRename)
 
-	t.handlerMap["/trader/loop"] = httpPostJSONHandler(t.doLoop)
-	t.handlerMap["/trader/limit"] = httpPostJSONHandler(t.doLimit)
-	t.handlerMap["/trader/wall"] = httpPostJSONHandler(t.doWall)
+	t.handlerMap[api.LimitPath] = httpPostJSONHandler(t.doLimit)
+	t.handlerMap[api.LoopPath] = httpPostJSONHandler(t.doLoop)
+	t.handlerMap[api.WallPath] = httpPostJSONHandler(t.doWall)
 
 	t.handlerMap["/exchange/get-order"] = httpPostJSONHandler(t.doExchangeGetOrder)
 	t.handlerMap["/exchange/get-product"] = httpPostJSONHandler(t.doGetProduct)

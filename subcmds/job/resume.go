@@ -51,10 +51,10 @@ func (c *Resume) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not parse job id value %q as an uuid: %w", jobID, err)
 	}
 
-	req := &api.ResumeRequest{
+	req := &api.JobResumeRequest{
 		UID: jobID,
 	}
-	resp, err := subcmds.Post[api.ResumeResponse](ctx, &c.ClientFlags, "/trader/resume", req)
+	resp, err := subcmds.Post[api.JobResumeResponse](ctx, &c.ClientFlags, api.JobResumePath, req)
 	if err != nil {
 		return err
 	}

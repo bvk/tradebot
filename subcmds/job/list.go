@@ -28,8 +28,8 @@ func (c *List) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("this command takes no arguments")
 	}
 
-	req := &api.ListRequest{}
-	resp, err := subcmds.Post[api.ListResponse](ctx, &c.ClientFlags, "/trader/list", req)
+	req := &api.JobListRequest{}
+	resp, err := subcmds.Post[api.JobListResponse](ctx, &c.ClientFlags, api.JobListPath, req)
 	if err != nil {
 		return err
 	}

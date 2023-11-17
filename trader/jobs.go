@@ -67,7 +67,7 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 
 // doPause pauses a running job. If the job is not running and is not final
 // it's state is updated to manually-paused state.
-func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.PauseResponse, error) {
+func (t *Trader) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.JobPauseResponse, error) {
 	j, ok := t.jobMap.Load(req.UID)
 	if !ok {
 		v, _, err := t.createJob(ctx, req.UID)
@@ -78,7 +78,7 @@ func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.Pause
 	}
 
 	if job.IsFinal(j.State()) {
-		resp := &api.PauseResponse{
+		resp := &api.JobPauseResponse{
 			FinalState: string(j.State()),
 		}
 		return resp, nil
@@ -98,14 +98,14 @@ func (t *Trader) doPause(ctx context.Context, req *api.PauseRequest) (*api.Pause
 	}
 	t.jobMap.Delete(req.UID)
 
-	resp := &api.PauseResponse{
+	resp := &api.JobPauseResponse{
 		FinalState: gstate.CurrentState,
 	}
 	return resp, nil
 }
 
 // doResume resumes a non-final job.
-func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.ResumeResponse, error) {
+func (t *Trader) doResume(ctx context.Context, req *api.JobResumeRequest) (*api.JobResumeResponse, error) {
 	j, ok := t.jobMap.Load(req.UID)
 	if !ok {
 		v, _, err := t.createJob(ctx, req.UID)
@@ -116,7 +116,7 @@ func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.Res
 	}
 
 	if job.IsFinal(j.State()) {
-		resp := &api.ResumeResponse{
+		resp := &api.JobResumeResponse{
 			FinalState: string(j.State()),
 		}
 		return resp, nil
@@ -136,14 +136,14 @@ func (t *Trader) doResume(ctx context.Context, req *api.ResumeRequest) (*api.Res
 	}
 	t.jobMap.Store(req.UID, j)
 
-	resp := &api.ResumeResponse{
+	resp := &api.JobResumeResponse{
 		FinalState: gstate.CurrentState,
 	}
 	return resp, nil
 }
 
 // doCancel cancels a non-final job. If job is running, it will be stopped.
-func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.CancelResponse, error) {
+func (t *Trader) doCancel(ctx context.Context, req *api.JobCancelRequest) (*api.JobCancelResponse, error) {
 	j, ok := t.jobMap.Load(req.UID)
 	if !ok {
 		v, _, err := t.createJob(ctx, req.UID)
@@ -154,7 +154,7 @@ func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.Can
 	}
 
 	if job.IsFinal(j.State()) {
-		resp := &api.CancelResponse{
+		resp := &api.JobCancelResponse{
 			FinalState: string(j.State()),
 		}
 		return resp, nil
@@ -173,13 +173,13 @@ func (t *Trader) doCancel(ctx context.Context, req *api.CancelRequest) (*api.Can
 	}
 	t.jobMap.Delete(req.UID)
 
-	resp := &api.CancelResponse{
+	resp := &api.JobCancelResponse{
 		FinalState: gstate.CurrentState,
 	}
 	return resp, nil
 }
 
-func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListResponse, error) {
+func (t *Trader) doList(ctx context.Context, req *api.JobListRequest) (*api.JobListResponse, error) {
 	getState := func(id string) job.State {
 		if j, ok := t.jobMap.Load(id); ok {
 			return j.State()
@@ -193,10 +193,10 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 		return job.State(v.CurrentState)
 	}
 
-	resp := new(api.ListResponse)
+	resp := new(api.JobListResponse)
 	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
 		name, _ := t.idNameMap.Load(id)
-		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
+		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
 			UID:   id,
 			Type:  "Limiter",
 			State: string(getState(id)),
@@ -206,7 +206,7 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 	})
 	t.looperMap.Range(func(id string, l *looper.Looper) bool {
 		name, _ := t.idNameMap.Load(id)
-		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
+		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
 			UID:   id,
 			Type:  "Looper",
 			State: string(getState(id)),
@@ -216,7 +216,7 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 	})
 	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
 		name, _ := t.idNameMap.Load(id)
-		resp.Jobs = append(resp.Jobs, &api.ListResponseItem{
+		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
 			UID:   id,
 			Type:  "Waller",
 			State: string(getState(id)),
@@ -227,7 +227,7 @@ func (t *Trader) doList(ctx context.Context, req *api.ListRequest) (*api.ListRes
 	return resp, nil
 }
 
-func (t *Trader) doRename(ctx context.Context, req *api.RenameRequest) (*api.RenameResponse, error) {
+func (t *Trader) doRename(ctx context.Context, req *api.JobRenameRequest) (*api.JobRenameResponse, error) {
 	if err := req.Check(); err != nil {
 		return nil, fmt.Errorf("invalid rename request: %w", err)
 	}
@@ -291,5 +291,5 @@ func (t *Trader) doRename(ctx context.Context, req *api.RenameRequest) (*api.Ren
 	}
 
 	t.idNameMap.Store(uid, req.NewName)
-	return &api.RenameResponse{UID: uid}, nil
+	return &api.JobRenameResponse{UID: uid}, nil
 }

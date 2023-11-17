@@ -72,7 +72,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 			Cancel: decimal.NewFromFloat(c.sellPrice - c.sellCancelOffset),
 		},
 	}
-	resp, err := subcmds.Post[api.LoopResponse](ctx, &c.ClientFlags, "/trader/loop", req)
+	resp, err := subcmds.Post[api.LoopResponse](ctx, &c.ClientFlags, api.LoopPath, req)
 	if err != nil {
 		return err
 	}

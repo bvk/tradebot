@@ -51,10 +51,10 @@ func (c *Pause) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not parse job id value %q as an uuid: %w", jobID, err)
 	}
 
-	req := &api.PauseRequest{
+	req := &api.JobPauseRequest{
 		UID: jobID,
 	}
-	resp, err := subcmds.Post[api.PauseResponse](ctx, &c.ClientFlags, "/trader/pause", req)
+	resp, err := subcmds.Post[api.JobPauseResponse](ctx, &c.ClientFlags, api.JobPausePath, req)
 	if err != nil {
 		return err
 	}

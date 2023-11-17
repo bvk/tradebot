@@ -8,20 +8,20 @@ import (
 	"github.com/google/uuid"
 )
 
-const RenamePath = "/trader/rename"
+const JobRenamePath = "/trader/job/rename"
 
-type RenameRequest struct {
+type JobRenameRequest struct {
 	UID     string
 	OldName string
 
 	NewName string
 }
 
-type RenameResponse struct {
+type JobRenameResponse struct {
 	UID string
 }
 
-func (r *RenameRequest) Check() error {
+func (r *JobRenameRequest) Check() error {
 	if len(r.UID) == 0 && len(r.OldName) == 0 {
 		return fmt.Errorf("one of UID or OldName must be set")
 	}

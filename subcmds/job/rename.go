@@ -30,7 +30,7 @@ func (c *Rename) run(ctx context.Context, args []string) error {
 	}
 	oldName, newName := args[0], args[1]
 
-	req := &api.RenameRequest{
+	req := &api.JobRenameRequest{
 		NewName: newName,
 	}
 	if _, err := uuid.Parse(oldName); err == nil {
@@ -38,7 +38,7 @@ func (c *Rename) run(ctx context.Context, args []string) error {
 	} else {
 		req.OldName = oldName
 	}
-	resp, err := subcmds.Post[api.RenameResponse](ctx, &c.ClientFlags, api.RenamePath, req)
+	resp, err := subcmds.Post[api.JobRenameResponse](ctx, &c.ClientFlags, api.JobRenamePath, req)
 	if err != nil {
 		return err
 	}

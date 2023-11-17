@@ -72,7 +72,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 		Price:       decimal.NewFromFloat(c.price),
 		CancelPrice: decimal.NewFromFloat(cancelPrice),
 	}
-	resp, err := subcmds.Post[api.LimitResponse](ctx, &c.ClientFlags, "/trader/limit", req)
+	resp, err := subcmds.Post[api.LimitResponse](ctx, &c.ClientFlags, api.LimitPath, req)
 	if err != nil {
 		return err
 	}

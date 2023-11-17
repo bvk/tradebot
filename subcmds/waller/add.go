@@ -82,7 +82,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 		Product:       c.product,
 		BuySellPoints: points,
 	}
-	resp, err := subcmds.Post[api.WallResponse](ctx, &c.ClientFlags, "/trader/wall", req)
+	resp, err := subcmds.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req)
 	if err != nil {
 		return err
 	}

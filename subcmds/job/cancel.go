@@ -45,10 +45,10 @@ func (c *Cancel) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not parse job id value %q as an uuid: %w", jobID, err)
 	}
 
-	req := &api.CancelRequest{
+	req := &api.JobCancelRequest{
 		UID: jobID,
 	}
-	resp, err := subcmds.Post[api.CancelResponse](ctx, &c.ClientFlags, "/trader/cancel", req)
+	resp, err := subcmds.Post[api.JobCancelResponse](ctx, &c.ClientFlags, api.JobCancelPath, req)
 	if err != nil {
 		return err
 	}
