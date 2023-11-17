@@ -7,14 +7,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/db"
-	"github.com/bvk/tradebot/trader"
-	"github.com/google/uuid"
 )
 
 type Cancel struct {
@@ -26,23 +23,9 @@ func (c *Cancel) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("this command takes one (job-id) argument")
 	}
 
-	jobID := args[0]
-	if strings.HasPrefix(jobID, "name:") {
-		v, err := c.Flags.ResolveName(ctx, jobID)
-		if err != nil {
-			return fmt.Errorf("could not resolve job name %q: %w", jobID, err)
-		}
-		jobID = v
-	}
-
-	if strings.HasPrefix(jobID, "uuid:") {
-		jobID = strings.TrimPrefix(jobID, "uuid:")
-	} else if strings.HasPrefix(jobID, trader.JobsKeyspace) {
-		jobID = strings.TrimPrefix(jobID, trader.JobsKeyspace)
-	}
-
-	if _, err := uuid.Parse(jobID); err != nil {
-		return fmt.Errorf("could not parse job id value %q as an uuid: %w", jobID, err)
+	jobID, err := c.Flags.GetJobID(ctx, args[0])
+	if err != nil {
+		return fmt.Errorf("could not convert argument %q to job id: %w", jobID, err)
 	}
 
 	req := &api.JobCancelRequest{

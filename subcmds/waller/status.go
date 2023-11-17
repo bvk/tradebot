@@ -26,12 +26,16 @@ type Status struct {
 
 func (c *Status) Run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("this command takes one (key) argument")
+		return fmt.Errorf("this command takes one (waller-job-id) argument")
+	}
+	uid, err := c.Flags.GetJobID(ctx, args[0])
+	if err != nil {
+		return fmt.Errorf("could not resolve argument: %w", err)
 	}
 
 	var wall *waller.Waller
 	getter := func(ctx context.Context, r kv.Reader) error {
-		w, err := waller.Load(ctx, args[0], r)
+		w, err := waller.Load(ctx, uid, r)
 		if err != nil {
 			return err
 		}
