@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package limiter
+package idgen
 
 import (
 	"crypto/md5"
@@ -9,24 +9,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// idGenerator creates sequence of uuids derived from a given base uuid.
-type idGenerator struct {
+// Generator creates sequence of uuids derived from a given base uuid.
+type Generator struct {
 	base uuid.UUID
 
 	next  uint64
 	cache []uuid.UUID
 }
 
-func newIDGenerator(uid string, offset uint64) *idGenerator {
-	base := uuid.UUID(md5.Sum([]byte(uid)))
-	return &idGenerator{base: base, next: offset}
+func New(seed string, offset uint64) *Generator {
+	base := uuid.UUID(md5.Sum([]byte(seed)))
+	return &Generator{base: base, next: offset}
 }
 
-func (v *idGenerator) Offset() uint64 {
+func (v *Generator) Offset() uint64 {
 	return v.next
 }
 
-func (v *idGenerator) NextID() uuid.UUID {
+func (v *Generator) NextID() uuid.UUID {
 	if len(v.cache) == 0 || v.next%10 == 0 {
 		v.cache = v.prepare(v.next/10, 10)
 	}
@@ -35,14 +35,14 @@ func (v *idGenerator) NextID() uuid.UUID {
 	return id
 }
 
-func (v *idGenerator) RevertID() {
+func (v *Generator) RevertID() {
 	if v.next > 0 {
 		v.next--
 		v.cache = nil
 	}
 }
 
-func (v *idGenerator) prepare(from, n uint64) []uuid.UUID {
+func (v *Generator) prepare(from, n uint64) []uuid.UUID {
 	var buf [16 + 8]byte
 	copy(buf[:16], []byte(v.base[:]))
 

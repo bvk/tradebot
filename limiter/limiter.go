@@ -17,6 +17,7 @@ import (
 
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/idgen"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvkgo/kv"
@@ -32,7 +33,7 @@ type Limiter struct {
 
 	point point.Point
 
-	idgen *idGenerator
+	idgen *idgen.Generator
 
 	// clientServerMap holds a mapping from client-order-id to
 	// exchange-order-id. We keep this metadata to verify the correctness if
@@ -63,7 +64,7 @@ func New(uid string, productID string, point *point.Point) (*Limiter, error) {
 		productID:       productID,
 		uid:             uid,
 		point:           *point,
-		idgen:           newIDGenerator(uid, 0),
+		idgen:           idgen.New(uid, 0),
 		orderMap:        make(map[exchange.OrderID]*exchange.Order),
 		clientServerMap: make(map[string]exchange.OrderID),
 	}
@@ -376,7 +377,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 	v := &Limiter{
 		uid:       uid,
 		productID: gv.V2.ProductID,
-		idgen:     newIDGenerator(uid, gv.V2.ClientIDOffset),
+		idgen:     idgen.New(uid, gv.V2.ClientIDOffset),
 
 		point: point.Point{
 			Size:   gv.V2.TradePoint.Size,
