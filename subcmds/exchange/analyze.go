@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -73,7 +74,7 @@ func (c *Analyze) run(ctx context.Context, args []string) error {
 		candles = append(candles, cs...)
 	}
 
-	minute, err := c.analyze(CloneCandles(candles))
+	minute, err := c.analyze(candles)
 	if err != nil {
 		return fmt.Errorf("could not analyze per-minute candles: %w", err)
 	}
@@ -107,29 +108,44 @@ func (c *Analyze) run(ctx context.Context, args []string) error {
 	fmt.Printf("End Time: %s\n", minute.EndTime.Format(time.RFC3339))
 	fmt.Printf("Num candles: %d\n", minute.NumCandles)
 	fmt.Printf("Candle granularity: %s\n", minute.Granularity)
+
 	fmt.Println()
 	fmt.Printf("Min Price: %s\n", minute.MinPrice.StringFixed(3))
 	fmt.Printf("Max Price: %s\n", minute.MaxPrice.StringFixed(3))
+
 	fmt.Println()
-	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
 	fmt.Printf("Minimum change: %s (per min)\n", minute.Heights.Min.StringFixed(3))
 	fmt.Printf("Maximum change: %s (per min)\n", minute.Heights.Max.StringFixed(3))
 	fmt.Printf("Average change: %s (per min)\n", minute.Heights.Avg.StringFixed(3))
 	fmt.Println()
-	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
 	fmt.Printf("Minimum change: %s (per 15min)\n", m15.Heights.Min.StringFixed(3))
 	fmt.Printf("Maximum change: %s (per 15min)\n", m15.Heights.Max.StringFixed(3))
 	fmt.Printf("Average change: %s (per 15min)\n", m15.Heights.Avg.StringFixed(3))
 	fmt.Println()
-	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
 	fmt.Printf("Minimum change: %s (per 30min)\n", m30.Heights.Min.StringFixed(3))
 	fmt.Printf("Maximum change: %s (per 30min)\n", m30.Heights.Max.StringFixed(3))
 	fmt.Printf("Average change: %s (per 30min)\n", m30.Heights.Avg.StringFixed(3))
 	fmt.Println()
-	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
 	fmt.Printf("Minimum change: %s (per hour)\n", hour.Heights.Min.StringFixed(3))
 	fmt.Printf("Maximum change: %s (per hour)\n", hour.Heights.Max.StringFixed(3))
 	fmt.Printf("Average change: %s (per hour)\n", hour.Heights.Avg.StringFixed(3))
+
+	fmt.Println()
+	fmt.Printf("Minimum volume: %s (per min)\n", minute.Volumes.Min.StringFixed(3))
+	fmt.Printf("Maximum volume: %s (per min)\n", minute.Volumes.Max.StringFixed(3))
+	fmt.Printf("Average volume: %s (per min)\n", minute.Volumes.Avg.StringFixed(3))
+	fmt.Println()
+	fmt.Printf("Minimum volume: %s (per 15min)\n", m15.Volumes.Min.StringFixed(3))
+	fmt.Printf("Maximum volume: %s (per 15min)\n", m15.Volumes.Max.StringFixed(3))
+	fmt.Printf("Average volume: %s (per 15min)\n", m15.Volumes.Avg.StringFixed(3))
+	fmt.Println()
+	fmt.Printf("Minimum volume: %s (per 30min)\n", m30.Volumes.Min.StringFixed(3))
+	fmt.Printf("Maximum volume: %s (per 30min)\n", m30.Volumes.Max.StringFixed(3))
+	fmt.Printf("Average volume: %s (per 30min)\n", m30.Volumes.Avg.StringFixed(3))
+	fmt.Println()
+	fmt.Printf("Minimum volume: %s (per hour)\n", hour.Volumes.Min.StringFixed(3))
+	fmt.Printf("Maximum volume: %s (per hour)\n", hour.Volumes.Max.StringFixed(3))
+	fmt.Printf("Average volume: %s (per hour)\n", hour.Volumes.Avg.StringFixed(3))
 
 	return nil
 }
@@ -150,6 +166,7 @@ type CandleAnalysis struct {
 	MinPrice, MaxPrice decimal.Decimal
 
 	Heights MinMaxAvg
+	Volumes MinMaxAvg
 }
 
 func (c *Analyze) analyze(candles []*gobs.Candle) (*CandleAnalysis, error) {
@@ -159,7 +176,7 @@ func (c *Analyze) analyze(candles []*gobs.Candle) (*CandleAnalysis, error) {
 		Granularity: candles[0].Duration,
 	}
 
-	// FIXME: we should avoid changing the input slice.
+	candles = slices.Clone(candles)
 
 	// Sort the candles based on their start-time
 	sort.Slice(candles, func(i, j int) bool {
@@ -184,13 +201,17 @@ func (c *Analyze) analyze(candles []*gobs.Candle) (*CandleAnalysis, error) {
 	scandles := candles[0+ndrop : len(candles)-ndrop]
 
 	// Find the minPrice, maxPrice differences and
-	var minPrice, maxPrice, minHeight, maxHeight, sumHeight decimal.Decimal
+	var minPrice, maxPrice decimal.Decimal
+	var minHeight, maxHeight, sumHeight decimal.Decimal
+	var minVolume, maxVolume, sumVolume decimal.Decimal
 	for i, c := range scandles {
 		v := c.High.Sub(c.Low)
 		if i == 0 {
 			minHeight = v
 			minPrice = c.Low
+			minVolume = c.Volume
 		}
+
 		sumHeight = sumHeight.Add(v)
 		if v.LessThan(minHeight) {
 			minHeight = v
@@ -198,15 +219,26 @@ func (c *Analyze) analyze(candles []*gobs.Candle) (*CandleAnalysis, error) {
 		if v.GreaterThan(maxHeight) {
 			maxHeight = v
 		}
+
+		sumVolume = sumVolume.Add(c.Volume)
+		if c.Volume.LessThan(minVolume) {
+			minVolume = c.Volume
+		}
+		if c.Volume.GreaterThan(maxVolume) {
+			maxVolume = c.Volume
+		}
+
 		if c.Low.LessThan(minPrice) {
 			minPrice = c.Low
 		}
 		if c.High.GreaterThan(maxPrice) {
 			maxPrice = c.High
 		}
+
 	}
 	nscandles := decimal.NewFromInt(int64(len(scandles)))
 	avgHeight := sumHeight.Div(nscandles)
+	avgVolume := sumVolume.Div(nscandles)
 
 	// var sumVariance decimal.Decimal
 	// for _, c := range scandles {
@@ -221,5 +253,8 @@ func (c *Analyze) analyze(candles []*gobs.Candle) (*CandleAnalysis, error) {
 	result.Heights.Min = minHeight
 	result.Heights.Max = maxHeight
 	result.Heights.Avg = avgHeight
+	result.Volumes.Min = minVolume
+	result.Volumes.Max = maxVolume
+	result.Volumes.Avg = avgVolume
 	return result, nil
 }

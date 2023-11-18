@@ -66,19 +66,3 @@ func MergeCandles(candles []*gobs.Candle, granularity time.Duration) ([]*gobs.Ca
 	}
 	return result, nil
 }
-
-func CloneCandles(candles []*gobs.Candle) []*gobs.Candle {
-	cs := make([]*gobs.Candle, len(candles))
-	for i, c := range candles {
-		cs[i] = &gobs.Candle{
-			StartTime: c.StartTime,
-			Duration:  c.Duration,
-			Low:       c.Low,
-			High:      c.High,
-			Open:      c.Open,
-			Close:     c.Close,
-			Volume:    c.Volume,
-		}
-	}
-	return cs
-}
