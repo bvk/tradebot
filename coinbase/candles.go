@@ -76,13 +76,38 @@ func (c *Client) GetHourCandles(ctx context.Context, productID string, from time
 		start := time.Unix(c.Start, 0).UTC()
 		gc := &gobs.Candle{
 			StartTime: gobs.RemoteTime{Time: start},
+			Duration:  time.Hour,
 			Low:       c.Low.Decimal,
 			High:      c.High.Decimal,
 			Open:      c.Open.Decimal,
 			Close:     c.Close.Decimal,
 			Volume:    c.Volume.Decimal,
 		}
-		gc.EndTime = gobs.RemoteTime{Time: start.Add(time.Hour)}
+		cs = append(cs, gc)
+	}
+	return cs, nil
+}
+
+func (c *Client) GetCandles(ctx context.Context, productID string, from time.Time) ([]*gobs.Candle, error) {
+	// Coinbase is not returning the candle with start time exactly equal to the
+	// req.StartTime, so we adjust startTime by a second.
+	from = from.Add(-time.Second)
+	resp, err := c.getProductCandles(ctx, productID, from, OneMinuteCandle)
+	if err != nil {
+		return nil, err
+	}
+	var cs []*gobs.Candle
+	for _, c := range resp.Candles {
+		start := time.Unix(c.Start, 0).UTC()
+		gc := &gobs.Candle{
+			StartTime: gobs.RemoteTime{Time: start},
+			Duration:  time.Minute,
+			Low:       c.Low.Decimal,
+			High:      c.High.Decimal,
+			Open:      c.Open.Decimal,
+			Close:     c.Close.Decimal,
+			Volume:    c.Volume.Decimal,
+		}
 		cs = append(cs, gc)
 	}
 	return cs, nil

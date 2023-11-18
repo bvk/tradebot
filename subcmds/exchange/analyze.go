@@ -9,127 +9,194 @@ import (
 	"sort"
 	"time"
 
-	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/shopspring/decimal"
 )
 
 type Analyze struct {
-	subcmds.ClientFlags
+	db.Flags
 
-	name    string
-	product string
+	exchange string
+	product  string
 
-	start string
-	end   string
+	fromDate string
+	numDays  int
 
-	feePct  float64
 	dropPct float64
 }
 
 func (c *Analyze) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("analyze", flag.ContinueOnError)
-	c.ClientFlags.SetFlags(fset)
-	fset.StringVar(&c.name, "name", "coinbase", "name of the exchange")
-	fset.StringVar(&c.product, "product", "BCH-USD", "name of the trading pair")
-	fset.StringVar(&c.start, "start", "", "start time for the candles")
-	fset.StringVar(&c.end, "end", "", "end time for the candles")
+	c.Flags.SetFlags(fset)
+	fset.StringVar(&c.exchange, "exchange", "coinbase", "name of the exchange")
+	fset.StringVar(&c.product, "product", "", "name of the trading pair")
+	fset.StringVar(&c.fromDate, "from-date", "", "date of the day in YYYY-MM-DD format")
+	fset.IntVar(&c.numDays, "num-days", 1, "number of the days from the date")
 	fset.Float64Var(&c.dropPct, "drop-pct", 10, "percentage of high and low outliers")
-	fset.Float64Var(&c.feePct, "fee-pct", 0.25, "exchange fee percentage")
 	return fset, cli.CmdFunc(c.run)
-}
-
-func (c *Analyze) getCandles(ctx context.Context, start, end time.Time) ([]*gobs.Candle, error) {
-	var candles []*gobs.Candle
-	req := &api.ExchangeGetCandlesRequest{
-		ExchangeName: c.name,
-		ProductID:    c.product,
-		StartTime:    start,
-		EndTime:      end,
-	}
-	for {
-		resp, err := subcmds.Post[api.ExchangeGetCandlesResponse](ctx, &c.ClientFlags, api.ExchangeGetCandlesPath, req)
-		if err != nil {
-			return nil, fmt.Errorf("POST request to get-candles failed: %w", err)
-		}
-		candles = append(candles, resp.Candles...)
-		if resp.Continue == nil {
-			break
-		}
-		req = resp.Continue
-	}
-	return candles, nil
 }
 
 func (c *Analyze) run(ctx context.Context, args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("this command takes no arguments")
 	}
+	if len(c.product) == 0 {
+		return fmt.Errorf("product flag cannot be empty")
+	}
 
 	if c.dropPct >= 50 {
 		return fmt.Errorf("drop percentage %q is too high", c.dropPct)
 	}
 
-	if c.start == "" {
-		return fmt.Errorf("start time flag is required")
+	if len(c.fromDate) == 0 {
+		return fmt.Errorf("date argument is required")
 	}
-	startTime, err := time.Parse(time.RFC3339, c.start)
+	startTime, err := time.Parse("2006-01-02", c.fromDate)
 	if err != nil {
-		return fmt.Errorf("could not parse start time as RFC3339 value: %w", err)
+		return fmt.Errorf("could not parse date argument: %w", err)
+	}
+	endTime := startTime.Add(time.Duration(c.numDays) * 24 * time.Hour)
+
+	db, err := c.Flags.GetDatabase(ctx)
+	if err != nil {
+		return fmt.Errorf("could not create database client: %w", err)
 	}
 
-	endTime := time.Now()
-	if c.end != "" {
-		v, err := time.Parse(time.RFC3339, c.end)
+	var candles []*gobs.Candle
+	for s := startTime; s.Before(endTime); s = s.Add(24 * time.Hour) {
+		cs, err := LoadCandles(ctx, db, c.exchange, c.product, s.Truncate(24*time.Hour))
 		if err != nil {
-			return fmt.Errorf("could not parse end time as RFC3339 value: %w", err)
+			return fmt.Errorf("could not load candles for day %s: %w", s.Format("2006-01-02"), err)
 		}
-		endTime = v
+		candles = append(candles, cs...)
 	}
 
-	candles, err := c.getCandles(ctx, startTime, endTime)
+	minute, err := c.analyze(CloneCandles(candles))
 	if err != nil {
-		return fmt.Errorf("could not fetch candles in the time range: %w", err)
+		return fmt.Errorf("could not analyze per-minute candles: %w", err)
+	}
+	m15candles, err := MergeCandles(candles, 15*time.Minute)
+	if err != nil {
+		return fmt.Errorf("could not merge candles into 15min candles: %w", err)
+	}
+	m15, err := c.analyze(m15candles)
+	if err != nil {
+		return fmt.Errorf("could not analyze 15min candles: %w", err)
+	}
+	m30candles, err := MergeCandles(candles, 30*time.Minute)
+	if err != nil {
+		return fmt.Errorf("could not merge candles into 30min candles: %w", err)
+	}
+	m30, err := c.analyze(m30candles)
+	if err != nil {
+		return fmt.Errorf("could not analyze 30min candles: %w", err)
+	}
+	hcandles, err := MergeCandles(candles, time.Hour)
+	if err != nil {
+		return fmt.Errorf("could not merge per-minute candles into hourly candles: %w", err)
+	}
+	hour, err := c.analyze(hcandles)
+	if err != nil {
+		return fmt.Errorf("could not analyze per-hour candles: %w", err)
 	}
 
-	// Analyze the candles:
-	//
-	// 1. Sort all candles height-wise.
-	//
-	// 2. Drop 10% outliers on the front and back.
-	//
-	// 3. Find the minimum profitable margin for the candles
-	//
+	fmt.Printf("Product: %s\n", minute.ProductID)
+	fmt.Printf("Start Time: %s\n", minute.StartTime.Format(time.RFC3339))
+	fmt.Printf("End Time: %s\n", minute.EndTime.Format(time.RFC3339))
+	fmt.Printf("Num candles: %d\n", minute.NumCandles)
+	fmt.Printf("Candle granularity: %s\n", minute.Granularity)
+	fmt.Println()
+	fmt.Printf("Min Price: %s\n", minute.MinPrice.StringFixed(3))
+	fmt.Printf("Max Price: %s\n", minute.MaxPrice.StringFixed(3))
+	fmt.Println()
+	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
+	fmt.Printf("Minimum change: %s (per min)\n", minute.Heights.Min.StringFixed(3))
+	fmt.Printf("Maximum change: %s (per min)\n", minute.Heights.Max.StringFixed(3))
+	fmt.Printf("Average change: %s (per min)\n", minute.Heights.Avg.StringFixed(3))
+	fmt.Println()
+	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
+	fmt.Printf("Minimum change: %s (per 15min)\n", m15.Heights.Min.StringFixed(3))
+	fmt.Printf("Maximum change: %s (per 15min)\n", m15.Heights.Max.StringFixed(3))
+	fmt.Printf("Average change: %s (per 15min)\n", m15.Heights.Avg.StringFixed(3))
+	fmt.Println()
+	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
+	fmt.Printf("Minimum change: %s (per 30min)\n", m30.Heights.Min.StringFixed(3))
+	fmt.Printf("Maximum change: %s (per 30min)\n", m30.Heights.Max.StringFixed(3))
+	fmt.Printf("Average change: %s (per 30min)\n", m30.Heights.Avg.StringFixed(3))
+	fmt.Println()
+	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
+	fmt.Printf("Minimum change: %s (per hour)\n", hour.Heights.Min.StringFixed(3))
+	fmt.Printf("Maximum change: %s (per hour)\n", hour.Heights.Max.StringFixed(3))
+	fmt.Printf("Average change: %s (per hour)\n", hour.Heights.Avg.StringFixed(3))
 
-	startTime = candles[0].StartTime.Time
-	endTime = candles[len(candles)-1].EndTime.Time
+	return nil
+}
+
+type MinMaxAvg struct {
+	Min decimal.Decimal
+	Max decimal.Decimal
+	Avg decimal.Decimal
+}
+
+type CandleAnalysis struct {
+	ProductID   string
+	StartTime   time.Time
+	EndTime     time.Time
+	NumCandles  int
+	Granularity time.Duration
+
+	MinPrice, MaxPrice decimal.Decimal
+
+	Heights MinMaxAvg
+}
+
+func (c *Analyze) analyze(candles []*gobs.Candle) (*CandleAnalysis, error) {
+	result := &CandleAnalysis{
+		ProductID:   c.product,
+		NumCandles:  len(candles),
+		Granularity: candles[0].Duration,
+	}
+
+	// FIXME: we should avoid changing the input slice.
+
+	// Sort the candles based on their start-time
+	sort.Slice(candles, func(i, j int) bool {
+		return candles[i].StartTime.Time.Before(candles[j].StartTime.Time)
+	})
+
+	result.StartTime = candles[0].StartTime.Time
+	result.EndTime = candles[len(candles)-1].StartTime.Time.Add(candles[len(candles)-1].Duration)
+
+	// Sort the candles based on their height.
 	sort.Slice(candles, func(i, j int) bool {
 		a := candles[i].High.Sub(candles[i].Low)
 		b := candles[j].High.Sub(candles[j].Low)
 		return a.LessThan(b)
 	})
 
+	// Drop outlier candles.
 	ndrop := int(float64(len(candles)) * c.dropPct / 100)
 	if v := len(candles) - 2*ndrop; v < 50 {
-		return fmt.Errorf("need more than 50 candles after dropping outliers")
+		return nil, fmt.Errorf("need more than 50 candles after dropping outliers")
 	}
-
 	scandles := candles[0+ndrop : len(candles)-ndrop]
-	var minPrice, maxPrice, minVolty, maxVolty, sumVolty decimal.Decimal
+
+	// Find the minPrice, maxPrice differences and
+	var minPrice, maxPrice, minHeight, maxHeight, sumHeight decimal.Decimal
 	for i, c := range scandles {
 		v := c.High.Sub(c.Low)
 		if i == 0 {
-			minVolty = v
+			minHeight = v
 			minPrice = c.Low
 		}
-		sumVolty = sumVolty.Add(v)
-		if v.LessThan(minVolty) {
-			minVolty = v
+		sumHeight = sumHeight.Add(v)
+		if v.LessThan(minHeight) {
+			minHeight = v
 		}
-		if v.GreaterThan(maxVolty) {
-			maxVolty = v
+		if v.GreaterThan(maxHeight) {
+			maxHeight = v
 		}
 		if c.Low.LessThan(minPrice) {
 			minPrice = c.Low
@@ -139,32 +206,20 @@ func (c *Analyze) run(ctx context.Context, args []string) error {
 		}
 	}
 	nscandles := decimal.NewFromInt(int64(len(scandles)))
-	avgVolty := sumVolty.Div(nscandles)
+	avgHeight := sumHeight.Div(nscandles)
 
 	// var sumVariance decimal.Decimal
 	// for _, c := range scandles {
 	// 	v := c.High.Sub(c.Low)
-	// 	d := v.Sub(avgVolty)
+	// 	d := v.Sub(avgHeight)
 	// 	sumVariance = sumVariance.Add(d.Mul(d)) // d^2
 	// }
 	// variance := sumVariance.Div(nscandles)
 
-	hundred := decimal.NewFromInt(100)
-	feePct := decimal.NewFromFloat(c.feePct)
-	minFee := minPrice.Mul(feePct).Div(hundred)
-	maxFee := maxPrice.Mul(feePct).Div(hundred)
-
-	fmt.Printf("Product: %s\n", c.product)
-	fmt.Printf("Start Time: %s\n", startTime)
-	fmt.Printf("End Time: %s\n", endTime)
-	fmt.Println()
-	// fmt.Printf("Volatity Variance: %s\n", variance.StringFixed(3))
-	fmt.Printf("Minimum Volatity: %s\n", minVolty.StringFixed(3))
-	fmt.Printf("Maximum Volatity: %s\n", maxVolty.StringFixed(3))
-	fmt.Printf("Average Volatity: %s\n", avgVolty.StringFixed(3))
-	fmt.Println()
-	fmt.Printf("Minimum fee: %s\n", minFee.StringFixed(3))
-	fmt.Printf("Maximum fee: %s\n", maxFee.StringFixed(3))
-
-	return nil
+	result.MinPrice = minPrice
+	result.MaxPrice = maxPrice
+	result.Heights.Min = minHeight
+	result.Heights.Max = maxHeight
+	result.Heights.Avg = avgHeight
+	return result, nil
 }

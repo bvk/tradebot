@@ -38,8 +38,9 @@ const (
 	minUUID = "00000000-0000-0000-0000-000000000000"
 	maxUUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
-	JobsKeyspace  = "/jobs/"
-	NamesKeyspace = "/names/"
+	JobsKeyspace    = "/jobs/"
+	NamesKeyspace   = "/names/"
+	CandlesKeyspace = "/candles/"
 )
 
 type Trader struct {

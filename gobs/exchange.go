@@ -30,7 +30,7 @@ type Order struct {
 
 type Candle struct {
 	StartTime RemoteTime
-	EndTime   RemoteTime
+	Duration  time.Duration
 
 	Low  decimal.Decimal
 	High decimal.Decimal
@@ -39,6 +39,10 @@ type Candle struct {
 	Close decimal.Decimal
 
 	Volume decimal.Decimal
+}
+
+type Candles struct {
+	Candles []*Candle
 }
 
 type Product struct {
