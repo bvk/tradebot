@@ -48,9 +48,9 @@ func (p *Pair) PriceMargin() decimal.Decimal {
 	return p.Sell.Price.Sub(p.Buy.Price)
 }
 
-// ProfitMargin returns the difference between sell and buy values, which is
+// ValueMargin returns the difference between sell and buy values, which is
 // usually the profit margin without considering any fees.
-func (p *Pair) ProfitMargin() decimal.Decimal {
+func (p *Pair) ValueMargin() decimal.Decimal {
 	return p.Sell.Value().Sub(p.Buy.Value())
 }
 
@@ -83,7 +83,7 @@ func AdjustForMargin(p *Pair, pct float64) *Pair {
 	// divisor := 1 - pct/100
 	divisor := decimal.NewFromInt(1).Sub(decimal.NewFromFloat(pct).Div(decimal.NewFromInt(100)))
 
-	sellValue := p.ProfitMargin().Add(p.Buy.Value()).Add(p.Buy.FeeAt(pct)).Div(divisor)
+	sellValue := p.ValueMargin().Add(p.Buy.Value()).Add(p.Buy.FeeAt(pct)).Div(divisor)
 
 	sellPrice := sellValue.Div(p.Sell.Size)
 

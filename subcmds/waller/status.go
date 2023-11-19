@@ -209,7 +209,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 			sellDataMap[i] = sdata
 		}
 	}
-	summary.budget = BudgetWithFeeAt(pairs, summary.feePct)
+	summary.budget = waller.Analyze(pairs, summary.feePct).Budget()
 	duration := time.Now().Sub(summary.firstOrderTime)
 	numDays := int64(duration/time.Hour/24) + 1
 	profitPerYear := summary.profit.Div(decimal.NewFromInt(numDays)).Mul(DaysPerYear)
