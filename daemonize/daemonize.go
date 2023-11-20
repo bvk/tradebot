@@ -104,22 +104,11 @@ func daemonizeParent(ctx context.Context, envkey string, check HealthChecker) (s
 	}()
 
 	if check != nil {
-		for sleep := time.Millisecond; ctx.Err() == nil; sleep = sleep << 2 {
-			if retry, err := check(ctx, proc); err != nil {
-				log.Printf("warning: background process is not yet initialized (retrying): %v", err)
-				if retry {
-					sctx, cancel := context.WithTimeout(ctx, sleep)
-					<-sctx.Done()
-					cancel()
-					continue
-				}
-				return fmt.Errorf("background process isn't initialized: %w", err)
-			}
-			break
+		if _, err := retryCheck(ctx, proc, check); err != nil {
+			log.Printf("error: background process is not initialized properly: %v", err)
+			return fmt.Errorf("background process isn't initialized: %w", err)
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("could not initialize the background process: %w", err)
+		log.Printf("background process is initialized successfully")
 	}
 	return nil
 }
@@ -140,4 +129,16 @@ func daemonizeChild(envkey string) error {
 	log.SetFlags(0)
 	log.SetOutput(syslogger)
 	return nil
+}
+
+func retryCheck(ctx context.Context, proc *os.Process, check HealthChecker) (retry bool, err error) {
+	for retry, err = check(ctx, proc); retry && ctx.Err() == nil; retry, err = check(ctx, proc) {
+		if err != nil {
+			log.Printf("warning: background process is not yet initialized (retrying): %v", err)
+			sctx, scancel := context.WithTimeout(ctx, time.Second)
+			<-sctx.Done()
+			scancel()
+		}
+	}
+	return
 }
