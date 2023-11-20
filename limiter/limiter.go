@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -151,11 +150,19 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 
 	var orderUpdatesCh <-chan *exchange.Order
 
-	dirty := true
+	dirty, dirtyLimit := 0, 10
 	tickerCh := product.TickerCh()
 
 	localCtx := context.Background()
 	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
+		if dirty > dirtyLimit {
+			if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
+				log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
+				continue
+			}
+			dirty = 0
+		}
+
 		select {
 		case <-ctx.Done():
 			if activeOrderID != "" {
@@ -166,19 +173,13 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 			}
 			return context.Cause(ctx)
 
-		case <-time.After(time.Second):
-			if dirty {
-				if kv.WithReadWriter(ctx, db, v.Save) == nil {
-					dirty = false
-				}
-			}
-
 		case order := <-orderUpdatesCh:
-			dirty = true
+			dirty++
 			if err := v.updateOrderMap(order); err != nil {
 				return err
 			}
 			if order.Done && order.OrderID == activeOrderID {
+				log.Printf("%s:%s: limit %s order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, v.Side(), activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
 			}
 
@@ -189,7 +190,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 						if err := v.cancel(localCtx, product, activeOrderID); err != nil {
 							return err
 						}
-						dirty = true
+						dirty++
 						activeOrderID, orderUpdatesCh = "", nil
 					}
 				}
@@ -199,7 +200,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 						if err != nil {
 							return err
 						}
-						dirty = true
+						dirty++
 						activeOrderID, orderUpdatesCh = id, ch
 					}
 				}
@@ -212,7 +213,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 						if err := v.cancel(localCtx, product, activeOrderID); err != nil {
 							return err
 						}
-						dirty = true
+						dirty++
 						activeOrderID, orderUpdatesCh = "", nil
 					}
 				}
@@ -222,7 +223,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 						if err != nil {
 							return err
 						}
-						dirty = true
+						dirty++
 						activeOrderID, orderUpdatesCh = id, ch
 					}
 				}
@@ -231,7 +232,6 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		}
 	}
 
-	log.Printf("%s:%s: limit %s order is complete", v.uid, v.point, v.Side())
 	if err := v.fetchOrderMap(ctx, product, len(v.orderMap)); err != nil {
 		return err
 	}
@@ -242,6 +242,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 }
 
 func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, <-chan *exchange.Order, error) {
+	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
 	size := v.Pending()
 
@@ -259,7 +260,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	}
 	if err != nil {
 		v.idgen.RevertID()
-		log.Printf("%s:%s: create limit %s order with client-order-id %s has failed (in %s): %v", v.uid, v.point, v.Side(), clientOrderID, latency, err)
+		log.Printf("%s:%s: create limit %s order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, v.Side(), clientOrderID, offset, latency, err)
 		return "", nil, err
 	}
 
@@ -270,7 +271,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	}
 	v.clientServerMap[clientOrderID.String()] = orderID
 
-	log.Printf("%s:%s: created a new limit %s order %s with client-order-id %s in %s", v.uid, v.point, v.Side(), orderID, clientOrderID, latency)
+	log.Printf("%s:%s: created a new limit %s order %s with client-order-id %s (%d) in %s", v.uid, v.point, v.Side(), orderID, clientOrderID, offset, latency)
 	return orderID, product.OrderUpdatesCh(orderID), nil
 }
 
@@ -309,8 +310,6 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n
 		if err != nil {
 			return err
 		}
-		jsdata, _ := json.Marshal(order)
-		log.Printf("%v:%s:%s: %s", v.uid, v.point, id, jsdata)
 		v.orderMap[id] = order
 		if n--; n <= 0 {
 			break

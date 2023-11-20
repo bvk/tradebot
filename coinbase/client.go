@@ -472,6 +472,7 @@ func (c *Client) recreateOldOrder(clientOrderID string) (string, bool) {
 		data = old.(*orderData)
 	}
 	data.topic.SendCh() <- toExchangeOrder(old)
+	log.Printf("recreate order request for already used client-id %s is short-circuited to return old server order id %s", clientOrderID, old.OrderID)
 	return old.OrderID, true
 }
 
