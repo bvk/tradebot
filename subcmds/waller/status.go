@@ -18,6 +18,8 @@ import (
 type Status struct {
 	db.Flags
 
+	analysisOnly bool
+
 	showBuys  bool
 	showSells bool
 	showPairs bool
@@ -54,8 +56,13 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 
 	// Print data for the waller.
 
-	fmt.Printf("Budget: %s (effective fee at %.2f%%)\n", status.Budget().StringFixed(3), status.EffectiveFeePct())
 	analysis := status.Analysis()
+	if c.analysisOnly {
+		PrintAnalysis(analysis)
+		return nil
+	}
+
+	fmt.Printf("Budget: %s (effective fee at %.2f%%)\n", status.Budget().StringFixed(3), status.EffectiveFeePct())
 	for _, rate := range aprs {
 		perYear := analysis.ProfitGoalForReturnRate(rate)
 		fmt.Printf("%.1f%% Monthly Profit Goal: %s\n", rate, perYear.Div(monthsPerYear).StringFixed(3))
@@ -107,6 +114,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.Flags.SetFlags(fset)
+	fset.BoolVar(&c.analysisOnly, "analysis", false, "when true, prints only the analysis data for buy/sell pairs")
 	fset.BoolVar(&c.showPairs, "show-pairs", true, "when true, prints data for buy/sell loops with activity")
 	fset.BoolVar(&c.showBuys, "show-buys", false, "when true, prints data for buy points with activity")
 	fset.BoolVar(&c.showSells, "show-sells", false, "when true, prints data for sell points with activity")
