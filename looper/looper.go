@@ -84,6 +84,14 @@ func (v *Looper) String() string {
 	return "looper:" + v.uid
 }
 
+func (v *Looper) UID() string {
+	return v.uid
+}
+
+func (v *Looper) ProductID() string {
+	return v.productID
+}
+
 func (v *Looper) Status() *Status {
 	return &Status{
 		UID:       v.uid,

@@ -45,11 +45,11 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 	var run func(context.Context, exchange.Product, kv.Database) error
 
 	if limit, ok := t.limiterMap.Load(id); ok {
-		pid, run = limit.Status().ProductID, limit.Run
+		pid, run = limit.ProductID(), limit.Run
 	} else if loop, ok := t.looperMap.Load(id); ok {
-		pid, run = loop.Status().ProductID, loop.Run
+		pid, run = loop.ProductID(), loop.Run
 	} else if wall, ok := t.wallerMap.Load(id); ok {
-		pid, run = wall.Status().ProductID, wall.Run
+		pid, run = wall.ProductID(), wall.Run
 	} else {
 		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
 	}

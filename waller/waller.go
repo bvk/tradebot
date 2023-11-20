@@ -36,17 +36,6 @@ type Waller struct {
 	loopers []*looper.Looper
 }
 
-type Status struct {
-	UID string
-
-	ProductID string
-
-	BuyPoints  []*point.Point
-	SellPoints []*point.Point
-
-	// TODO: Add more status data.
-}
-
 func New(uid string, productID string, buys, sells []*point.Point) (*Waller, error) {
 	w := &Waller{
 		uid:        uid,
@@ -100,13 +89,12 @@ func (w *Waller) String() string {
 	return "waller:" + w.uid
 }
 
-func (w *Waller) Status() *Status {
-	return &Status{
-		UID:        w.uid,
-		ProductID:  w.productID,
-		BuyPoints:  w.buyPoints,
-		SellPoints: w.sellPoints,
-	}
+func (w *Waller) UID() string {
+	return w.uid
+}
+
+func (w *Waller) ProductID() string {
+	return w.productID
 }
 
 func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Database) error {

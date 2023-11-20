@@ -96,15 +96,19 @@ func (a *Analysis) MaxLoopFee() decimal.Decimal {
 	return a.pairs[len(a.pairs)-1].FeesAt(a.feePct)
 }
 
-func (a *Analysis) NumSellsForReturnRate(targetPct float64) int {
+func (a *Analysis) ProfitGoalForReturnRate(targetPct float64) decimal.Decimal {
 	budget := a.Budget()
 	target := decimal.NewFromFloat(targetPct)
 
 	// perYear = budget * targetPct / 100
-	perYear := budget.Mul(target.Div(decimal.NewFromInt(100)))
+	return budget.Mul(target.Div(decimal.NewFromInt(100)))
+}
 
-	// nsells = perYear / AvgProfitMargin
-	nsells := perYear.Div(a.AvgProfitMargin()).Ceil()
+func (a *Analysis) NumSellsForReturnRate(targetPct float64) int {
+	profitPerYear := a.ProfitGoalForReturnRate(targetPct)
+
+	// nsells = profitPerYear / AvgProfitMargin
+	nsells := profitPerYear.Div(a.AvgProfitMargin()).Ceil()
 	return int(nsells.BigInt().Int64())
 }
 

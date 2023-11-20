@@ -88,6 +88,14 @@ func (v *Limiter) String() string {
 	return "limiter:" + v.uid
 }
 
+func (v *Limiter) UID() string {
+	return v.uid
+}
+
+func (v *Limiter) ProductID() string {
+	return v.productID
+}
+
 func (v *Limiter) Side() string {
 	return v.point.Side()
 }
