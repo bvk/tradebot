@@ -11,6 +11,7 @@ import (
 
 // Generator creates sequence of uuids derived from a given base uuid.
 type Generator struct {
+	seed string
 	base uuid.UUID
 
 	next  uint64
@@ -19,7 +20,11 @@ type Generator struct {
 
 func New(seed string, offset uint64) *Generator {
 	base := uuid.UUID(md5.Sum([]byte(seed)))
-	return &Generator{base: base, next: offset}
+	return &Generator{seed: seed, base: base, next: offset}
+}
+
+func (v *Generator) Seed() string {
+	return v.seed
 }
 
 func (v *Generator) Offset() uint64 {

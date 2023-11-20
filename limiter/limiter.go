@@ -330,6 +330,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	gv := &gobs.LimiterState{
 		V2: &gobs.LimiterStateV2{
 			ProductID:      v.productID,
+			ClientIDSeed:   v.idgen.Seed(),
 			ClientIDOffset: v.idgen.Offset(),
 			TradePoint: gobs.Point{
 				Size:   v.point.Size,
@@ -388,10 +389,14 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		return nil, fmt.Errorf("could not load limiter state: %w", err)
 	}
 	gv.Upgrade()
+	seed := uid
+	if len(gv.V2.ClientIDSeed) > 0 {
+		seed = gv.V2.ClientIDSeed
+	}
 	v := &Limiter{
 		uid:       uid,
 		productID: gv.V2.ProductID,
-		idgen:     idgen.New(uid, gv.V2.ClientIDOffset),
+		idgen:     idgen.New(seed, gv.V2.ClientIDOffset),
 
 		point: point.Point{
 			Size:   gv.V2.TradePoint.Size,

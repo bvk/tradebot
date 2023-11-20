@@ -8,6 +8,7 @@ type LimiterState struct {
 
 type LimiterStateV2 struct {
 	ProductID         string
+	ClientIDSeed      string
 	ClientIDOffset    uint64
 	TradePoint        Point
 	ClientServerIDMap map[string]string
