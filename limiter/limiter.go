@@ -150,19 +150,12 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 
 	var orderUpdatesCh <-chan *exchange.Order
 
-	dirty, dirtyLimit := 0, 10
+	dirty := 0
 	tickerCh := product.TickerCh()
+	flushCh := time.After(time.Minute)
 
 	localCtx := context.Background()
 	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
-		if dirty > dirtyLimit {
-			if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
-				log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
-				continue
-			}
-			dirty = 0
-		}
-
 		select {
 		case <-ctx.Done():
 			if activeOrderID != "" {
@@ -170,8 +163,22 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 				if err := v.cancel(localCtx, product, activeOrderID); err != nil {
 					return err
 				}
+				dirty++
+			}
+			if err := kv.WithReadWriter(localCtx, db, v.Save); err != nil {
+				log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
 			}
 			return context.Cause(ctx)
+
+		case <-flushCh:
+			if dirty > 0 {
+				if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
+					log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
+				} else {
+					dirty = 0
+				}
+			}
+			flushCh = time.After(time.Minute)
 
 		case order := <-orderUpdatesCh:
 			dirty++

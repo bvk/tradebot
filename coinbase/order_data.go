@@ -5,6 +5,7 @@ package coinbase
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"slices"
 	"time"
@@ -54,17 +55,16 @@ func (d *orderData) waitForOpen(ctx context.Context) (string, error) {
 	r, ch, _ := d.topic.Subscribe(1, true /* includeRecent */)
 	defer r.Unsubscribe()
 
-	timeoutCh := time.After(50 * time.Millisecond)
-
 	var v *exchange.Order
-	for v == nil || !slices.Contains(wanted, v.Status) {
+	for i := 1; v == nil || !slices.Contains(wanted, v.Status); i++ {
 		select {
 		case <-ctx.Done():
 			return "", context.Cause(ctx)
-		case <-timeoutCh:
+		case <-time.After(time.Duration(i) * time.Second):
 			resp, err := d.client.getOrder(ctx, d.orderID)
 			if err != nil {
-				return "", err
+				log.Printf("could not poll for order %q after timeout (will retry): %v", d.orderID, err)
+				continue
 			}
 			d.topic.SendCh() <- toExchangeOrder(&resp.Order)
 		case v = <-ch:
