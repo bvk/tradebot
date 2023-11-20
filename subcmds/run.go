@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path"
@@ -31,6 +32,7 @@ type Run struct {
 
 	background bool
 	noResume   bool
+	noPprof    bool
 
 	secretsPath string
 	dataDir     string
@@ -70,6 +72,7 @@ func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 	c.ServerFlags.SetFlags(fset)
 	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
 	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
+	fset.BoolVar(&c.noPprof, "no-pprof", false, "when true net/http/pprof handler is not registered")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
 	return fset, cli.CmdFunc(c.run)
@@ -150,6 +153,14 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		return err
 	}
 	defer s.Close()
+
+	if !c.noPprof {
+		s.AddHandler("/debug/pprof/heap", pprof.Handler("heap"))
+		s.AddHandler("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+		s.AddHandler("/debug/pprof/allocs", pprof.Handler("allocs"))
+		s.AddHandler("/debug/pprof/block", pprof.Handler("block"))
+		s.AddHandler("/debug/pprof/mutex", pprof.Handler("mutex"))
+	}
 
 	// Open the database.
 	bopts := badger.DefaultOptions(c.dataDir)
