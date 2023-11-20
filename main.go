@@ -67,6 +67,7 @@ func main() {
 
 	cmds := []cli.Command{
 		new(subcmds.Run),
+		new(subcmds.IDGen),
 		cli.CommandGroup("job", "Control trader jobs", jobCmds...),
 		cli.CommandGroup("db", "View/update database directly", dbCmds...),
 		cli.CommandGroup("limiter", "Manage limit buys/sells", limiterCmds...),
