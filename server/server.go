@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bvk/tradebot/syncmap"
 	"github.com/google/uuid"
 )
 
@@ -25,8 +27,10 @@ type Server struct {
 
 	opts Options
 
-	server *http.Server
-	mux    atomic.Pointer[http.ServeMux]
+	nextServerID atomic.Int64
+	serverMap    syncmap.Map[int64, *http.Server]
+
+	mux atomic.Pointer[http.ServeMux]
 
 	mutex      sync.Mutex
 	handlerMap map[string]http.Handler
@@ -55,25 +59,15 @@ func New(opts *Options) (_ *Server, status error) {
 		opts:       *opts,
 		handlerMap: make(map[string]http.Handler),
 	}
-
-	addr := &net.TCPAddr{
-		IP:   opts.ListenIP,
-		Port: opts.ListenPort,
-	}
-	if err := s.start(ctx, addr); err != nil {
-		return nil, err
-	}
-	if opts.ListenPort == 0 {
-		opts.ListenPort = addr.Port
-		s.opts.ListenPort = addr.Port
-	}
 	return s, nil
 }
 
 func (s *Server) Close() error {
-	// TODO: shutdown the server.
 	s.cancel(os.ErrClosed)
-	s.stop()
+	s.serverMap.Range(func(id int64, svr *http.Server) bool {
+		svr.Close()
+		return true
+	})
 	s.wg.Wait()
 	return nil
 }
@@ -87,10 +81,95 @@ func (s *Server) sleep(d time.Duration) error {
 	}
 }
 
-func (s *Server) start(ctx context.Context, addr *net.TCPAddr) (status error) {
+func (s *Server) StartUnix(ctx context.Context, addr *net.UnixAddr) (id int64, status error) {
+	l, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		return -1, err
+	}
+	defer func() {
+		if status != nil {
+			l.Close()
+		}
+	}()
+
+	testPath := "/" + uuid.New().String()
+	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		log.Printf("%s: received test request from %q", addr, r.RemoteAddr)
+	})
+	s.AddHandler(testPath, testHandler)
+	defer s.RemoveHandler(testPath)
+
+	server := &http.Server{
+		Handler: s,
+		BaseContext: func(net.Listener) context.Context {
+			return s.ctx
+		},
+	}
+	defer func() {
+		if status != nil {
+			server.Close()
+		}
+	}()
+
+	s.wg.Add(1)
+	go func() {
+		for s.ctx.Err() == nil {
+			if err := server.Serve(l); err != nil {
+				if !errors.Is(err, http.ErrServerClosed) {
+					slog.ErrorContext(ctx, "http server failed", "error", err)
+				}
+			}
+		}
+		s.wg.Done()
+	}()
+
+	transport := &http.Transport{
+		DialContext: func(_ context.Context, network, address string) (net.Conn, error) {
+			return net.DialUnix("unix", nil, addr)
+		},
+	}
+	c := http.Client{
+		Timeout:   s.opts.ServerCheckTimeout,
+		Transport: transport,
+	}
+	u := url.URL{
+		Scheme: "http",
+		Host:   "localhost",
+		Path:   testPath,
+	}
+
+	tctx, tcancel := context.WithTimeout(ctx, s.opts.ServerCheckTimeout)
+	defer tcancel()
+
+	for tctx.Err() == nil {
+		r, err := http.NewRequestWithContext(tctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return -1, fmt.Errorf("could not create test request: %w", err)
+		}
+		resp, err := c.Do(r)
+		if err != nil {
+			s.sleep(s.opts.ServerCheckRetryInterval)
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		break
+	}
+	if err := context.Cause(tctx); err != nil {
+		return -1, fmt.Errorf("could not invoke test handler: %w", err)
+	}
+
+	id = s.nextServerID.Add(1) - 1
+	s.serverMap.Store(id, server)
+	return id, nil
+}
+
+func (s *Server) StartTCP(ctx context.Context, addr *net.TCPAddr) (id int64, status error) {
 	l, err := net.Listen("tcp", addr.String())
 	if err != nil {
-		return err
+		return -1, err
 	}
 	defer func() {
 		if status != nil {
@@ -101,13 +180,15 @@ func (s *Server) start(ctx context.Context, addr *net.TCPAddr) (status error) {
 	if addr.Port == 0 {
 		laddr, ok := l.Addr().(*net.TCPAddr)
 		if !ok {
-			return fmt.Errorf("created listener addr is not *net.TCPAddr type")
+			return -1, fmt.Errorf("created listener addr is not *net.TCPAddr type")
 		}
 		addr.Port = laddr.Port
 	}
 
 	testPath := "/" + uuid.New().String()
-	testHandler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	testHandler := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		log.Printf("%s: received test request from %q", addr, r.RemoteAddr)
+	})
 	s.AddHandler(testPath, testHandler)
 	defer s.RemoveHandler(testPath)
 
@@ -144,27 +225,41 @@ func (s *Server) start(ctx context.Context, addr *net.TCPAddr) (status error) {
 		Path:   testPath,
 	}
 
-	for ctx.Err() == nil {
-		r, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	tctx, tcancel := context.WithTimeout(ctx, s.opts.ServerCheckTimeout)
+	defer tcancel()
+
+	for tctx.Err() == nil {
+		r, err := http.NewRequestWithContext(tctx, http.MethodGet, u.String(), nil)
 		if err != nil {
-			return err
+			return -1, err
 		}
-		if _, err := c.Do(r); err != nil {
+		resp, err := c.Do(r)
+		if err != nil {
 			s.sleep(s.opts.ServerCheckRetryInterval)
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
 		}
 		break
 	}
 
-	s.server = server
-	return nil
+	if err := context.Cause(tctx); err != nil {
+		return -1, fmt.Errorf("could not invoke test handler: %w", err)
+	}
+
+	id = s.nextServerID.Add(1) - 1
+	s.serverMap.Store(id, server)
+	return id, nil
 }
 
-func (s *Server) stop() error {
-	if s.server == nil {
-		return os.ErrInvalid
+func (s *Server) Stop(id int64) error {
+	svr, ok := s.serverMap.LoadAndDelete(id)
+	if !ok {
+		return fmt.Errorf("http server %d not found: %w", id, os.ErrNotExist)
 	}
-	_ = s.server.Close()
-	s.server = nil
+	_ = svr.Close()
 	return nil
 }
 

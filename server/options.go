@@ -3,14 +3,10 @@
 package server
 
 import (
-	"net"
 	"time"
 )
 
 type Options struct {
-	ListenIP   net.IP
-	ListenPort int
-
 	// ServerCheckTimeout holds the http client timeout when checking for the
 	// http server initialization.
 	ServerCheckTimeout time.Duration
@@ -21,8 +17,8 @@ type Options struct {
 }
 
 func (v *Options) setDefaults() {
-	if v.ListenIP == nil {
-		v.ListenIP = net.IPv4(127, 0, 0, 1)
+	if v.ServerCheckTimeout == 0 {
+		v.ServerCheckTimeout = 10 * time.Second
 	}
 	if v.ServerCheckRetryInterval == 0 {
 		v.ServerCheckRetryInterval = time.Second

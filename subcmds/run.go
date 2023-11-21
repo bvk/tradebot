@@ -187,15 +187,17 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	defer flock.Unlock()
 
 	// Start HTTP server.
-	opts := &server.Options{
-		ListenIP:   addr.IP,
-		ListenPort: addr.Port,
-	}
-	s, err := server.New(opts)
+	s, err := server.New(nil /* opts */)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
+
+	tcpServer, err := s.StartTCP(ctx, addr)
+	if err != nil {
+		return fmt.Errorf("could not start http server on %s: %w", addr, err)
+	}
+	defer s.Stop(tcpServer)
 
 	if !c.noPprof {
 		s.AddHandler("/debug/pprof/heap", pprof.Handler("heap"))
@@ -248,7 +250,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 	// Wait for the signals
 
-	log.Printf("started tradebot server at %v:%d", opts.ListenIP, opts.ListenPort)
+	log.Printf("started tradebot server at %s", addr)
 	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
 	}))
