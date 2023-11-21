@@ -86,6 +86,9 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 		fmt.Println()
 		fmt.Println("Pairs")
 		for i := range pairs {
+			if status.NumBuysForPair(i) == 0 && status.NumSellsForPair(i) == 0 {
+				continue
+			}
 			fmt.Printf("  %s: nbuys %d nsells %d (hold %s lockin %s) fees %s feePct %s%% profit %s\n", pairs[i], status.NumBuysForPair(i), status.NumSellsForPair(i), status.UnsoldSizeForPair(i).StringFixed(3), status.UnsoldValueForPair(i).StringFixed(3), status.FeesForPair(i).StringFixed(3), status.FeePctForPair(i).StringFixed(3), status.ProfitForPair(i).StringFixed(3))
 		}
 	}
@@ -94,6 +97,9 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 		fmt.Println()
 		fmt.Println("Buys")
 		for i := range pairs {
+			if status.NumBuysForPair(i) == 0 {
+				continue
+			}
 			fmt.Printf("  %s: norders %d size %s feePct %s%% fees %s value %s\n", pairs[i].Buy,
 				status.NumOrdersAtBuyPoint(i), status.TotalSizeAtBuyPoint(i).StringFixed(3), status.EffectiveFeePctAtBuyPoint(i).StringFixed(3), status.TotalFeesAtBuyPoint(i).StringFixed(3), status.TotalValueAtBuyPoint(i).StringFixed(3))
 		}
@@ -103,6 +109,9 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 		fmt.Println()
 		fmt.Println("Sells")
 		for i := range pairs {
+			if status.NumSellsForPair(i) == 0 {
+				continue
+			}
 			fmt.Printf("  %s: norders %d size %s feePct %s%% fees %s value %s\n", pairs[i].Sell,
 				status.NumOrdersAtSellPoint(i), status.TotalSizeAtSellPoint(i).StringFixed(3), status.EffectiveFeePctAtSellPoint(i).StringFixed(3), status.TotalFeesAtSellPoint(i).StringFixed(3), status.TotalValueAtSellPoint(i).StringFixed(3))
 		}

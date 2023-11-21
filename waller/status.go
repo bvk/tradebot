@@ -147,71 +147,122 @@ func (s *Status) UnsoldValue() decimal.Decimal {
 }
 
 func (s *Status) NumBuysForPair(i int) int {
-	return s.pairDataMap[i].nbuys
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.nbuys
+	}
+	return 0
 }
 
 func (s *Status) NumSellsForPair(i int) int {
-	return s.pairDataMap[i].nsells
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.nsells
+	}
+	return 0
 }
 
 func (s *Status) UnsoldSizeForPair(i int) decimal.Decimal {
-	return s.pairDataMap[i].unsoldSize
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.unsoldSize
+	}
+	return decimal.Zero
 }
 
 func (s *Status) UnsoldValueForPair(i int) decimal.Decimal {
-	return s.pairDataMap[i].unsoldValue
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.unsoldValue
+	}
+	return decimal.Zero
 }
 
 func (s *Status) FeesForPair(i int) decimal.Decimal {
-	return s.pairDataMap[i].fees
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.fees
+	}
+	return decimal.Zero
 }
 
 func (s *Status) FeePctForPair(i int) decimal.Decimal {
-	return s.pairDataMap[i].feePct
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.feePct
+	}
+	return decimal.Zero
 }
 
 func (s *Status) ProfitForPair(i int) decimal.Decimal {
-	return s.pairDataMap[i].profit
+	if pd, ok := s.pairDataMap[i]; ok {
+		return pd.profit
+	}
+	return decimal.Zero
 }
 
 func (s *Status) NumOrdersAtBuyPoint(i int) int {
-	return len(s.buyDataMap[i].orders)
+	if bd, ok := s.buyDataMap[i]; ok {
+		return len(bd.orders)
+	}
+	return 0
 }
 
 func (s *Status) EffectiveFeePctAtBuyPoint(i int) decimal.Decimal {
-	return s.buyDataMap[i].feePct
+	if bd, ok := s.buyDataMap[i]; ok {
+		return bd.feePct
+	}
+	return decimal.Zero
 }
 
 func (s *Status) TotalSizeAtBuyPoint(i int) decimal.Decimal {
-	return s.buyDataMap[i].size
+	if bd, ok := s.buyDataMap[i]; ok {
+		return bd.size
+	}
+	return decimal.Zero
 }
 
 func (s *Status) TotalFeesAtBuyPoint(i int) decimal.Decimal {
-	return s.buyDataMap[i].fees
+	if bd, ok := s.buyDataMap[i]; ok {
+		return bd.fees
+	}
+	return decimal.Zero
 }
 
 func (s *Status) TotalValueAtBuyPoint(i int) decimal.Decimal {
-	return s.buyDataMap[i].value
+	if bd, ok := s.buyDataMap[i]; ok {
+		return bd.value
+	}
+	return decimal.Zero
 }
 
 func (s *Status) NumOrdersAtSellPoint(i int) int {
-	return len(s.sellDataMap[i].orders)
+	if sd, ok := s.sellDataMap[i]; ok {
+		return len(sd.orders)
+	}
+	return 0
 }
 
 func (s *Status) EffectiveFeePctAtSellPoint(i int) decimal.Decimal {
-	return s.sellDataMap[i].feePct
+	if sd, ok := s.sellDataMap[i]; ok {
+		return sd.feePct
+	}
+	return decimal.Zero
 }
 
 func (s *Status) TotalSizeAtSellPoint(i int) decimal.Decimal {
-	return s.sellDataMap[i].size
+	if sd, ok := s.sellDataMap[i]; ok {
+		return sd.size
+	}
+	return decimal.Zero
 }
 
 func (s *Status) TotalFeesAtSellPoint(i int) decimal.Decimal {
-	return s.sellDataMap[i].fees
+	if sd, ok := s.sellDataMap[i]; ok {
+		return sd.fees
+	}
+	return decimal.Zero
 }
 
 func (s *Status) TotalValueAtSellPoint(i int) decimal.Decimal {
-	return s.sellDataMap[i].value
+	if sd, ok := s.sellDataMap[i]; ok {
+		return sd.value
+	}
+	return decimal.Zero
 }
 
 func (w *Waller) Status() *Status {
