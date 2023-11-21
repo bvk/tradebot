@@ -118,7 +118,7 @@ func (v *Limiter) Pending() decimal.Decimal {
 }
 
 func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
-	if product.ID() != v.productID {
+	if product.ProductID() != v.productID {
 		return os.ErrInvalid
 	}
 	// We also need to handle resume logic here.

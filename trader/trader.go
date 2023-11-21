@@ -443,7 +443,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	}
 
 	uid := uuid.New().String()
-	limit, err := limiter.New(uid, product.ID(), req.TradePoint)
+	limit, err := limiter.New(uid, product.ProductID(), req.TradePoint)
 	if err != nil {
 		return nil, err
 	}

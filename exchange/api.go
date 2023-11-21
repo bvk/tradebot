@@ -43,7 +43,8 @@ type Ticker struct {
 }
 
 type Product interface {
-	ID() string
+	ProductID() string
+	ExchangeName() string
 
 	TickerCh() <-chan *Ticker
 	OrderUpdatesCh(id OrderID) <-chan *Order

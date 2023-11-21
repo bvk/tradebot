@@ -172,7 +172,7 @@ func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.
 	}
 
 	uid := path.Join(v.uid, fmt.Sprintf("buy-%06d", len(v.buys)))
-	b, err := limiter.New(uid, product.ID(), &v.buyPoint)
+	b, err := limiter.New(uid, product.ProductID(), &v.buyPoint)
 	if err != nil {
 		return err
 	}
@@ -198,7 +198,7 @@ func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv
 	// }
 
 	uid := path.Join(v.uid, fmt.Sprintf("sell-%06d", len(v.sells)))
-	s, err := limiter.New(uid, product.ID(), &v.sellPoint)
+	s, err := limiter.New(uid, product.ProductID(), &v.sellPoint)
 	if err != nil {
 		return err
 	}

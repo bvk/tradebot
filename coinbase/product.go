@@ -85,8 +85,12 @@ func (c *Client) CloseProduct(p *Product) error {
 	return nil
 }
 
-func (p *Product) ID() string {
+func (p *Product) ProductID() string {
 	return p.productID
+}
+
+func (p *Product) ExchangeName() string {
+	return "coinbase"
 }
 
 func (p *Product) goWatchPrice() {
