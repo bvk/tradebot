@@ -31,6 +31,7 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 	key := args[0]
+
 	if len(c.valueType) == 0 {
 		return fmt.Errorf("valueType flag is required")
 	}

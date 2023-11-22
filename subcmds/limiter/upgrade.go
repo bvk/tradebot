@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/limiter"
@@ -24,7 +25,8 @@ func (c *Upgrade) Run(ctx context.Context, args []string) error {
 
 	upgrader := func(ctx context.Context, rw kv.ReadWriter) error {
 		for _, arg := range args {
-			l, err := limiter.Load(ctx, arg, rw)
+			uid := strings.TrimPrefix(arg, limiter.DefaultKeyspace)
+			l, err := limiter.Load(ctx, uid, rw)
 			if err != nil {
 				return fmt.Errorf("could not load limiter at key %q: %w", arg, err)
 			}

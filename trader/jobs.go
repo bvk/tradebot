@@ -41,26 +41,37 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		state = job.State(gstate.CurrentState)
 	}
 
-	var pid string
-	var run func(context.Context, exchange.Product, kv.Database) error
+	type TradeJob interface {
+		UID() string
+		ProductID() string
+		ExchangeName() string
+		Run(context.Context, exchange.Product, kv.Database) error
+	}
 
+	var v TradeJob
 	if limit, ok := t.limiterMap.Load(id); ok {
-		pid, run = limit.ProductID(), limit.Run
+		v = limit
 	} else if loop, ok := t.looperMap.Load(id); ok {
-		pid, run = loop.ProductID(), loop.Run
+		v = loop
 	} else if wall, ok := t.wallerMap.Load(id); ok {
-		pid, run = wall.ProductID(), wall.Run
+		v = wall
 	} else {
 		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
 	}
 
-	product, ok := t.productMap[pid]
+	exName := v.ExchangeName()
+	pmap, ok := t.exProductMap[exName]
 	if !ok {
-		return nil, false, fmt.Errorf("job %s product %q is not enabled (ignored)", id, pid)
+		return nil, false, fmt.Errorf("exchange %q not found: %w", exName, os.ErrNotExist)
+	}
+	productID := v.ProductID()
+	product, ok := pmap[productID]
+	if !ok {
+		return nil, false, fmt.Errorf("job %s product %q is not enabled (ignored)", id, productID)
 	}
 
 	j := job.New(state, func(ctx context.Context) error {
-		return run(ctx, product, t.db)
+		return v.Run(ctx, product, t.db)
 	})
 	return j, gstate.NeedsManualResume, nil
 }

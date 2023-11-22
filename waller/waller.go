@@ -28,28 +28,28 @@ const DefaultKeyspace = "/wallers/"
 type Waller struct {
 	uid string
 
-	productID string
+	productID    string
+	exchangeName string
 
-	buyPoints  []*point.Point
-	sellPoints []*point.Point
+	pairs []*point.Pair
 
 	loopers []*looper.Looper
 }
 
-func New(uid string, productID string, buys, sells []*point.Point) (*Waller, error) {
+func New(uid, exchangeName, productID string, pairs []*point.Pair) (*Waller, error) {
 	w := &Waller{
-		uid:        uid,
-		productID:  productID,
-		buyPoints:  buys,
-		sellPoints: sells,
+		uid:          uid,
+		productID:    productID,
+		exchangeName: exchangeName,
+		pairs:        pairs,
 	}
 	if err := w.check(); err != nil {
 		return nil, err
 	}
 	var loopers []*looper.Looper
-	for i := 0; i < len(buys); i++ {
-		luid := path.Join(uid, fmt.Sprintf("loop-%06d", i))
-		l, err := looper.New(luid, productID, buys[i], sells[i])
+	for i, p := range pairs {
+		uid := path.Join(uid, fmt.Sprintf("loop-%06d", i))
+		l, err := looper.New(uid, exchangeName, productID, &p.Buy, &p.Sell)
 		if err != nil {
 			return nil, err
 		}
@@ -63,23 +63,9 @@ func (w *Waller) check() error {
 	if len(w.uid) == 0 {
 		return fmt.Errorf("waller uid is empty")
 	}
-	if a, b := len(w.buyPoints), len(w.sellPoints); a != b {
-		return fmt.Errorf("number of buys %d must match sells %d", a, b)
-	}
-	for i, b := range w.buyPoints {
-		if err := b.Check(); err != nil {
-			return fmt.Errorf("buy-point %d is invalid: %w", i, err)
-		}
-		if b.Side() != "BUY" {
-			return fmt.Errorf("buy-point %d (%v) has invalid side", i, b)
-		}
-	}
-	for i, s := range w.sellPoints {
-		if err := s.Check(); err != nil {
-			return fmt.Errorf("sell-point %d is invalid: %w", i, err)
-		}
-		if s.Side() != "SELL" {
-			return fmt.Errorf("sell-point %d (%v) has invalid side", i, s)
+	for i, p := range w.pairs {
+		if err := p.Check(); err != nil {
+			return fmt.Errorf("buy/sell pair %d is invalid: %w", i, err)
 		}
 	}
 	return nil
@@ -95,6 +81,10 @@ func (w *Waller) UID() string {
 
 func (w *Waller) ProductID() string {
 	return w.productID
+}
+
+func (w *Waller) ExchangeName() string {
+	return w.exchangeName
 }
 
 func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
@@ -133,23 +123,16 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	}
 	gv := &gobs.WallerState{
 		V2: &gobs.WallerStateV2{
-			ProductID:  w.productID,
-			LooperIDs:  loopers,
-			TradePairs: make([]*gobs.Pair, len(w.buyPoints)),
+			ProductID:    w.productID,
+			ExchangeName: w.exchangeName,
+			LooperIDs:    loopers,
+			TradePairs:   make([]*gobs.Pair, len(w.pairs)),
 		},
 	}
-	for i := range w.buyPoints {
+	for i, p := range w.pairs {
 		gv.V2.TradePairs[i] = &gobs.Pair{
-			Buy: gobs.Point{
-				Size:   w.buyPoints[i].Size,
-				Price:  w.buyPoints[i].Price,
-				Cancel: w.buyPoints[i].Cancel,
-			},
-			Sell: gobs.Point{
-				Size:   w.sellPoints[i].Size,
-				Price:  w.sellPoints[i].Price,
-				Cancel: w.sellPoints[i].Cancel,
-			},
+			Buy:  gobs.Point(p.Buy),
+			Sell: gobs.Point(p.Sell),
 		}
 	}
 	var buf bytes.Buffer
@@ -189,22 +172,16 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 		loopers = append(loopers, v)
 	}
 	w := &Waller{
-		uid:        uid,
-		productID:  gv.V2.ProductID,
-		loopers:    loopers,
-		buyPoints:  make([]*point.Point, len(gv.V2.TradePairs)),
-		sellPoints: make([]*point.Point, len(gv.V2.TradePairs)),
+		uid:          uid,
+		productID:    gv.V2.ProductID,
+		exchangeName: gv.V2.ExchangeName,
+		loopers:      loopers,
+		pairs:        make([]*point.Pair, len(gv.V2.TradePairs)),
 	}
-	for i, pair := range gv.V2.TradePairs {
-		w.buyPoints[i] = &point.Point{
-			Size:   pair.Buy.Size,
-			Price:  pair.Buy.Price,
-			Cancel: pair.Buy.Cancel,
-		}
-		w.sellPoints[i] = &point.Point{
-			Size:   pair.Sell.Size,
-			Price:  pair.Sell.Price,
-			Cancel: pair.Sell.Cancel,
+	for i, p := range gv.V2.TradePairs {
+		w.pairs[i] = &point.Pair{
+			Buy:  point.Point(p.Buy),
+			Sell: point.Point(p.Sell),
 		}
 	}
 	if err := w.check(); err != nil {

@@ -266,11 +266,11 @@ func (s *Status) TotalValueAtSellPoint(i int) decimal.Decimal {
 }
 
 func (w *Waller) Status() *Status {
-	var pairs []*point.Pair
-	for i := range w.buyPoints {
-		p := &point.Pair{
-			Buy:  *w.buyPoints[i],
-			Sell: *w.sellPoints[i],
+	pairs := make([]*point.Pair, len(w.pairs))
+	for i, p := range w.pairs {
+		pairs[i] = &point.Pair{
+			Buy:  p.Buy,
+			Sell: p.Sell,
 		}
 		pairs = append(pairs, p)
 	}

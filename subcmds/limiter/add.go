@@ -18,7 +18,8 @@ import (
 type Add struct {
 	subcmds.ClientFlags
 
-	product string
+	product  string
+	exchange string
 
 	side         string
 	size         float64
@@ -27,6 +28,13 @@ type Add struct {
 }
 
 func (c *Add) check() error {
+	if len(c.product) == 0 {
+		return fmt.Errorf("product name cannot be empty")
+	}
+	if len(c.exchange) == 0 {
+		return fmt.Errorf("exchange name cannot be empty")
+	}
+
 	if c.size <= 0 {
 		return fmt.Errorf("size cannot be zero or negative")
 	}
@@ -68,8 +76,9 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.LimitRequest{
-		ProductID: c.product,
-		TradePoint: &point.Point{
+		ProductID:    c.product,
+		ExchangeName: c.exchange,
+		Point: &point.Point{
 			Size:   decimal.NewFromFloat(c.size),
 			Price:  decimal.NewFromFloat(c.price),
 			Cancel: decimal.NewFromFloat(cancelPrice),
@@ -91,7 +100,8 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.price, "price", 0, "limit price for the trade")
 	fset.StringVar(&c.side, "side", "", "must be one of BUY or SELL")
 	fset.Float64Var(&c.cancelOffset, "cancel-offset", 0, "cancel-price offset for the trade")
-	fset.StringVar(&c.product, "product", "BCH-USD", "product id for the trade")
+	fset.StringVar(&c.product, "product", "", "product id for the trade")
+	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
 	return fset, cli.CmdFunc(c.Run)
 }
 

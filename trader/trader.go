@@ -26,7 +26,6 @@ import (
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
-	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -73,7 +72,7 @@ type Trader struct {
 
 	mu sync.Mutex
 
-	productMap map[string]exchange.Product
+	exProductMap map[string]map[string]exchange.Product
 }
 
 func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, status error) {
@@ -102,9 +101,10 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 		opts:           *opts,
 		exchangeMap:    make(map[string]exchange.Exchange),
 		handlerMap:     make(map[string]http.Handler),
-		productMap:     make(map[string]exchange.Product),
+		exProductMap:   make(map[string]map[string]exchange.Product),
 	}
 	t.exchangeMap["coinbase"] = coinbaseClient
+	t.exProductMap["coinbase"] = make(map[string]exchange.Product)
 
 	// FIXME: We need to find a cleaner way to load default products. We need it
 	// before REST api is enabled.
@@ -133,7 +133,8 @@ func (t *Trader) Close() error {
 	t.wg.Wait()
 
 	if t.coinbaseClient != nil {
-		for _, p := range t.productMap {
+		pmap := t.exProductMap["coinbase"]
+		for _, p := range pmap {
 			t.coinbaseClient.CloseProduct(p.(*coinbase.Product))
 		}
 		t.coinbaseClient.Close()
@@ -172,7 +173,7 @@ func (t *Trader) Start(ctx context.Context) error {
 	defaultProducts := []string{"BCH-USD", "BTC-USD", "ETH-USD"}
 
 	for _, p := range defaultProducts {
-		if _, err := t.getProduct(ctx, p); err != nil {
+		if _, err := t.getProduct(ctx, "coinbase", p); err != nil {
 			return err
 		}
 	}
@@ -227,18 +228,26 @@ func (t *Trader) Start(ctx context.Context) error {
 	return nil
 }
 
-func (t *Trader) getProduct(ctx context.Context, name string) (exchange.Product, error) {
+func (t *Trader) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
+	if exchangeName != "coinbase" {
+		return nil, fmt.Errorf("only coinbase exchange is supported")
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	product, ok := t.productMap[name]
+	pmap, ok := t.exProductMap[exchangeName]
 	if !ok {
-		p, err := t.coinbaseClient.NewProduct(t.closeCtx, name)
+		return nil, fmt.Errorf("exchange with name %q not found: %w", exchangeName, os.ErrNotExist)
+	}
+	product, ok := pmap[productID]
+	if !ok {
+		p, err := t.coinbaseClient.NewProduct(t.closeCtx, productID)
 		if err != nil {
 			return nil, err
 		}
 		product = p
-		t.productMap[name] = p
+		pmap[productID] = p
 	}
 	return product, nil
 }
@@ -437,13 +446,13 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, fmt.Errorf("invalid limit request: %w", err)
 	}
 
-	product, err := t.getProduct(ctx, req.ProductID)
+	product, err := t.getProduct(ctx, req.ExchangeName, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	limit, err := limiter.New(uid, product.ProductID(), req.TradePoint)
+	limit, err := limiter.New(uid, req.ExchangeName, req.ProductID, req.Point)
 	if err != nil {
 		return nil, err
 	}
@@ -481,16 +490,16 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	}()
 
 	if err := req.Check(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid loop request: %w", err)
 	}
 
-	product, err := t.getProduct(ctx, req.Product)
+	product, err := t.getProduct(ctx, req.ExchangeName, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	loop, err := looper.New(uid, req.Product, &req.Buy, &req.Sell)
+	loop, err := looper.New(uid, req.ExchangeName, req.ProductID, req.Buy, req.Sell)
 	if err != nil {
 		return nil, err
 	}
@@ -525,36 +534,17 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		}
 	}()
 
-	// if err := req.Check(); err != nil {
-	// 	return err
-	// }
-
-	var buys, sells []*point.Point
-	for i, bs := range req.BuySellPoints {
-		buy, sell := bs[0], bs[1]
-		if err := buy.Check(); err != nil {
-			return nil, fmt.Errorf("buy point %d (%v) is invalid", i, buy)
-		}
-		if side := buy.Side(); side != "BUY" {
-			return nil, fmt.Errorf("buy point %d falls on invalid side", buy)
-		}
-		if err := sell.Check(); err != nil {
-			return nil, fmt.Errorf("sell point %d (%v) is invalid", i, sell)
-		}
-		if side := sell.Side(); side != "SELL" {
-			return nil, fmt.Errorf("sell point %d falls on invalid side", sell)
-		}
-		buys = append(buys, buy)
-		sells = append(sells, sell)
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("invalid wall request: %w", err)
 	}
 
-	product, err := t.getProduct(ctx, req.Product)
+	product, err := t.getProduct(ctx, req.ExchangeName, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	wall, err := waller.New(uid, req.Product, buys, sells)
+	wall, err := waller.New(uid, req.ExchangeName, req.ProductID, req.Pairs)
 	if err != nil {
 		return nil, err
 	}

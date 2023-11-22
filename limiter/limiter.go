@@ -26,7 +26,8 @@ import (
 const DefaultKeyspace = "/limiters/"
 
 type Limiter struct {
-	productID string
+	productID    string
+	exchangeName string
 
 	uid string
 
@@ -58,9 +59,10 @@ type Status struct {
 // orders at the exchange are canceled and recreated automatically as the
 // ticker price crosses the cancel threshold and comes closer to the
 // limit-price.
-func New(uid string, productID string, point *point.Point) (*Limiter, error) {
+func New(uid, exchangeName, productID string, point *point.Point) (*Limiter, error) {
 	v := &Limiter{
 		productID:       productID,
+		exchangeName:    exchangeName,
 		uid:             uid,
 		point:           *point,
 		idgen:           idgen.New(uid, 0),
@@ -93,6 +95,10 @@ func (v *Limiter) UID() string {
 
 func (v *Limiter) ProductID() string {
 	return v.productID
+}
+
+func (v *Limiter) ExchangeName() string {
+	return v.exchangeName
 }
 
 func (v *Limiter) Side() string {
@@ -330,6 +336,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	gv := &gobs.LimiterState{
 		V2: &gobs.LimiterStateV2{
 			ProductID:      v.productID,
+			ExchangeName:   v.exchangeName,
 			ClientIDSeed:   v.idgen.Seed(),
 			ClientIDOffset: v.idgen.Offset(),
 			TradePoint: gobs.Point{
@@ -393,9 +400,10 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		seed = gv.V2.ClientIDSeed
 	}
 	v := &Limiter{
-		uid:       uid,
-		productID: gv.V2.ProductID,
-		idgen:     idgen.New(seed, gv.V2.ClientIDOffset),
+		uid:          uid,
+		productID:    gv.V2.ProductID,
+		exchangeName: gv.V2.ExchangeName,
+		idgen:        idgen.New(seed, gv.V2.ClientIDOffset),
 
 		point: point.Point{
 			Size:   gv.V2.TradePoint.Size,

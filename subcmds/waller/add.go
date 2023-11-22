@@ -19,12 +19,19 @@ type Add struct {
 
 	dryRun bool
 
-	product string
+	product  string
+	exchange string
 
 	spec Spec
 }
 
 func (c *Add) check() error {
+	if len(c.product) == 0 {
+		return fmt.Errorf("product name cannot be empty")
+	}
+	if len(c.exchange) == 0 {
+		return fmt.Errorf("exchange name cannot be empty")
+	}
 	if err := c.spec.Check(); err != nil {
 		return err
 	}
@@ -34,25 +41,8 @@ func (c *Add) check() error {
 	return nil
 }
 
-func (c *Add) buySellPoints() [][2]*point.Point {
-	pairs := fixedProfitPairs(&c.spec)
-	var points [][2]*point.Point
-	for i := range pairs {
-		bs := [2]*point.Point{
-			{
-				Size:   pairs[i].Buy.Size,
-				Price:  pairs[i].Buy.Price.Truncate(2),
-				Cancel: pairs[i].Buy.Cancel.Truncate(2),
-			},
-			{
-				Size:   pairs[i].Sell.Size,
-				Price:  pairs[i].Sell.Price.Truncate(2),
-				Cancel: pairs[i].Sell.Cancel.Truncate(2),
-			},
-		}
-		points = append(points, bs)
-	}
-	return points
+func (c *Add) buySellPairs() []*point.Pair {
+	return fixedProfitPairs(&c.spec)
 }
 
 func (c *Add) Run(ctx context.Context, args []string) error {
@@ -63,24 +53,25 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	points := c.buySellPoints()
-	if points == nil {
+	pairs := c.buySellPairs()
+	if pairs == nil {
 		return fmt.Errorf("could not determine buy/sell points")
 	}
 
 	if c.dryRun {
-		for i, p := range points {
-			d0, _ := json.Marshal(p[0])
+		for i, p := range pairs {
+			d0, _ := json.Marshal(p.Buy)
 			fmt.Printf("buy-%d:  %s\n", i, d0)
-			d1, _ := json.Marshal(p[1])
+			d1, _ := json.Marshal(p.Sell)
 			fmt.Printf("sell-%d: %s\n", i, d1)
 		}
 		return nil
 	}
 
 	req := &api.WallRequest{
-		Product:       c.product,
-		BuySellPoints: points,
+		ProductID:    c.product,
+		ExchangeName: c.exchange,
+		Pairs:        pairs,
 	}
 	resp, err := subcmds.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req)
 	if err != nil {
@@ -97,6 +88,7 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	c.spec.SetFlags(fset)
 	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
 	fset.StringVar(&c.product, "product", "", "product id for the trade")
+	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
 	return fset, cli.CmdFunc(c.Run)
 }
 

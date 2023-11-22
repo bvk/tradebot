@@ -25,7 +25,8 @@ import (
 const DefaultKeyspace = "/loopers/"
 
 type Looper struct {
-	productID string
+	productID    string
+	exchangeName string
 
 	uid string
 
@@ -48,7 +49,7 @@ type Status struct {
 	NumSells int
 }
 
-func New(uid string, productID string, buy, sell *point.Point) (*Looper, error) {
+func New(uid, exchangeName, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
 		productID: productID,
 		uid:       uid,
@@ -90,6 +91,10 @@ func (v *Looper) UID() string {
 
 func (v *Looper) ProductID() string {
 	return v.productID
+}
+
+func (v *Looper) ExchangeName() string {
+	return v.exchangeName
 }
 
 func (v *Looper) Status() *Status {
@@ -172,7 +177,7 @@ func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.
 	}
 
 	uid := path.Join(v.uid, fmt.Sprintf("buy-%06d", len(v.buys)))
-	b, err := limiter.New(uid, product.ProductID(), &v.buyPoint)
+	b, err := limiter.New(uid, v.exchangeName, v.productID, &v.buyPoint)
 	if err != nil {
 		return err
 	}
@@ -198,7 +203,7 @@ func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv
 	// }
 
 	uid := path.Join(v.uid, fmt.Sprintf("sell-%06d", len(v.sells)))
-	s, err := limiter.New(uid, product.ProductID(), &v.sellPoint)
+	s, err := limiter.New(uid, v.exchangeName, v.productID, &v.sellPoint)
 	if err != nil {
 		return err
 	}
@@ -228,8 +233,9 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	}
 	gv := &gobs.LooperState{
 		V2: &gobs.LooperStateV2{
-			ProductID:  v.productID,
-			LimiterIDs: limiters,
+			ProductID:    v.productID,
+			ExchangeName: v.exchangeName,
+			LimiterIDs:   limiters,
 			TradePair: gobs.Pair{
 				Buy: gobs.Point{
 					Size:   v.buyPoint.Size,
@@ -291,10 +297,11 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 	}
 
 	v := &Looper{
-		uid:       uid,
-		productID: gv.V2.ProductID,
-		buys:      buys,
-		sells:     sells,
+		uid:          uid,
+		productID:    gv.V2.ProductID,
+		exchangeName: gv.V2.ExchangeName,
+		buys:         buys,
+		sells:        sells,
 		buyPoint: point.Point{
 			Size:   gv.V2.TradePair.Buy.Size,
 			Price:  gv.V2.TradePair.Buy.Price,
