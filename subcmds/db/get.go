@@ -11,13 +11,12 @@ import (
 	"io"
 
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/gobs"
 )
 
 type Get struct {
 	Flags
 
-	typename string
+	valueType string
 }
 
 func (c *Get) Run(ctx context.Context, args []string) error {
@@ -40,7 +39,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if c.typename == "" {
+	if c.valueType == "" {
 		data, err := io.ReadAll(v)
 		if err != nil {
 			return err
@@ -49,11 +48,16 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	x, err := c.unmarshal(v)
+	value, err := TypeNameValue(c.valueType)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid value-type %q: %w", c.valueType, err)
 	}
-	d, _ := json.MarshalIndent(x, "", "  ")
+
+	if err := gob.NewDecoder(v).Decode(value); err != nil {
+		return fmt.Errorf("could not gob-decode into %s value: %w", c.valueType, err)
+	}
+
+	d, _ := json.MarshalIndent(value, "", "  ")
 	fmt.Printf("%s\n", d)
 	return nil
 }
@@ -61,38 +65,10 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
 	c.Flags.SetFlags(fset)
-	fset.StringVar(&c.typename, "typename", "", "when non-empty unmarshals to the selected type")
+	fset.StringVar(&c.valueType, "value-type", "", "when non-empty unmarshals to the selected type")
 	return fset, cli.CmdFunc(c.Run)
 }
 
 func (c *Get) Synopsis() string {
 	return "Prints the value of a key in the database"
-}
-
-func (c *Get) unmarshal(r io.Reader) (any, error) {
-	var v any
-	switch c.typename {
-	case "TraderJobState":
-		v = new(gobs.TraderJobState)
-	case "LimiterState":
-		v = new(gobs.LimiterState)
-	case "LooperState":
-		v = new(gobs.LooperState)
-	case "WallerState":
-		v = new(gobs.WallerState)
-	case "KeyValue":
-		v = new(gobs.KeyValue)
-	case "NameData":
-		v = new(gobs.NameData)
-	case "Candles":
-		v = new(gobs.Candles)
-	default:
-		return nil, fmt.Errorf("unsupported type name %q", c.typename)
-	}
-
-	decoder := gob.NewDecoder(r)
-	if err := decoder.Decode(v); err != nil {
-		return nil, fmt.Errorf("could not unmarshal into %s value: %w", c.typename, err)
-	}
-	return v, nil
 }
