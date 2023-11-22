@@ -371,7 +371,6 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	if err := rw.Set(ctx, key, &buf); err != nil {
 		return fmt.Errorf("could not save limiter state: %w", err)
 	}
-	_ = rw.Delete(ctx, v.uid)
 	return nil
 }
 

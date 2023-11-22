@@ -256,7 +256,6 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	if err := rw.Set(ctx, key, &buf); err != nil {
 		return fmt.Errorf("could not save looper state: %w", err)
 	}
-	_ = rw.Delete(ctx, v.uid)
 	return nil
 }
 
