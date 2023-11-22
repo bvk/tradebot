@@ -169,7 +169,7 @@ func (t *Trader) Stop(ctx context.Context) error {
 
 func (t *Trader) Start(ctx context.Context) error {
 	// Load default set of products.
-	defaultProducts := []string{"BCH-USD", "BTC-USD"}
+	defaultProducts := []string{"BCH-USD", "BTC-USD", "ETH-USD"}
 
 	for _, p := range defaultProducts {
 		if _, err := t.getProduct(ctx, p); err != nil {
