@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 
@@ -40,6 +41,8 @@ const (
 	JobsKeyspace    = "/jobs/"
 	NamesKeyspace   = "/names/"
 	CandlesKeyspace = "/candles/"
+
+	traderStateKey = "/trader/state"
 )
 
 type Trader struct {
@@ -51,8 +54,6 @@ type Trader struct {
 	opts Options
 
 	db kv.Database
-
-	coinbaseClient *coinbase.Client
 
 	exchangeMap map[string]exchange.Exchange
 
@@ -72,7 +73,9 @@ type Trader struct {
 
 	mu sync.Mutex
 
-	exProductMap map[string]map[string]exchange.Product
+	state *gobs.TraderState
+
+	exProductsMap map[string]map[string]exchange.Product
 }
 
 func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, status error) {
@@ -80,6 +83,15 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	defer func() {
 		if status != nil {
 			cancel(status)
+		}
+	}()
+
+	exchangeMap := make(map[string]exchange.Exchange)
+	defer func() {
+		if status != nil {
+			for _, exch := range exchangeMap {
+				exch.Close()
+			}
 		}
 	}()
 
@@ -92,22 +104,41 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 		}
 		coinbaseClient = client
 	}
+	exchangeMap["coinbase"] = coinbaseClient
+
+	state, err := dbutil.Get[gobs.TraderState](ctx, db, traderStateKey)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("could not load trader state: %w", err)
+		}
+	}
 
 	t := &Trader{
-		closeCtx:       ctx,
-		closeCause:     cancel,
-		coinbaseClient: coinbaseClient,
-		db:             db,
-		opts:           *opts,
-		exchangeMap:    make(map[string]exchange.Exchange),
-		handlerMap:     make(map[string]http.Handler),
-		exProductMap:   make(map[string]map[string]exchange.Product),
+		closeCtx:    ctx,
+		closeCause:  cancel,
+		db:          db,
+		opts:        *opts,
+		state:       state,
+		exchangeMap: exchangeMap,
+		handlerMap:  make(map[string]http.Handler),
 	}
-	t.exchangeMap["coinbase"] = coinbaseClient
-	t.exProductMap["coinbase"] = make(map[string]exchange.Product)
 
-	// FIXME: We need to find a cleaner way to load default products. We need it
-	// before REST api is enabled.
+	if t.state == nil {
+		t.state = &gobs.TraderState{
+			ExchangeMap: make(map[string]*gobs.TraderExchangeState),
+		}
+		t.state.ExchangeMap["coinbase"] = &gobs.TraderExchangeState{
+			EnabledProductIDs: []string{
+				"BCH-USD",
+				"BTC-USD",
+				"ETH-USD",
+				"AVAX-USD",
+			},
+		}
+	}
+	if err := t.loadProducts(ctx); err != nil {
+		return nil, fmt.Errorf("could not load default products: %w", err)
+	}
 
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
@@ -123,8 +154,6 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
 	t.handlerMap[api.ExchangeGetCandlesPath] = httpPostJSONHandler(t.doGetCandles)
 
-	// TODO: Resume existing traders.
-
 	return t, nil
 }
 
@@ -132,12 +161,13 @@ func (t *Trader) Close() error {
 	t.closeCause(fmt.Errorf("trade is closing: %w", os.ErrClosed))
 	t.wg.Wait()
 
-	if t.coinbaseClient != nil {
-		pmap := t.exProductMap["coinbase"]
+	for _, pmap := range t.exProductsMap {
 		for _, p := range pmap {
-			t.coinbaseClient.CloseProduct(p.(*coinbase.Product))
+			p.Close()
 		}
-		t.coinbaseClient.Close()
+	}
+	for _, exch := range t.exchangeMap {
+		exch.Close()
 	}
 	return nil
 }
@@ -169,15 +199,6 @@ func (t *Trader) Stop(ctx context.Context) error {
 }
 
 func (t *Trader) Start(ctx context.Context) error {
-	// Load default set of products.
-	defaultProducts := []string{"BCH-USD", "BTC-USD", "ETH-USD"}
-
-	for _, p := range defaultProducts {
-		if _, err := t.getProduct(ctx, "coinbase", p); err != nil {
-			return err
-		}
-	}
-
 	// Scan the database and load existing traders.
 	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
 		return err
@@ -229,27 +250,71 @@ func (t *Trader) Start(ctx context.Context) error {
 }
 
 func (t *Trader) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
-	if exchangeName != "coinbase" {
-		return nil, fmt.Errorf("only coinbase exchange is supported")
-	}
-
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	pmap, ok := t.exProductMap[exchangeName]
+	return t.getProductLocked(ctx, exchangeName, productID)
+}
+
+func (t *Trader) getProductLocked(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
+	exch, ok := t.exchangeMap[exchangeName]
 	if !ok {
 		return nil, fmt.Errorf("exchange with name %q not found: %w", exchangeName, os.ErrNotExist)
 	}
-	product, ok := pmap[productID]
-	if !ok {
-		p, err := t.coinbaseClient.NewProduct(t.closeCtx, productID)
-		if err != nil {
-			return nil, err
+
+	if pmap, ok := t.exProductsMap[exchangeName]; ok {
+		if p, ok := pmap[productID]; ok {
+			return p, nil
 		}
-		product = p
-		pmap[productID] = p
 	}
+
+	// check if product is enabled.
+	estate, ok := t.state.ExchangeMap[exchangeName]
+	if !ok {
+		return nil, fmt.Errorf("exchange %q is not supported")
+	}
+	if !slices.Contains(estate.EnabledProductIDs, productID) {
+		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
+	}
+
+	product, err := exch.OpenProduct(t.closeCtx, productID)
+	if err != nil {
+		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
+	}
+
+	pmap, ok := t.exProductsMap[exchangeName]
+	if !ok {
+		pmap = make(map[string]exchange.Product)
+		t.exProductsMap[exchangeName] = pmap
+	}
+
+	pmap[productID] = product
 	return product, nil
+}
+
+func (t *Trader) loadProducts(ctx context.Context) (status error) {
+	exProductsMap := make(map[string]map[string]exchange.Product)
+	defer func() {
+		if status != nil {
+			for _, pmap := range exProductsMap {
+				for _, product := range pmap {
+					product.Close()
+				}
+			}
+		}
+	}()
+
+	for ename, estate := range t.state.ExchangeMap {
+		for _, pname := range estate.WatchedProductIDs {
+			product, err := t.getProductLocked(ctx, ename, pname)
+			if err != nil {
+				return fmt.Errorf("could not load exchange %q product %q: %w", ename, pname, err)
+			}
+			exProductsMap[ename][pname] = product
+		}
+	}
+	t.exProductsMap = exProductsMap
+	return nil
 }
 
 func (t *Trader) loadTrades(ctx context.Context, r kv.Reader) error {

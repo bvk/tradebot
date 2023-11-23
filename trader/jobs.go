@@ -59,15 +59,10 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
 	}
 
-	exName := v.ExchangeName()
-	pmap, ok := t.exProductMap[exName]
-	if !ok {
-		return nil, false, fmt.Errorf("exchange %q not found: %w", exName, os.ErrNotExist)
-	}
-	productID := v.ProductID()
-	product, ok := pmap[productID]
-	if !ok {
-		return nil, false, fmt.Errorf("job %s product %q is not enabled (ignored)", id, productID)
+	ename, pname := v.ExchangeName(), v.ProductID()
+	product, err := t.getProduct(ctx, ename, pname)
+	if err != nil {
+		return nil, false, fmt.Errorf("could not load product %q in exchange %q: %w", pname, ename, err)
 	}
 
 	j := job.New(state, func(ctx context.Context) error {

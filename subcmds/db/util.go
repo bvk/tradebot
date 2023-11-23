@@ -25,6 +25,8 @@ func TypeNameValue(typename string) (any, error) {
 		v = new(gobs.NameData)
 	case "Candles":
 		v = new(gobs.Candles)
+	case "TraderState":
+		v = new(gobs.TraderState)
 	default:
 		return nil, fmt.Errorf("unsupported type name %q", typename)
 	}

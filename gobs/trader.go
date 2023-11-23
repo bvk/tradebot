@@ -15,3 +15,13 @@ type NameData struct {
 
 	Data string
 }
+
+type TraderExchangeState struct {
+	EnabledProductIDs []string
+
+	WatchedProductIDs []string
+}
+
+type TraderState struct {
+	ExchangeMap map[string]*TraderExchangeState
+}

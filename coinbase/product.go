@@ -34,6 +34,10 @@ type Product struct {
 	tickerRecvr *topic.Receiver[*exchange.Ticker]
 }
 
+func (c *Client) OpenProduct(ctx context.Context, productID string) (exchange.Product, error) {
+	return c.NewProduct(ctx, productID)
+}
+
 func (c *Client) NewProduct(ctx context.Context, name string) (_ *Product, status error) {
 	if !slices.Contains(c.spotProducts, name) {
 		return nil, os.ErrInvalid
@@ -83,6 +87,10 @@ func (c *Client) CloseProduct(p *Product) error {
 	p.wg.Wait()
 	p.tickerTopic.Close()
 	return nil
+}
+
+func (p *Product) Close() error {
+	return p.client.CloseProduct(p)
 }
 
 func (p *Product) ProductID() string {
