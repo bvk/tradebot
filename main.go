@@ -21,6 +21,7 @@ func main() {
 	dbCmds := []cli.Command{
 		new(db.Get),
 		new(db.Set),
+		new(db.Edit),
 		new(db.Delete),
 		new(db.List),
 		new(db.Backup),
