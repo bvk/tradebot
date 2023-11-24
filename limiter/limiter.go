@@ -125,17 +125,7 @@ func (v *Limiter) Pending() decimal.Decimal {
 
 // Fix is a temporary helper interface used to fix any past mistakes.
 func (v *Limiter) Fix(ctx context.Context, product exchange.Product, db kv.Database) error {
-	// Our fee collection logic has a bug where we should be using `TotalFees` field, but were using `Fee`.
-	for id, order := range v.orderMap {
-		if !order.Done {
-			continue
-		}
-		order, err := product.Get(ctx, id)
-		if err != nil {
-			return err
-		}
-		v.orderMap[id] = order
-	}
+	v.idgen = idgen.New(v.idgen.Seed(), v.idgen.Offset()+1000000)
 	return nil
 }
 

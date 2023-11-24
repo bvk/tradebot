@@ -33,7 +33,7 @@ func (v *Generator) Offset() uint64 {
 
 func (v *Generator) NextID() uuid.UUID {
 	if len(v.cache) == 0 || v.next%10 == 0 {
-		v.cache = v.prepare(v.next/10, 10)
+		v.cache = v.prepare(v.next/10*10, 10)
 	}
 	id := v.cache[v.next%10]
 	v.next++
