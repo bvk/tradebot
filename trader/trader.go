@@ -204,6 +204,12 @@ func (t *Trader) Start(ctx context.Context) error {
 		return err
 	}
 
+	if t.opts.RunFixes {
+		if err := t.runFixes(ctx); err != nil {
+			return err
+		}
+	}
+
 	if t.opts.NoResume {
 		return nil
 	}
@@ -247,6 +253,76 @@ func (t *Trader) Start(ctx context.Context) error {
 
 	log.Printf("%d jobs are resumed", nresumed)
 	return nil
+}
+
+func (t *Trader) runFixes(ctx context.Context) (status error) {
+	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
+		ename, pname := l.ExchangeName(), l.ProductID()
+		p, err := t.getProduct(ctx, ename, pname)
+		if err != nil {
+			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
+			status = err
+			return false
+		}
+		if err := l.Fix(ctx, p, t.db); err != nil {
+			log.Printf("could not fix limiter %v: %w", l, err)
+			status = err
+			return false
+		}
+		if err := kv.WithReadWriter(ctx, t.db, l.Save); err != nil {
+			log.Printf("could not save limiter %v: %w", l, err)
+			status = err
+			return false
+		}
+		return true
+	})
+	if status != nil {
+		return
+	}
+	t.looperMap.Range(func(id string, l *looper.Looper) bool {
+		ename, pname := l.ExchangeName(), l.ProductID()
+		p, err := t.getProduct(ctx, ename, pname)
+		if err != nil {
+			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
+			status = err
+			return false
+		}
+		if err := l.Fix(ctx, p, t.db); err != nil {
+			log.Printf("could not fix looper %v: %w", l, err)
+			status = err
+			return false
+		}
+		if err := kv.WithReadWriter(ctx, t.db, l.Save); err != nil {
+			log.Printf("could not save looper %v: %w", l, err)
+			status = err
+			return false
+		}
+		return true
+	})
+	if status != nil {
+		return
+	}
+	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
+		ename, pname := w.ExchangeName(), w.ProductID()
+		p, err := t.getProduct(ctx, ename, pname)
+		if err != nil {
+			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
+			status = err
+			return false
+		}
+		if err := w.Fix(ctx, p, t.db); err != nil {
+			log.Printf("could not fix waller %v: %w", w, err)
+			status = err
+			return false
+		}
+		if err := kv.WithReadWriter(ctx, t.db, w.Save); err != nil {
+			log.Printf("could not save waller %v: %w", w, err)
+			status = err
+			return false
+		}
+		return true
+	})
+	return
 }
 
 func (t *Trader) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {

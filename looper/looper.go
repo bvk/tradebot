@@ -108,6 +108,20 @@ func (v *Looper) Status() *Status {
 	}
 }
 
+func (v *Looper) Fix(ctx context.Context, product exchange.Product, db kv.Database) error {
+	for _, b := range v.buys {
+		if err := b.Fix(ctx, product, db); err != nil {
+			return err
+		}
+	}
+	for _, s := range v.sells {
+		if err := s.Fix(ctx, product, db); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)

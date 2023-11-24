@@ -87,6 +87,15 @@ func (w *Waller) ExchangeName() string {
 	return w.exchangeName
 }
 
+func (w *Waller) Fix(ctx context.Context, product exchange.Product, db kv.Database) error {
+	for _, l := range w.loopers {
+		if err := l.Fix(ctx, product, db); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
 	var wg sync.WaitGroup
 

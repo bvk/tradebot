@@ -3,6 +3,7 @@
 package waller
 
 import (
+	"log"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
@@ -346,6 +347,10 @@ func (w *Waller) summarize(s *Status) {
 				lastSellTime = sell.CreateTime.Time
 
 				summary.firstOrderTime = minTime(summary.firstOrderTime, sell.CreateTime.Time)
+
+				if sell.Fee.IsZero() {
+					log.Printf("warning: order id %s has zero fee", sell.OrderID)
+				}
 			}
 		}
 		if len(sells) > 0 {
@@ -368,6 +373,10 @@ func (w *Waller) summarize(s *Status) {
 				}
 
 				summary.firstOrderTime = minTime(summary.firstOrderTime, buy.CreateTime.Time)
+
+				if buy.Fee.IsZero() {
+					log.Printf("warning: order id %s has zero fee", buy.OrderID)
+				}
 			}
 		}
 		if len(buys) > 0 {
