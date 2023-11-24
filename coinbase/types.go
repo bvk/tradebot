@@ -134,7 +134,7 @@ func toExchangeOrder(v *OrderType) *exchange.Order {
 		OrderID:       exchange.OrderID(v.OrderID),
 		CreateTime:    exchange.RemoteTime{Time: v.CreatedTime.Time},
 		Side:          v.Side,
-		Fee:           v.Fee.Decimal,
+		Fee:           v.TotalFees.Decimal,
 		FilledSize:    v.FilledSize.Decimal,
 		FilledPrice:   v.AvgFilledPrice.Decimal,
 		Status:        v.Status,
