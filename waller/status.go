@@ -335,6 +335,9 @@ func (w *Waller) summarize(s *Status) {
 			continue
 		}
 
+		dupOrderIDs := make(map[exchange.OrderID]int)
+		dupClientIDs := make(map[string]int)
+
 		sdata := &sellData{
 			orders: sells,
 		}
@@ -351,6 +354,8 @@ func (w *Waller) summarize(s *Status) {
 				if sell.Fee.IsZero() {
 					log.Printf("warning: order id %s has zero fee", sell.OrderID)
 				}
+				dupOrderIDs[sell.OrderID] = dupOrderIDs[sell.OrderID] + 1
+				dupClientIDs[sell.ClientOrderID] = dupClientIDs[sell.ClientOrderID] + 1
 			}
 		}
 		if len(sells) > 0 {
@@ -377,10 +382,19 @@ func (w *Waller) summarize(s *Status) {
 				if buy.Fee.IsZero() {
 					log.Printf("warning: order id %s has zero fee", buy.OrderID)
 				}
+				dupOrderIDs[buy.OrderID] = dupOrderIDs[buy.OrderID] + 1
+				dupClientIDs[buy.ClientOrderID] = dupClientIDs[buy.ClientOrderID] + 1
 			}
 		}
 		if len(buys) > 0 {
 			bdata.feePct = bdata.fees.Mul(hundred).Div(bdata.value)
+		}
+
+		for id, n := range dupOrderIDs {
+			log.Printf("warning: server order id %s is found duplicated %d times", id, n)
+		}
+		for id, n := range dupClientIDs {
+			log.Printf("warning: client order id %s is found duplicated %d times", id, n)
 		}
 
 		pdata := &pairData{
