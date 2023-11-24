@@ -343,7 +343,17 @@ func (w *Waller) summarize(s *Status) {
 		}
 		var lastSellTime time.Time
 		for _, sell := range sells {
-			if sell.Done {
+			if !sell.Done {
+				continue
+			}
+			if v, ok := dupOrderIDs[sell.OrderID]; ok {
+				dupOrderIDs[sell.OrderID] = v + 1
+			}
+			if v, ok := dupClientIDs[sell.ClientOrderID]; ok {
+				dupClientIDs[sell.ClientOrderID] = v + 1
+			}
+
+			if _, ok := dupOrderIDs[sell.OrderID]; !ok {
 				sdata.fees = sdata.fees.Add(sell.Fee)
 				sdata.size = sdata.size.Add(sell.FilledSize)
 				sdata.value = sdata.value.Add(sell.FilledSize.Mul(sell.FilledPrice))
@@ -354,8 +364,8 @@ func (w *Waller) summarize(s *Status) {
 				if sell.Fee.IsZero() {
 					log.Printf("warning: order id %s has zero fee", sell.OrderID)
 				}
-				dupOrderIDs[sell.OrderID] = dupOrderIDs[sell.OrderID] + 1
-				dupClientIDs[sell.ClientOrderID] = dupClientIDs[sell.ClientOrderID] + 1
+				dupOrderIDs[sell.OrderID] = 1
+				dupClientIDs[sell.ClientOrderID] = 1
 			}
 		}
 		if len(sells) > 0 {
@@ -366,7 +376,16 @@ func (w *Waller) summarize(s *Status) {
 			orders: buys,
 		}
 		for _, buy := range buys {
-			if buy.Done {
+			if !buy.Done {
+				continue
+			}
+			if v, ok := dupOrderIDs[buy.OrderID]; ok {
+				dupOrderIDs[buy.OrderID] = v + 1
+			}
+			if v, ok := dupClientIDs[buy.ClientOrderID]; ok {
+				dupClientIDs[buy.ClientOrderID] = v + 1
+			}
+			if _, ok := dupOrderIDs[buy.OrderID]; !ok {
 				bdata.fees = bdata.fees.Add(buy.Fee)
 				bdata.size = bdata.size.Add(buy.FilledSize)
 				bdata.value = bdata.value.Add(buy.FilledSize.Mul(buy.FilledPrice))
@@ -382,19 +401,23 @@ func (w *Waller) summarize(s *Status) {
 				if buy.Fee.IsZero() {
 					log.Printf("warning: order id %s has zero fee", buy.OrderID)
 				}
-				dupOrderIDs[buy.OrderID] = dupOrderIDs[buy.OrderID] + 1
-				dupClientIDs[buy.ClientOrderID] = dupClientIDs[buy.ClientOrderID] + 1
 			}
+			dupOrderIDs[buy.OrderID] = 1
+			dupClientIDs[buy.ClientOrderID] = 1
 		}
 		if len(buys) > 0 {
 			bdata.feePct = bdata.fees.Mul(hundred).Div(bdata.value)
 		}
 
 		for id, n := range dupOrderIDs {
-			log.Printf("warning: server order id %s is found duplicated %d times", id, n)
+			if n > 1 {
+				log.Printf("warning: server order id %s is found duplicated %d times", id, n)
+			}
 		}
 		for id, n := range dupClientIDs {
-			log.Printf("warning: client order id %s is found duplicated %d times", id, n)
+			if n > 1 {
+				log.Printf("warning: client order id %s is found duplicated %d times", id, n)
+			}
 		}
 
 		pdata := &pairData{
