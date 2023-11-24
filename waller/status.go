@@ -272,7 +272,6 @@ func (w *Waller) Status() *Status {
 			Buy:  p.Buy,
 			Sell: p.Sell,
 		}
-		pairs = append(pairs, p)
 	}
 
 	s := &Status{
