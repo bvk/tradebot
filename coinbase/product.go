@@ -101,6 +101,10 @@ func (p *Product) ExchangeName() string {
 	return "coinbase"
 }
 
+func (p *Product) BaseMinSize() decimal.Decimal {
+	return p.productData.BaseMinSize.Decimal
+}
+
 func (p *Product) goWatchPrice() {
 	defer p.wg.Done()
 

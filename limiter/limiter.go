@@ -264,6 +264,9 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
 	size := v.Pending()
+	if size.LessThan(product.BaseMinSize()) {
+		size = product.BaseMinSize()
+	}
 
 	var err error
 	var latency time.Duration

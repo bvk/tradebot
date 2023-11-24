@@ -48,6 +48,7 @@ type Product interface {
 
 	ProductID() string
 	ExchangeName() string
+	BaseMinSize() decimal.Decimal
 
 	TickerCh() <-chan *Ticker
 	OrderUpdatesCh(id OrderID) <-chan *Order
