@@ -1,2 +1,5 @@
 *~
 /tradebot
+/secrets.json
+/coinbase/coinbase-creds.json
+/pushover/pushover-keys.json

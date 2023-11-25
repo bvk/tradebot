@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
@@ -27,6 +28,7 @@ import (
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
+	"github.com/bvk/tradebot/pushover"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -76,6 +78,8 @@ type Trader struct {
 	state *gobs.TraderState
 
 	exProductsMap map[string]map[string]exchange.Product
+
+	pushoverClient *pushover.Client
 }
 
 func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, status error) {
@@ -106,6 +110,15 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	}
 	exchangeMap["coinbase"] = coinbaseClient
 
+	var pushoverClient *pushover.Client
+	if secrets.Pushover != nil {
+		client, err := pushover.New(secrets.Pushover)
+		if err != nil {
+			return nil, fmt.Errorf("could not create pushover client: %w", err)
+		}
+		pushoverClient = client
+	}
+
 	state, err := dbutil.Get[gobs.TraderState](ctx, db, traderStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -114,13 +127,14 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	}
 
 	t := &Trader{
-		closeCtx:    ctx,
-		closeCause:  cancel,
-		db:          db,
-		opts:        *opts,
-		state:       state,
-		exchangeMap: exchangeMap,
-		handlerMap:  make(map[string]http.Handler),
+		closeCtx:       ctx,
+		closeCause:     cancel,
+		db:             db,
+		opts:           *opts,
+		state:          state,
+		exchangeMap:    exchangeMap,
+		handlerMap:     make(map[string]http.Handler),
+		pushoverClient: pushoverClient,
 	}
 
 	if t.state == nil {
@@ -176,6 +190,14 @@ func (t *Trader) HandlerMap() map[string]http.Handler {
 	return maps.Clone(t.handlerMap)
 }
 
+func (t *Trader) Notify(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
+	if t.pushoverClient != nil {
+		if err := t.pushoverClient.SendMessage(ctx, at, fmt.Sprintf(msgfmt, args...)); err != nil {
+			log.Printf("warning: could not send pushover message (ignored): %v", err)
+		}
+	}
+}
+
 func (t *Trader) Stop(ctx context.Context) error {
 	t.jobMap.Range(func(id string, j *job.Job) bool {
 		if s := j.State(); !job.IsFinal(s) {
@@ -195,10 +217,21 @@ func (t *Trader) Stop(ctx context.Context) error {
 		return true
 	})
 
+	hostname, _ := os.Hostname()
+	t.Notify(ctx, time.Now(), "Trader has stopped gracefully on host named '%s'.", hostname)
 	return nil
 }
 
-func (t *Trader) Start(ctx context.Context) error {
+func (t *Trader) Start(ctx context.Context) (status error) {
+	defer func() {
+		hostname, _ := os.Hostname()
+		if status == nil {
+			t.Notify(ctx, time.Now(), "Trader has started successfully on host named '%s'.", hostname)
+		} else {
+			t.Notify(ctx, time.Now(), "Trader has failed to start on host named '%s' with error `%v`.", hostname, status)
+		}
+	}()
+
 	// Scan the database and load existing traders.
 	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
 		return err

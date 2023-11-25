@@ -7,10 +7,12 @@ import (
 	"os"
 
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/pushover"
 )
 
 type Secrets struct {
 	Coinbase *coinbase.Credentials
+	Pushover *pushover.Keys
 }
 
 func SecretsFromFile(fpath string) (*Secrets, error) {
