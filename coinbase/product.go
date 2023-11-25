@@ -339,8 +339,11 @@ func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
 }
 
 func (p *Product) OrderUpdatesCh(id exchange.OrderID) <-chan *exchange.Order {
-	if v, ok := p.client.orderDataMap.Load(string(id)); ok {
-		data := v.(*orderData)
+	if data, ok := p.client.orderDataMap.Load(string(id)); ok {
+		_, ch, _ := data.topic.Subscribe(1 /* limit */, true /* includeRecent */)
+		return ch
+	}
+	if data, ok := p.client.oldOrderDataMap.Load(string(id)); ok {
 		_, ch, _ := data.topic.Subscribe(1 /* limit */, true /* includeRecent */)
 		return ch
 	}

@@ -23,6 +23,7 @@ import (
 
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/syncmap"
 	"golang.org/x/time/rate"
 )
 
@@ -49,11 +50,13 @@ type Client struct {
 	// TODO: Save full *ProductType objects.
 	spotProducts []string
 
-	// concurrent map[string]*orderData
-	orderDataMap sync.Map
+	// concurrent map to keep track of updates to *new* orders from websocket or
+	// polling operations.
+	orderDataMap syncmap.Map[string, *orderData]
 
-	// concurrent map[string]*orderData
-	oldOrderDataMap sync.Map
+	// concurrent map to keep track of updates to *old* live orders from
+	// websocket or polling operations.
+	oldOrderDataMap syncmap.Map[string, *orderData]
 
 	// timeAdjustment is positive when local time is found to be ahead of the
 	// server time, in which case, this value must be subtracted from the local
@@ -386,30 +389,22 @@ func (c *Client) handleUserChannelMsg(ctx context.Context, msg *MessageType) err
 		if event.Type == "snapshot" {
 			for _, order := range event.Orders {
 				if old, ok := c.orderDataMap.Load(string(order.OrderID)); ok {
-					old.(*orderData).websocketUpdate(serverTime, order)
+					old.websocketUpdate(serverTime, order)
 					continue
 				}
 				data := c.newOrderData(order.OrderID)
 				data.websocketUpdate(serverTime, order)
-				if old, ok := c.orderDataMap.LoadOrStore(string(order.OrderID), data); ok {
-					data.Close()
-					old.(*orderData).websocketUpdate(serverTime, order)
-				}
 			}
 		}
 
 		if event.Type == "update" {
 			for _, order := range event.Orders {
 				if old, ok := c.orderDataMap.Load(string(order.OrderID)); ok {
-					old.(*orderData).websocketUpdate(serverTime, order)
+					old.websocketUpdate(serverTime, order)
 					continue
 				}
 				data := c.newOrderData(order.OrderID)
 				data.websocketUpdate(serverTime, order)
-				if old, ok := c.orderDataMap.LoadOrStore(string(order.OrderID), data); ok {
-					data.Close()
-					old.(*orderData).websocketUpdate(serverTime, order)
-				}
 			}
 		}
 	}
@@ -467,10 +462,6 @@ func (c *Client) recreateOldOrder(clientOrderID string) (string, bool) {
 	}
 
 	data := c.newOrderData(old.OrderID)
-	if old, ok := c.orderDataMap.LoadOrStore(old.OrderID, data); ok {
-		data.Close()
-		data = old.(*orderData)
-	}
 	data.topic.SendCh() <- toExchangeOrder(old)
 	log.Printf("recreate order request for already used client-id %s is short-circuited to return old server order id %s", clientOrderID, old.OrderID)
 	return old.OrderID, true
@@ -505,10 +496,6 @@ func (c *Client) createOrder(ctx context.Context, request *CreateOrderRequest) (
 
 	if resp.Success {
 		data := c.newOrderData(resp.OrderID)
-		if old, ok := c.orderDataMap.LoadOrStore(resp.OrderID, data); ok {
-			data.Close()
-			data = old.(*orderData)
-		}
 		// We need to wait here to confirm the order because orders need sometime
 		// before they can be canceled by their ids.
 		if _, err := data.waitForOpen(ctx); err != nil {

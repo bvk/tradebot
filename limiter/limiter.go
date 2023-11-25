@@ -155,12 +155,12 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 	}
 
 	var activeOrderID exchange.OrderID
+	var orderUpdatesCh <-chan *exchange.Order
 	if nlive != 0 {
 		activeOrderID = live[0].OrderID
+		orderUpdatesCh = product.OrderUpdatesCh(activeOrderID)
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
-
-	var orderUpdatesCh <-chan *exchange.Order
 
 	dirty := 0
 	tickerCh := product.TickerCh()

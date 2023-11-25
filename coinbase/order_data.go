@@ -37,6 +37,10 @@ func (c *Client) newOrderData(id string) *orderData {
 		topic:   topic.New[*exchange.Order](),
 	}
 	_, d.ch, _ = d.topic.Subscribe(0, false /* includeRecent */)
+	if old, ok := c.orderDataMap.LoadOrStore(id, d); ok {
+		d.Close()
+		return old
+	}
 	return d
 }
 

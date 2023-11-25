@@ -166,9 +166,11 @@ func (w *Websocket) readMessage(ctx context.Context) (*MessageType, error) {
 		return nil, err
 	}
 
-	// Log only user channel messages.
+	// Log only user channel messages. Skip pending status updates.
 	if smsg := string(msg); strings.Contains(smsg, `"channel":"user"`) {
-		slog.InfoContext(ctx, smsg)
+		if !strings.Contains(smsg, `"status":"PENDING"`) {
+			slog.InfoContext(ctx, smsg)
+		}
 	}
 
 	m := new(MessageType)
