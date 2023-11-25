@@ -14,12 +14,12 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/dbutil"
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
+	"github.com/bvk/tradebot/runtime"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -45,7 +45,7 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		UID() string
 		ProductID() string
 		ExchangeName() string
-		Run(context.Context, exchange.Product, kv.Database) error
+		Run(context.Context, *runtime.Runtime) error
 	}
 
 	var v TradeJob
@@ -66,7 +66,7 @@ func (t *Trader) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 	}
 
 	j := job.New(state, func(ctx context.Context) error {
-		return v.Run(ctx, product, t.db)
+		return v.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
 	})
 	return j, gstate.NeedsManualResume, nil
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/runtime"
 	"github.com/bvkgo/kv"
 )
 
@@ -122,12 +123,12 @@ func (v *Looper) Fix(ctx context.Context, product exchange.Product, db kv.Databa
 	return nil
 }
 
-func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
+func (v *Looper) Run(ctx context.Context, rt *runtime.Runtime) error {
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)
 
 		if nbuys == 0 {
-			if err := v.addNewBuy(ctx, product, db); err != nil {
+			if err := v.addNewBuy(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
@@ -137,7 +138,7 @@ func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Databa
 		}
 
 		if last := v.buys[nbuys-1]; !last.Pending().IsZero() {
-			if err := last.Run(ctx, product, db); err != nil {
+			if err := last.Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
@@ -147,7 +148,7 @@ func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Databa
 		}
 
 		if nsells < nbuys {
-			if err := v.addNewSell(ctx, product, db); err != nil {
+			if err := v.addNewSell(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
 					time.Sleep(time.Second)
@@ -157,7 +158,7 @@ func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Databa
 		}
 
 		if last := v.sells[nsells-1]; !last.Pending().IsZero() {
-			if err := last.Run(ctx, product, db); err != nil {
+			if err := last.Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
 					time.Sleep(time.Second)
@@ -166,7 +167,7 @@ func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Databa
 			continue
 		}
 
-		if err := v.addNewBuy(ctx, product, db); err != nil {
+		if err := v.addNewBuy(ctx, rt); err != nil {
 			if ctx.Err() == nil {
 				log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 				time.Sleep(time.Second)
@@ -178,9 +179,9 @@ func (v *Looper) Run(ctx context.Context, product exchange.Product, db kv.Databa
 	return context.Cause(ctx)
 }
 
-func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.Database) error {
+func (v *Looper) addNewBuy(ctx context.Context, rt *runtime.Runtime) error {
 	// Wait for the ticker to go above the buy point price.
-	tickerCh := product.TickerCh()
+	tickerCh := rt.Product.TickerCh()
 	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
 		select {
 		case <-ctx.Done():
@@ -196,14 +197,14 @@ func (v *Looper) addNewBuy(ctx context.Context, product exchange.Product, db kv.
 		return err
 	}
 	v.buys = append(v.buys, b)
-	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		v.buys = v.buys[:len(v.buys)-1]
 		return err
 	}
 	return nil
 }
 
-func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv.Database) error {
+func (v *Looper) addNewSell(ctx context.Context, rt *runtime.Runtime) error {
 	// // Wait for the ticker to go below the sell point price.
 	// tickerCh := product.TickerCh()
 	// for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
@@ -222,7 +223,7 @@ func (v *Looper) addNewSell(ctx context.Context, product exchange.Product, db kv
 		return err
 	}
 	v.sells = append(v.sells, s)
-	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		v.sells = v.sells[:len(v.sells)-1]
 		return err
 	}

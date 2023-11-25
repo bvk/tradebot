@@ -19,6 +19,7 @@ import (
 	"github.com/bvk/tradebot/idgen"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/runtime"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
@@ -129,12 +130,12 @@ func (v *Limiter) Fix(ctx context.Context, product exchange.Product, db kv.Datab
 	return nil
 }
 
-func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
-	if product.ProductID() != v.productID {
+func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
+	if rt.Product.ProductID() != v.productID {
 		return os.ErrInvalid
 	}
 	// We also need to handle resume logic here.
-	if err := v.fetchOrderMap(ctx, product, len(v.orderMap)); err != nil {
+	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
 		return err
 	}
 	if p := v.Pending(); p.IsZero() {
@@ -158,12 +159,12 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 	var orderUpdatesCh <-chan *exchange.Order
 	if nlive != 0 {
 		activeOrderID = live[0].OrderID
-		orderUpdatesCh = product.OrderUpdatesCh(activeOrderID)
+		orderUpdatesCh = rt.Product.OrderUpdatesCh(activeOrderID)
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
 
 	dirty := 0
-	tickerCh := product.TickerCh()
+	tickerCh := rt.Product.TickerCh()
 	flushCh := time.After(time.Minute)
 
 	localCtx := context.Background()
@@ -172,19 +173,19 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		case <-ctx.Done():
 			if activeOrderID != "" {
 				log.Printf("%s:%s: canceling active limit order %v (%v)", v.uid, v.point, activeOrderID, context.Cause(ctx))
-				if err := v.cancel(localCtx, product, activeOrderID); err != nil {
+				if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 					return err
 				}
 				dirty++
 			}
-			if err := kv.WithReadWriter(localCtx, db, v.Save); err != nil {
+			if err := kv.WithReadWriter(localCtx, rt.Database, v.Save); err != nil {
 				log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
 			}
 			return context.Cause(ctx)
 
 		case <-flushCh:
 			if dirty > 0 {
-				if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
+				if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 					log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
 				} else {
 					dirty = 0
@@ -206,7 +207,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 			if v.Side() == "SELL" {
 				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
-						if err := v.cancel(localCtx, product, activeOrderID); err != nil {
+						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
 						}
 						dirty++
@@ -215,7 +216,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 				}
 				if ticker.Price.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, ch, err := v.create(localCtx, product)
+						id, ch, err := v.create(localCtx, rt.Product)
 						if err != nil {
 							return err
 						}
@@ -229,7 +230,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 			if v.Side() == "BUY" {
 				if ticker.Price.GreaterThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
-						if err := v.cancel(localCtx, product, activeOrderID); err != nil {
+						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
 						}
 						dirty++
@@ -238,7 +239,7 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, ch, err := v.create(localCtx, product)
+						id, ch, err := v.create(localCtx, rt.Product)
 						if err != nil {
 							return err
 						}
@@ -251,10 +252,10 @@ func (v *Limiter) Run(ctx context.Context, product exchange.Product, db kv.Datab
 		}
 	}
 
-	if err := v.fetchOrderMap(ctx, product, len(v.orderMap)); err != nil {
+	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
 		return err
 	}
-	if err := kv.WithReadWriter(ctx, db, v.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		return err
 	}
 	return nil

@@ -29,6 +29,7 @@ import (
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
+	"github.com/bvk/tradebot/runtime"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -637,7 +638,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	t.limiterMap.Store(uid, limit)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return limit.Run(ctx, product, t.db)
+		return limit.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
 	})
 	t.jobMap.Store(uid, j)
 
@@ -683,7 +684,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	t.looperMap.Store(uid, loop)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return loop.Run(ctx, product, t.db)
+		return loop.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
 	})
 	t.jobMap.Store(uid, j)
 
@@ -728,7 +729,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	t.wallerMap.Store(uid, wall)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return wall.Run(ctx, product, t.db)
+		return wall.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
 	})
 	t.jobMap.Store(uid, j)
 

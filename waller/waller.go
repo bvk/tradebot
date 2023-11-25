@@ -20,6 +20,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/runtime"
 	"github.com/bvkgo/kv"
 )
 
@@ -96,7 +97,7 @@ func (w *Waller) Fix(ctx context.Context, product exchange.Product, db kv.Databa
 	return nil
 }
 
-func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Database) error {
+func (w *Waller) Run(ctx context.Context, rt *runtime.Runtime) error {
 	var wg sync.WaitGroup
 
 	for _, loop := range w.loopers {
@@ -107,7 +108,7 @@ func (w *Waller) Run(ctx context.Context, product exchange.Product, db kv.Databa
 			defer wg.Done()
 
 			for ctx.Err() == nil {
-				if err := loop.Run(ctx, product, db); err != nil {
+				if err := loop.Run(ctx, rt); err != nil {
 					if ctx.Err() == nil {
 						log.Printf("wall-looper %v has failed (retry): %v", loop, err)
 						time.Sleep(time.Second)
