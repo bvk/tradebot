@@ -22,7 +22,7 @@ import (
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
-	"github.com/bvk/tradebot/trader"
+	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
@@ -109,7 +109,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	if len(c.secretsPath) == 0 {
 		c.secretsPath = filepath.Join(dataDir, "secrets.json")
 	}
-	secrets, err := trader.SecretsFromFile(c.secretsPath)
+	secrets, err := server.SecretsFromFile(c.secretsPath)
 	if err != nil {
 		return err
 	}
@@ -219,10 +219,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	s.AddHandler("/db/", http.StripPrefix("/db", kvhttp.Handler(db)))
 
 	// Start other services.
-	topts := &trader.Options{
+	topts := &server.Options{
 		NoResume: c.noResume,
 	}
-	trader, err := trader.NewTrader(secrets, db, topts)
+	trader, err := server.NewTrader(secrets, db, topts)
 	if err != nil {
 		return err
 	}

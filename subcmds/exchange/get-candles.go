@@ -15,9 +15,9 @@ import (
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/db"
-	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 )
 
@@ -114,7 +114,7 @@ func (c *GetCandles) run(ctx context.Context, args []string) error {
 				return fmt.Errorf("could not gob encode candles: %w", err)
 			}
 
-			key := path.Join(trader.CandlesKeyspace, c.exchange, c.product, start.Format("2006-01-02"))
+			key := path.Join(server.CandlesKeyspace, c.exchange, c.product, start.Format("2006-01-02"))
 			return rw.Set(ctx, key, &buf)
 		}
 		if err := kv.WithReadWriter(ctx, db, save); err != nil {

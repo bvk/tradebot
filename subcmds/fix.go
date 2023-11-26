@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/trader"
+	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
@@ -52,7 +52,7 @@ func (c *Fix) run(ctx context.Context, args []string) error {
 	if len(c.secretsPath) == 0 {
 		c.secretsPath = filepath.Join(dataDir, "secrets.json")
 	}
-	secrets, err := trader.SecretsFromFile(c.secretsPath)
+	secrets, err := server.SecretsFromFile(c.secretsPath)
 	if err != nil {
 		return err
 	}
@@ -77,11 +77,11 @@ func (c *Fix) run(ctx context.Context, args []string) error {
 	db := kvbadger.New(bdb, isGoodKey)
 
 	// Start other services.
-	topts := &trader.Options{
+	topts := &server.Options{
 		NoResume: true,
 		RunFixes: true,
 	}
-	trader, err := trader.NewTrader(secrets, db, topts)
+	trader, err := server.NewTrader(secrets, db, topts)
 	if err != nil {
 		return err
 	}

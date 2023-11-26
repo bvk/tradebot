@@ -10,14 +10,14 @@ import (
 
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
-	"github.com/bvk/tradebot/trader"
+	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
 
 func LoadCandles(ctx context.Context, db kv.Database, exchange, product string, day time.Time) ([]*gobs.Candle, error) {
 	day = day.UTC()
-	key := path.Join(trader.CandlesKeyspace, exchange, product, day.Format("2006-01-02"))
+	key := path.Join(server.CandlesKeyspace, exchange, product, day.Format("2006-01-02"))
 
 	gcs, err := dbutil.Get[gobs.Candles](ctx, db, key)
 	if err != nil {

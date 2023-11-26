@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package trader
+package server
 
 type Options struct {
 	// RunFixes when true, trader.Start method will call Fix method on all trade

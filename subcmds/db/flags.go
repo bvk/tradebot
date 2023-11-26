@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds"
-	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kv/kvmemdb"
@@ -91,7 +91,7 @@ func (f *Flags) ResolveName(ctx context.Context, arg string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not create database client: %w", err)
 	}
-	v, err := trader.ResolveName(ctx, db, name)
+	v, err := server.ResolveName(ctx, db, name)
 	if err != nil {
 		return "", fmt.Errorf("could not resolve name %q: %w", arg, err)
 	}
@@ -122,8 +122,8 @@ func (f *Flags) GetJobID(ctx context.Context, arg string) (uid string, err error
 			return "", os.ErrInvalid
 		}
 		dir, file := path.Split(value)
-		if dir != trader.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", trader.JobsKeyspace)
+		if dir != server.JobsKeyspace {
+			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
 		}
 		if _, err := uuid.Parse(file); err != nil {
 			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
@@ -136,8 +136,8 @@ func (f *Flags) GetJobID(ctx context.Context, arg string) (uid string, err error
 			return "", fmt.Errorf("could not resolve name prefixed argument %q: %w", value, err)
 		}
 		dir, file := path.Split(data)
-		if dir != trader.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", trader.JobsKeyspace)
+		if dir != server.JobsKeyspace {
+			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
 		}
 		if _, err := uuid.Parse(file); err != nil {
 			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
@@ -151,8 +151,8 @@ func (f *Flags) GetJobID(ctx context.Context, arg string) (uid string, err error
 	// Automatic key resolution.
 	if path.IsAbs(arg) {
 		dir, file := path.Split(arg)
-		if dir != trader.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", trader.JobsKeyspace)
+		if dir != server.JobsKeyspace {
+			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
 		}
 		if _, err := uuid.Parse(file); err != nil {
 			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
@@ -162,8 +162,8 @@ func (f *Flags) GetJobID(ctx context.Context, arg string) (uid string, err error
 	// Automatic name resolution.
 	if data, err := f.ResolveName(ctx, arg); err == nil {
 		dir, file := path.Split(data)
-		if dir != trader.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", trader.JobsKeyspace)
+		if dir != server.JobsKeyspace {
+			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
 		}
 		if _, err := uuid.Parse(file); err != nil {
 			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
