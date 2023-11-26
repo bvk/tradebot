@@ -8,18 +8,14 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
-	"github.com/bvk/tradebot/runtime"
 	"github.com/bvkgo/kv"
 )
 
@@ -85,49 +81,6 @@ func (w *Waller) ProductID() string {
 
 func (w *Waller) ExchangeName() string {
 	return w.exchangeName
-}
-
-func (w *Waller) Fix(ctx context.Context, rt *runtime.Runtime) error {
-	for _, l := range w.loopers {
-		if err := l.Fix(ctx, rt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (w *Waller) Refresh(ctx context.Context, rt *runtime.Runtime) error {
-	for _, l := range w.loopers {
-		if err := l.Refresh(ctx, rt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (w *Waller) Run(ctx context.Context, rt *runtime.Runtime) error {
-	var wg sync.WaitGroup
-
-	for _, loop := range w.loopers {
-		loop := loop
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for ctx.Err() == nil {
-				if err := loop.Run(ctx, rt); err != nil {
-					if ctx.Err() == nil {
-						log.Printf("wall-looper %v has failed (retry): %v", loop, err)
-						time.Sleep(time.Second)
-					}
-				}
-			}
-		}()
-	}
-
-	wg.Wait()
-	return context.Cause(ctx)
 }
 
 func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
