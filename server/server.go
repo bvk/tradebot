@@ -45,7 +45,7 @@ const (
 	NamesKeyspace   = "/names/"
 	CandlesKeyspace = "/candles/"
 
-	traderStateKey = "/trader/state"
+	serverStateKey = "/server/state"
 )
 
 type Server struct {
@@ -74,7 +74,7 @@ type Server struct {
 
 	mu sync.Mutex
 
-	state *gobs.TraderState
+	state *gobs.ServerState
 
 	exProductsMap map[string]map[string]exchange.Product
 
@@ -118,7 +118,7 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		pushoverClient = client
 	}
 
-	state, err := dbutil.Get[gobs.TraderState](ctx, db, traderStateKey)
+	state, err := dbutil.Get[gobs.ServerState](ctx, db, serverStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("could not load trader state: %w", err)
@@ -137,10 +137,10 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 	}
 
 	if t.state == nil {
-		t.state = &gobs.TraderState{
-			ExchangeMap: make(map[string]*gobs.TraderExchangeState),
+		t.state = &gobs.ServerState{
+			ExchangeMap: make(map[string]*gobs.ServerExchangeState),
 		}
-		t.state.ExchangeMap["coinbase"] = &gobs.TraderExchangeState{
+		t.state.ExchangeMap["coinbase"] = &gobs.ServerExchangeState{
 			EnabledProductIDs: []string{
 				"BCH-USD",
 				"BTC-USD",
@@ -213,7 +213,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 		key := path.Join(JobsKeyspace, id)
 		state := j.State()
-		gstate := &gobs.TraderJobState{CurrentState: string(state), NeedsManualResume: false}
+		gstate := &gobs.ServerJobState{CurrentState: string(state), NeedsManualResume: false}
 		if err := dbutil.Set(ctx, s.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
@@ -540,7 +540,7 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := j.Resume(s.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
+	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
 	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
@@ -585,7 +585,7 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := j.Resume(s.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
+	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
 	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
@@ -630,7 +630,7 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err := j.Resume(s.closeCtx); err != nil {
 		return nil, err
 	}
-	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
+	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
 	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}

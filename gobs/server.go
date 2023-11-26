@@ -2,7 +2,7 @@
 
 package gobs
 
-type TraderJobState struct {
+type ServerJobState struct {
 	JobName string
 
 	CurrentState string
@@ -16,12 +16,12 @@ type NameData struct {
 	Data string
 }
 
-type TraderExchangeState struct {
+type ServerExchangeState struct {
 	EnabledProductIDs []string
 
 	WatchedProductIDs []string
 }
 
-type TraderState struct {
-	ExchangeMap map[string]*TraderExchangeState
+type ServerState struct {
+	ExchangeMap map[string]*ServerExchangeState
 }

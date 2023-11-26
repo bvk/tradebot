@@ -28,7 +28,7 @@ import (
 // manual resume request from the user.
 func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, error) {
 	key := path.Join(JobsKeyspace, id)
-	gstate, err := dbutil.Get[gobs.TraderJobState](ctx, s.db, key)
+	gstate, err := dbutil.Get[gobs.ServerJobState](ctx, s.db, key)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, false, err
@@ -80,7 +80,7 @@ func (s *Server) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.Jo
 		return nil, fmt.Errorf("could not pause job %s: %w", req.UID, err)
 	}
 
-	gstate := &gobs.TraderJobState{
+	gstate := &gobs.ServerJobState{
 		CurrentState:      string(j.State()),
 		NeedsManualResume: true,
 	}
@@ -118,7 +118,7 @@ func (s *Server) doResume(ctx context.Context, req *api.JobResumeRequest) (*api.
 		return nil, err
 	}
 
-	gstate := &gobs.TraderJobState{
+	gstate := &gobs.ServerJobState{
 		CurrentState:      string(j.State()),
 		NeedsManualResume: false,
 	}
@@ -156,7 +156,7 @@ func (s *Server) doCancel(ctx context.Context, req *api.JobCancelRequest) (*api.
 		return nil, err
 	}
 
-	gstate := &gobs.TraderJobState{
+	gstate := &gobs.ServerJobState{
 		CurrentState: string(j.State()),
 	}
 	key := path.Join(JobsKeyspace, req.UID)
@@ -177,7 +177,7 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 			return j.State()
 		}
 		key := path.Join(JobsKeyspace, id)
-		v, err := dbutil.Get[gobs.TraderJobState](ctx, s.db, key)
+		v, err := dbutil.Get[gobs.ServerJobState](ctx, s.db, key)
 		if err != nil {
 			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
 			return ""
@@ -239,7 +239,7 @@ func (s *Server) doRename(ctx context.Context, req *api.JobRenameRequest) (*api.
 		}
 
 		jkey := path.Join(JobsKeyspace, uid)
-		state, err := kvutil.Get[gobs.TraderJobState](ctx, rw, jkey)
+		state, err := kvutil.Get[gobs.ServerJobState](ctx, rw, jkey)
 		if err != nil {
 			return fmt.Errorf("could not load job state: %w", err)
 		}

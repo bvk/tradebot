@@ -11,8 +11,8 @@ import (
 func TypeNameValue(typename string) (any, error) {
 	var v any
 	switch typename {
-	case "TraderJobState":
-		v = new(gobs.TraderJobState)
+	case "ServerJobState":
+		v = new(gobs.ServerJobState)
 	case "LimiterState":
 		v = new(gobs.LimiterState)
 	case "LooperState":
@@ -25,8 +25,8 @@ func TypeNameValue(typename string) (any, error) {
 		v = new(gobs.NameData)
 	case "Candles":
 		v = new(gobs.Candles)
-	case "TraderState":
-		v = new(gobs.TraderState)
+	case "ServerState":
+		v = new(gobs.ServerState)
 	default:
 		return nil, fmt.Errorf("unsupported type name %q", typename)
 	}
