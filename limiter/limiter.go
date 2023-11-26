@@ -99,8 +99,12 @@ func (v *Limiter) ExchangeName() string {
 	return v.exchangeName
 }
 
-func (v *Limiter) Side() string {
-	return v.point.Side()
+func (v *Limiter) IsBuy() bool {
+	return v.point.Side() == "BUY"
+}
+
+func (v *Limiter) IsSell() bool {
+	return v.point.Side() == "SELL"
 }
 
 func (v *Limiter) Status() *Status {
@@ -109,16 +113,32 @@ func (v *Limiter) Status() *Status {
 		ProductID: v.productID,
 		Side:      v.point.Side(),
 		Point:     v.point,
-		Pending:   v.Pending(),
+		Pending:   v.PendingSize(),
 	}
 }
 
-func (v *Limiter) Pending() decimal.Decimal {
+func (v *Limiter) FilledSize() decimal.Decimal {
 	var filled decimal.Decimal
 	for _, order := range v.orderMap {
 		filled = filled.Add(order.FilledSize)
 	}
-	return v.point.Size.Sub(filled)
+	return filled
+}
+
+func (v *Limiter) FilledValue() decimal.Decimal {
+	var value decimal.Decimal
+	for _, order := range v.orderMap {
+		value = value.Add(order.FilledSize.Mul(order.FilledPrice))
+	}
+	return value
+}
+
+func (v *Limiter) PendingSize() decimal.Decimal {
+	return v.point.Size.Sub(v.FilledSize())
+}
+
+func (v *Limiter) PendingValue() decimal.Decimal {
+	return v.point.Size.Mul(v.point.Price).Sub(v.FilledValue())
 }
 
 func (v *Limiter) compactOrderMap() {
@@ -130,12 +150,10 @@ func (v *Limiter) compactOrderMap() {
 	}
 }
 
-func (v *Limiter) updateOrderMap(order *exchange.Order) error {
-	if _, ok := v.orderMap[order.OrderID]; !ok {
-		return nil
+func (v *Limiter) updateOrderMap(order *exchange.Order) {
+	if _, ok := v.orderMap[order.OrderID]; ok {
+		v.orderMap[order.OrderID] = order
 	}
-	v.orderMap[order.OrderID] = order
-	return nil
 }
 
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {

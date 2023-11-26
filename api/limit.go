@@ -20,8 +20,6 @@ type LimitRequest struct {
 
 type LimitResponse struct {
 	UID string
-
-	Side string
 }
 
 func (r *LimitRequest) Check() error {

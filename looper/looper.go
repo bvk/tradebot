@@ -137,7 +137,7 @@ func (v *Looper) Run(ctx context.Context, rt *runtime.Runtime) error {
 			continue
 		}
 
-		if last := v.buys[nbuys-1]; !last.Pending().IsZero() {
+		if last := v.buys[nbuys-1]; !last.PendingSize().IsZero() {
 			if err := last.Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
@@ -157,7 +157,7 @@ func (v *Looper) Run(ctx context.Context, rt *runtime.Runtime) error {
 			continue
 		}
 
-		if last := v.sells[nsells-1]; !last.Pending().IsZero() {
+		if last := v.sells[nsells-1]; !last.PendingSize().IsZero() {
 			if err := last.Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
@@ -300,15 +300,11 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 		if err != nil {
 			return nil, err
 		}
-		if v.Side() == "BUY" {
+		if v.IsBuy() {
 			buys = append(buys, v)
 			continue
 		}
-		if v.Side() == "SELL" {
-			sells = append(sells, v)
-			continue
-		}
-		return nil, fmt.Errorf("unexpected limiter side %q", v.Side())
+		sells = append(sells, v)
 	}
 
 	v := &Looper{

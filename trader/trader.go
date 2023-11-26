@@ -651,8 +651,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	}
 
 	resp := &api.LimitResponse{
-		UID:  uid,
-		Side: limit.Side(),
+		UID: uid,
 	}
 	return resp, nil
 }

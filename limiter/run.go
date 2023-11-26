@@ -23,7 +23,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
 		return err
 	}
-	if p := v.Pending(); p.IsZero() {
+	if p := v.PendingSize(); p.IsZero() {
 		return nil
 	}
 
@@ -53,7 +53,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 	flushCh := time.After(time.Minute)
 
 	localCtx := context.Background()
-	for p := v.Pending(); !p.IsZero(); p = v.Pending() {
+	for p := v.PendingSize(); !p.IsZero(); p = v.PendingSize() {
 		select {
 		case <-ctx.Done():
 			if activeOrderID != "" {
@@ -64,14 +64,14 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 				dirty++
 			}
 			if err := kv.WithReadWriter(localCtx, rt.Database, v.Save); err != nil {
-				log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
+				log.Printf("%s:%s dirty limit order state could not be saved to the database (will retry): %v", v.uid, v.point, err)
 			}
 			return context.Cause(ctx)
 
 		case <-flushCh:
 			if dirty > 0 {
 				if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
-					log.Printf("%s:%s dirty limit %s state could not be saved to the database (will retry): %v", v.uid, v.point, v.Side(), err)
+					log.Printf("%s:%s dirty limit order state could not be saved to the database (will retry): %v", v.uid, v.point, err)
 				} else {
 					dirty = 0
 				}
@@ -80,16 +80,14 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 
 		case order := <-orderUpdatesCh:
 			dirty++
-			if err := v.updateOrderMap(order); err != nil {
-				return err
-			}
+			v.updateOrderMap(order)
 			if order.Done && order.OrderID == activeOrderID {
-				log.Printf("%s:%s: limit %s order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, v.Side(), activeOrderID, order.Status, order.DoneReason)
+				log.Printf("%s:%s: limit order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
 			}
 
 		case ticker := <-tickerCh:
-			if v.Side() == "SELL" {
+			if v.IsSell() {
 				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
@@ -112,7 +110,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 				continue
 			}
 
-			if v.Side() == "BUY" {
+			if v.IsBuy() {
 				if ticker.Price.GreaterThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
@@ -155,7 +153,7 @@ func (v *Limiter) Fix(ctx context.Context, product exchange.Product, db kv.Datab
 func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, <-chan *exchange.Order, error) {
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
-	size := v.Pending()
+	size := v.PendingSize()
 	if size.LessThan(product.BaseMinSize()) {
 		size = product.BaseMinSize()
 	}
@@ -163,7 +161,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	var err error
 	var latency time.Duration
 	var orderID exchange.OrderID
-	if v.Side() == "SELL" {
+	if v.IsSell() {
 		s := time.Now()
 		orderID, err = product.LimitSell(ctx, clientOrderID.String(), size, v.point.Price)
 		latency = time.Now().Sub(s)
@@ -174,27 +172,27 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	}
 	if err != nil {
 		v.idgen.RevertID()
-		log.Printf("%s:%s: create limit %s order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, v.Side(), clientOrderID, offset, latency, err)
+		log.Printf("%s:%s: create limit order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, clientOrderID, offset, latency, err)
 		return "", nil, err
 	}
 
 	v.orderMap[orderID] = &exchange.Order{
 		OrderID:       orderID,
 		ClientOrderID: clientOrderID.String(),
-		Side:          v.Side(),
+		Side:          v.point.Side(),
 	}
 	v.clientServerMap[clientOrderID.String()] = orderID
 
-	log.Printf("%s:%s: created a new limit %s order %s with client-order-id %s (%d) in %s", v.uid, v.point, v.Side(), orderID, clientOrderID, offset, latency)
+	log.Printf("%s:%s: created a new limit order %s with client-order-id %s (%d) in %s", v.uid, v.point, orderID, clientOrderID, offset, latency)
 	return orderID, product.OrderUpdatesCh(orderID), nil
 }
 
 func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID exchange.OrderID) error {
 	if err := product.Cancel(ctx, activeOrderID); err != nil {
-		log.Printf("%s:%s: cancel limit %s order %s has failed: %v", v.uid, v.point, v.Side(), activeOrderID, err)
+		log.Printf("%s:%s: cancel limit order %s has failed: %v", v.uid, v.point, activeOrderID, err)
 		return err
 	}
-	log.Printf("%s:%s: canceled the limit %s order %s", v.uid, v.point, v.Side(), activeOrderID)
+	log.Printf("%s:%s: canceled the limit order %s", v.uid, v.point, activeOrderID)
 	return nil
 }
 
