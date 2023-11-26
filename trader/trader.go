@@ -298,7 +298,7 @@ func (t *Trader) runFixes(ctx context.Context) (status error) {
 			status = err
 			return false
 		}
-		if err := l.Fix(ctx, p, t.db); err != nil {
+		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: t.db}); err != nil {
 			log.Printf("could not fix limiter %v: %w", l, err)
 			status = err
 			return false
@@ -321,7 +321,7 @@ func (t *Trader) runFixes(ctx context.Context) (status error) {
 			status = err
 			return false
 		}
-		if err := l.Fix(ctx, p, t.db); err != nil {
+		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: t.db}); err != nil {
 			log.Printf("could not fix looper %v: %w", l, err)
 			status = err
 			return false
@@ -344,7 +344,7 @@ func (t *Trader) runFixes(ctx context.Context) (status error) {
 			status = err
 			return false
 		}
-		if err := w.Fix(ctx, p, t.db); err != nil {
+		if err := w.Fix(ctx, &runtime.Runtime{Product: p, Database: t.db}); err != nil {
 			log.Printf("could not fix waller %v: %w", w, err)
 			status = err
 			return false

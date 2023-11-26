@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
@@ -88,9 +87,18 @@ func (w *Waller) ExchangeName() string {
 	return w.exchangeName
 }
 
-func (w *Waller) Fix(ctx context.Context, product exchange.Product, db kv.Database) error {
+func (w *Waller) Fix(ctx context.Context, rt *runtime.Runtime) error {
 	for _, l := range w.loopers {
-		if err := l.Fix(ctx, product, db); err != nil {
+		if err := l.Fix(ctx, rt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Waller) Refresh(ctx context.Context, rt *runtime.Runtime) error {
+	for _, l := range w.loopers {
+		if err := l.Refresh(ctx, rt); err != nil {
 			return err
 		}
 	}

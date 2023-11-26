@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
-	"github.com/bvk/tradebot/idgen"
 	"github.com/bvk/tradebot/runtime"
 	"github.com/bvkgo/kv"
 )
@@ -145,8 +144,15 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 }
 
 // Fix is a temporary helper interface used to fix any past mistakes.
-func (v *Limiter) Fix(ctx context.Context, product exchange.Product, db kv.Database) error {
-	v.idgen = idgen.New(v.idgen.Seed(), v.idgen.Offset()+1000000)
+func (v *Limiter) Fix(ctx context.Context, rt *runtime.Runtime) error {
+	return nil
+}
+
+func (v *Limiter) Refresh(ctx context.Context, rt *runtime.Runtime) error {
+	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
+		return fmt.Errorf("could not refresh limiter state: %w", err)
+	}
+	// FIXME: We may also need to check for presence of unsaved orders with future client-ids.
 	return nil
 }
 

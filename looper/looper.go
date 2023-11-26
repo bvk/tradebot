@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
@@ -109,14 +108,28 @@ func (v *Looper) Status() *Status {
 	}
 }
 
-func (v *Looper) Fix(ctx context.Context, product exchange.Product, db kv.Database) error {
+func (v *Looper) Fix(ctx context.Context, rt *runtime.Runtime) error {
 	for _, b := range v.buys {
-		if err := b.Fix(ctx, product, db); err != nil {
+		if err := b.Fix(ctx, rt); err != nil {
 			return err
 		}
 	}
 	for _, s := range v.sells {
-		if err := s.Fix(ctx, product, db); err != nil {
+		if err := s.Fix(ctx, rt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v *Looper) Refresh(ctx context.Context, rt *runtime.Runtime) error {
+	for _, b := range v.buys {
+		if err := b.Refresh(ctx, rt); err != nil {
+			return err
+		}
+	}
+	for _, s := range v.sells {
+		if err := s.Refresh(ctx, rt); err != nil {
 			return err
 		}
 	}
