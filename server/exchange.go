@@ -14,8 +14,8 @@ import (
 	"github.com/bvk/tradebot/gobs"
 )
 
-func (t *Trader) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrderRequest) (*api.ExchangeGetOrderResponse, error) {
-	ex, ok := t.exchangeMap[strings.ToLower(req.Name)]
+func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrderRequest) (*api.ExchangeGetOrderResponse, error) {
+	ex, ok := s.exchangeMap[strings.ToLower(req.Name)]
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.Name, os.ErrNotExist)
 	}
@@ -40,8 +40,8 @@ func (t *Trader) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 	return resp, nil
 }
 
-func (t *Trader) doGetProduct(ctx context.Context, req *api.ExchangeGetProductRequest) (*api.ExchangeGetProductResponse, error) {
-	ex, ok := t.exchangeMap[strings.ToLower(req.ExchangeName)]
+func (s *Server) doGetProduct(ctx context.Context, req *api.ExchangeGetProductRequest) (*api.ExchangeGetProductResponse, error) {
+	ex, ok := s.exchangeMap[strings.ToLower(req.ExchangeName)]
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
 	}
@@ -52,8 +52,8 @@ func (t *Trader) doGetProduct(ctx context.Context, req *api.ExchangeGetProductRe
 	return &api.ExchangeGetProductResponse{Product: product}, nil
 }
 
-func (t *Trader) doGetCandles(ctx context.Context, req *api.ExchangeGetCandlesRequest) (*api.ExchangeGetCandlesResponse, error) {
-	ex, ok := t.exchangeMap[strings.ToLower(req.ExchangeName)]
+func (s *Server) doGetCandles(ctx context.Context, req *api.ExchangeGetCandlesRequest) (*api.ExchangeGetCandlesResponse, error) {
+	ex, ok := s.exchangeMap[strings.ToLower(req.ExchangeName)]
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
 	}

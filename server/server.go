@@ -48,7 +48,7 @@ const (
 	traderStateKey = "/trader/state"
 )
 
-type Trader struct {
+type Server struct {
 	closeCtx   context.Context
 	closeCause context.CancelCauseFunc
 
@@ -83,7 +83,7 @@ type Trader struct {
 	pushoverClient *pushover.Client
 }
 
-func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, status error) {
+func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer func() {
 		if status != nil {
@@ -127,7 +127,7 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 		}
 	}
 
-	t := &Trader{
+	t := &Server{
 		closeCtx:       ctx,
 		closeCause:     cancel,
 		db:             db,
@@ -172,35 +172,35 @@ func NewTrader(secrets *Secrets, db kv.Database, opts *Options) (_ *Trader, stat
 	return t, nil
 }
 
-func (t *Trader) Close() error {
-	t.closeCause(fmt.Errorf("trade is closing: %w", os.ErrClosed))
-	t.wg.Wait()
+func (s *Server) Close() error {
+	s.closeCause(fmt.Errorf("trade is closing: %w", os.ErrClosed))
+	s.wg.Wait()
 
-	for _, pmap := range t.exProductsMap {
+	for _, pmap := range s.exProductsMap {
 		for _, p := range pmap {
 			p.Close()
 		}
 	}
-	for _, exch := range t.exchangeMap {
+	for _, exch := range s.exchangeMap {
 		exch.Close()
 	}
 	return nil
 }
 
-func (t *Trader) HandlerMap() map[string]http.Handler {
-	return maps.Clone(t.handlerMap)
+func (s *Server) HandlerMap() map[string]http.Handler {
+	return maps.Clone(s.handlerMap)
 }
 
-func (t *Trader) Notify(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
-	if t.pushoverClient != nil {
-		if err := t.pushoverClient.SendMessage(ctx, at, fmt.Sprintf(msgfmt, args...)); err != nil {
+func (s *Server) Notify(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
+	if s.pushoverClient != nil {
+		if err := s.pushoverClient.SendMessage(ctx, at, fmt.Sprintf(msgfmt, args...)); err != nil {
 			log.Printf("warning: could not send pushover message (ignored): %v", err)
 		}
 	}
 }
 
-func (t *Trader) Stop(ctx context.Context) error {
-	t.jobMap.Range(func(id string, j *job.Job) bool {
+func (s *Server) Stop(ctx context.Context) error {
+	s.jobMap.Range(func(id string, j *job.Job) bool {
 		if s := j.State(); !job.IsFinal(s) {
 			if err := j.Pause(); err != nil {
 				log.Printf("warning: job %s could not be paused (ignored)", id)
@@ -209,64 +209,64 @@ func (t *Trader) Stop(ctx context.Context) error {
 		key := path.Join(JobsKeyspace, id)
 		state := j.State()
 		gstate := &gobs.TraderJobState{CurrentState: string(state), NeedsManualResume: false}
-		if err := dbutil.Set(ctx, t.db, key, gstate); err != nil {
+		if err := dbutil.Set(ctx, s.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
 		if job.IsFinal(state) {
-			t.jobMap.Delete(id)
+			s.jobMap.Delete(id)
 		}
 		return true
 	})
 
 	hostname, _ := os.Hostname()
-	t.Notify(ctx, time.Now(), "Trader has stopped gracefully on host named '%s'.", hostname)
+	s.Notify(ctx, time.Now(), "Trader has stopped gracefully on host named '%s'.", hostname)
 	return nil
 }
 
-func (t *Trader) Start(ctx context.Context) (status error) {
+func (s *Server) Start(ctx context.Context) (status error) {
 	defer func() {
 		hostname, _ := os.Hostname()
 		if status == nil {
-			t.Notify(ctx, time.Now(), "Trader has started successfully on host named '%s'.", hostname)
+			s.Notify(ctx, time.Now(), "Trader has started successfully on host named '%s'.", hostname)
 		} else {
-			t.Notify(ctx, time.Now(), "Trader has failed to start on host named '%s' with error `%v`.", hostname, status)
+			s.Notify(ctx, time.Now(), "Trader has failed to start on host named '%s' with error `%v`.", hostname, status)
 		}
 	}()
 
 	// Scan the database and load existing traders.
-	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
+	if err := kv.WithReader(ctx, s.db, s.loadTrades); err != nil {
 		return err
 	}
 
-	if t.opts.RunFixes {
-		if err := t.runFixes(ctx); err != nil {
+	if s.opts.RunFixes {
+		if err := s.runFixes(ctx); err != nil {
 			return err
 		}
 	}
 
-	if t.opts.NoResume {
+	if s.opts.NoResume {
 		return nil
 	}
 
 	var ids []string
-	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
+	s.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
 		ids = append(ids, id)
 		return true
 	})
-	t.looperMap.Range(func(id string, l *looper.Looper) bool {
+	s.looperMap.Range(func(id string, l *looper.Looper) bool {
 		ids = append(ids, id)
 		return true
 	})
-	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
+	s.wallerMap.Range(func(id string, w *waller.Waller) bool {
 		ids = append(ids, id)
 		return true
 	})
 
 	nresumed := 0
 	for _, id := range ids {
-		j, ok := t.jobMap.Load(id)
+		j, ok := s.jobMap.Load(id)
 		if !ok {
-			v, manual, err := t.createJob(ctx, id)
+			v, manual, err := s.createJob(ctx, id)
 			if err != nil {
 				return fmt.Errorf("could not load job %s: %w", id, err)
 			}
@@ -276,12 +276,12 @@ func (t *Trader) Start(ctx context.Context) (status error) {
 			j = v
 		}
 
-		if err := j.Resume(t.closeCtx); err != nil {
+		if err := j.Resume(s.closeCtx); err != nil {
 			log.Printf("warning: job %s could not be resumed (ignored)", id)
 			continue
 		}
 
-		t.jobMap.Store(id, j)
+		s.jobMap.Store(id, j)
 		nresumed++
 	}
 
@@ -289,21 +289,21 @@ func (t *Trader) Start(ctx context.Context) (status error) {
 	return nil
 }
 
-func (t *Trader) runFixes(ctx context.Context) (status error) {
-	t.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
+func (s *Server) runFixes(ctx context.Context) (status error) {
+	s.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
 		ename, pname := l.ExchangeName(), l.ProductID()
-		p, err := t.getProduct(ctx, ename, pname)
+		p, err := s.getProduct(ctx, ename, pname)
 		if err != nil {
 			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
 			status = err
 			return false
 		}
-		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: t.db}); err != nil {
+		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: s.db}); err != nil {
 			log.Printf("could not fix limiter %v: %w", l, err)
 			status = err
 			return false
 		}
-		if err := kv.WithReadWriter(ctx, t.db, l.Save); err != nil {
+		if err := kv.WithReadWriter(ctx, s.db, l.Save); err != nil {
 			log.Printf("could not save limiter %v: %w", l, err)
 			status = err
 			return false
@@ -313,20 +313,20 @@ func (t *Trader) runFixes(ctx context.Context) (status error) {
 	if status != nil {
 		return
 	}
-	t.looperMap.Range(func(id string, l *looper.Looper) bool {
+	s.looperMap.Range(func(id string, l *looper.Looper) bool {
 		ename, pname := l.ExchangeName(), l.ProductID()
-		p, err := t.getProduct(ctx, ename, pname)
+		p, err := s.getProduct(ctx, ename, pname)
 		if err != nil {
 			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
 			status = err
 			return false
 		}
-		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: t.db}); err != nil {
+		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: s.db}); err != nil {
 			log.Printf("could not fix looper %v: %w", l, err)
 			status = err
 			return false
 		}
-		if err := kv.WithReadWriter(ctx, t.db, l.Save); err != nil {
+		if err := kv.WithReadWriter(ctx, s.db, l.Save); err != nil {
 			log.Printf("could not save looper %v: %w", l, err)
 			status = err
 			return false
@@ -336,20 +336,20 @@ func (t *Trader) runFixes(ctx context.Context) (status error) {
 	if status != nil {
 		return
 	}
-	t.wallerMap.Range(func(id string, w *waller.Waller) bool {
+	s.wallerMap.Range(func(id string, w *waller.Waller) bool {
 		ename, pname := w.ExchangeName(), w.ProductID()
-		p, err := t.getProduct(ctx, ename, pname)
+		p, err := s.getProduct(ctx, ename, pname)
 		if err != nil {
 			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
 			status = err
 			return false
 		}
-		if err := w.Fix(ctx, &runtime.Runtime{Product: p, Database: t.db}); err != nil {
+		if err := w.Fix(ctx, &runtime.Runtime{Product: p, Database: s.db}); err != nil {
 			log.Printf("could not fix waller %v: %w", w, err)
 			status = err
 			return false
 		}
-		if err := kv.WithReadWriter(ctx, t.db, w.Save); err != nil {
+		if err := kv.WithReadWriter(ctx, s.db, w.Save); err != nil {
 			log.Printf("could not save waller %v: %w", w, err)
 			status = err
 			return false
@@ -359,27 +359,27 @@ func (t *Trader) runFixes(ctx context.Context) (status error) {
 	return
 }
 
-func (t *Trader) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+func (s *Server) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	return t.getProductLocked(ctx, exchangeName, productID)
+	return s.getProductLocked(ctx, exchangeName, productID)
 }
 
-func (t *Trader) getProductLocked(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
-	exch, ok := t.exchangeMap[exchangeName]
+func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
+	exch, ok := s.exchangeMap[exchangeName]
 	if !ok {
 		return nil, fmt.Errorf("exchange with name %q not found: %w", exchangeName, os.ErrNotExist)
 	}
 
-	if pmap, ok := t.exProductsMap[exchangeName]; ok {
+	if pmap, ok := s.exProductsMap[exchangeName]; ok {
 		if p, ok := pmap[productID]; ok {
 			return p, nil
 		}
 	}
 
 	// check if product is enabled.
-	estate, ok := t.state.ExchangeMap[exchangeName]
+	estate, ok := s.state.ExchangeMap[exchangeName]
 	if !ok {
 		return nil, fmt.Errorf("exchange %q is not supported")
 	}
@@ -387,22 +387,22 @@ func (t *Trader) getProductLocked(ctx context.Context, exchangeName, productID s
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
 	}
 
-	product, err := exch.OpenProduct(t.closeCtx, productID)
+	product, err := exch.OpenProduct(s.closeCtx, productID)
 	if err != nil {
 		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
 	}
 
-	pmap, ok := t.exProductsMap[exchangeName]
+	pmap, ok := s.exProductsMap[exchangeName]
 	if !ok {
 		pmap = make(map[string]exchange.Product)
-		t.exProductsMap[exchangeName] = pmap
+		s.exProductsMap[exchangeName] = pmap
 	}
 
 	pmap[productID] = product
 	return product, nil
 }
 
-func (t *Trader) loadProducts(ctx context.Context) (status error) {
+func (s *Server) loadProducts(ctx context.Context) (status error) {
 	exProductsMap := make(map[string]map[string]exchange.Product)
 	defer func() {
 		if status != nil {
@@ -414,36 +414,36 @@ func (t *Trader) loadProducts(ctx context.Context) (status error) {
 		}
 	}()
 
-	for ename, estate := range t.state.ExchangeMap {
+	for ename, estate := range s.state.ExchangeMap {
 		for _, pname := range estate.WatchedProductIDs {
-			product, err := t.getProductLocked(ctx, ename, pname)
+			product, err := s.getProductLocked(ctx, ename, pname)
 			if err != nil {
 				return fmt.Errorf("could not load exchange %q product %q: %w", ename, pname, err)
 			}
 			exProductsMap[ename][pname] = product
 		}
 	}
-	t.exProductsMap = exProductsMap
+	s.exProductsMap = exProductsMap
 	return nil
 }
 
-func (t *Trader) loadTrades(ctx context.Context, r kv.Reader) error {
-	if err := t.loadLimiters(ctx, r); err != nil {
+func (s *Server) loadTrades(ctx context.Context, r kv.Reader) error {
+	if err := s.loadLimiters(ctx, r); err != nil {
 		return fmt.Errorf("could not load all existing limiters: %w", err)
 	}
-	if err := t.loadLoopers(ctx, r); err != nil {
+	if err := s.loadLoopers(ctx, r); err != nil {
 		return fmt.Errorf("could not load all existing loopers: %w", err)
 	}
-	if err := t.loadWallers(ctx, r); err != nil {
+	if err := s.loadWallers(ctx, r); err != nil {
 		return fmt.Errorf("could not load all existing wallers: %w", err)
 	}
-	if err := t.loadNames(ctx, r); err != nil {
+	if err := s.loadNames(ctx, r); err != nil {
 		return fmt.Errorf("could not load all existing names: %w", err)
 	}
 	return nil
 }
 
-func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
+func (s *Server) loadLimiters(ctx context.Context, r kv.Reader) error {
 	begin := path.Join(limiter.DefaultKeyspace, minUUID)
 	end := path.Join(limiter.DefaultKeyspace, maxUUID)
 
@@ -458,7 +458,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
-		if _, ok := t.limiterMap.Load(uid); ok {
+		if _, ok := s.limiterMap.Load(uid); ok {
 			continue
 		}
 
@@ -466,7 +466,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 		if err != nil {
 			return err
 		}
-		if _, loaded := t.limiterMap.LoadOrStore(uid, l); loaded {
+		if _, loaded := s.limiterMap.LoadOrStore(uid, l); loaded {
 			return fmt.Errorf("limiter %s is already loaded", uid)
 		}
 	}
@@ -477,7 +477,7 @@ func (t *Trader) loadLimiters(ctx context.Context, r kv.Reader) error {
 	return nil
 }
 
-func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
+func (s *Server) loadLoopers(ctx context.Context, r kv.Reader) error {
 	begin := path.Join(looper.DefaultKeyspace, minUUID)
 	end := path.Join(looper.DefaultKeyspace, maxUUID)
 
@@ -492,7 +492,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
-		if _, ok := t.looperMap.Load(uid); ok {
+		if _, ok := s.looperMap.Load(uid); ok {
 			continue
 		}
 
@@ -500,7 +500,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 		if err != nil {
 			return err
 		}
-		if _, loaded := t.looperMap.LoadOrStore(uid, l); loaded {
+		if _, loaded := s.looperMap.LoadOrStore(uid, l); loaded {
 			return fmt.Errorf("looper %s is already loaded", uid)
 		}
 	}
@@ -511,7 +511,7 @@ func (t *Trader) loadLoopers(ctx context.Context, r kv.Reader) error {
 	return nil
 }
 
-func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
+func (s *Server) loadWallers(ctx context.Context, r kv.Reader) error {
 	begin := path.Join(waller.DefaultKeyspace, minUUID)
 	end := path.Join(waller.DefaultKeyspace, maxUUID)
 
@@ -526,7 +526,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
-		if _, ok := t.wallerMap.Load(uid); ok {
+		if _, ok := s.wallerMap.Load(uid); ok {
 			continue
 		}
 
@@ -534,7 +534,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 		if err != nil {
 			return err
 		}
-		if _, loaded := t.wallerMap.LoadOrStore(uid, w); loaded {
+		if _, loaded := s.wallerMap.LoadOrStore(uid, w); loaded {
 			return fmt.Errorf("waller %s is already loaded", uid)
 		}
 	}
@@ -545,7 +545,7 @@ func (t *Trader) loadWallers(ctx context.Context, r kv.Reader) error {
 	return nil
 }
 
-func (t *Trader) loadNames(ctx context.Context, r kv.Reader) error {
+func (s *Server) loadNames(ctx context.Context, r kv.Reader) error {
 	begin := path.Join(NamesKeyspace, minUUID)
 	end := path.Join(NamesKeyspace, maxUUID)
 
@@ -567,7 +567,7 @@ func (t *Trader) loadNames(ctx context.Context, r kv.Reader) error {
 		}
 
 		if strings.HasPrefix(ndata.Data, JobsKeyspace) {
-			t.idNameMap.Store(strings.TrimPrefix(ndata.Data, JobsKeyspace), ndata.Name)
+			s.idNameMap.Store(strings.TrimPrefix(ndata.Data, JobsKeyspace), ndata.Name)
 		}
 	}
 
@@ -610,7 +610,7 @@ func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, er
 	})
 }
 
-func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.LimitResponse, status error) {
+func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.LimitResponse, status error) {
 	defer func() {
 		if status != nil {
 			slog.ErrorContext(ctx, "limit request has failed", "error", status)
@@ -621,7 +621,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, fmt.Errorf("invalid limit request: %w", err)
 	}
 
-	product, err := t.getProduct(ctx, req.ExchangeName, req.ProductID)
+	product, err := s.getProduct(ctx, req.ExchangeName, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
@@ -632,21 +632,21 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, err
 	}
 
-	if err := kv.WithReadWriter(ctx, t.db, limit.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, limit.Save); err != nil {
 		return nil, err
 	}
-	t.limiterMap.Store(uid, limit)
+	s.limiterMap.Store(uid, limit)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return limit.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
+		return limit.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
 	})
-	t.jobMap.Store(uid, j)
+	s.jobMap.Store(uid, j)
 
-	if err := j.Resume(t.closeCtx); err != nil {
+	if err := j.Resume(s.closeCtx); err != nil {
 		return nil, err
 	}
 	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
-	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
@@ -656,7 +656,7 @@ func (t *Trader) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	return resp, nil
 }
 
-func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopResponse, status error) {
+func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopResponse, status error) {
 	defer func() {
 		if status != nil {
 			slog.ErrorContext(ctx, "loop has failed", "error", status)
@@ -667,7 +667,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		return nil, fmt.Errorf("invalid loop request: %w", err)
 	}
 
-	product, err := t.getProduct(ctx, req.ExchangeName, req.ProductID)
+	product, err := s.getProduct(ctx, req.ExchangeName, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
@@ -677,21 +677,21 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithReadWriter(ctx, t.db, loop.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, loop.Save); err != nil {
 		return nil, err
 	}
-	t.looperMap.Store(uid, loop)
+	s.looperMap.Store(uid, loop)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return loop.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
+		return loop.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
 	})
-	t.jobMap.Store(uid, j)
+	s.jobMap.Store(uid, j)
 
-	if err := j.Resume(t.closeCtx); err != nil {
+	if err := j.Resume(s.closeCtx); err != nil {
 		return nil, err
 	}
 	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
-	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
@@ -701,7 +701,7 @@ func (t *Trader) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	return resp, nil
 }
 
-func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallResponse, status error) {
+func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallResponse, status error) {
 	defer func() {
 		if status != nil {
 			slog.ErrorContext(ctx, "wall has failed", "error", status)
@@ -712,7 +712,7 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		return nil, fmt.Errorf("invalid wall request: %w", err)
 	}
 
-	product, err := t.getProduct(ctx, req.ExchangeName, req.ProductID)
+	product, err := s.getProduct(ctx, req.ExchangeName, req.ProductID)
 	if err != nil {
 		return nil, err
 	}
@@ -722,21 +722,21 @@ func (t *Trader) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithReadWriter(ctx, t.db, wall.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, wall.Save); err != nil {
 		return nil, err
 	}
-	t.wallerMap.Store(uid, wall)
+	s.wallerMap.Store(uid, wall)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return wall.Run(ctx, &runtime.Runtime{Product: product, Database: t.db})
+		return wall.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
 	})
-	t.jobMap.Store(uid, j)
+	s.jobMap.Store(uid, j)
 
-	if err := j.Resume(t.closeCtx); err != nil {
+	if err := j.Resume(s.closeCtx); err != nil {
 		return nil, err
 	}
 	gstate := &gobs.TraderJobState{CurrentState: string(j.State())}
-	if err := dbutil.Set(ctx, t.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 

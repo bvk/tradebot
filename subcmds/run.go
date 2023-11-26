@@ -222,7 +222,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	topts := &server.Options{
 		NoResume: c.noResume,
 	}
-	trader, err := server.NewTrader(secrets, db, topts)
+	trader, err := server.New(secrets, db, topts)
 	if err != nil {
 		return err
 	}

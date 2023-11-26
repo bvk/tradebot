@@ -81,7 +81,7 @@ func (c *Fix) run(ctx context.Context, args []string) error {
 		NoResume: true,
 		RunFixes: true,
 	}
-	trader, err := server.NewTrader(secrets, db, topts)
+	trader, err := server.New(secrets, db, topts)
 	if err != nil {
 		return err
 	}
