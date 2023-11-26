@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package server
+package httputil
 
 import (
 	"context"

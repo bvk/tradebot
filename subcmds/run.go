@@ -21,7 +21,7 @@ import (
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/daemonize"
-	"github.com/bvk/tradebot/server"
+	"github.com/bvk/tradebot/httputil"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
@@ -187,7 +187,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	defer flock.Unlock()
 
 	// Start HTTP server.
-	s, err := server.New(nil /* opts */)
+	s, err := httputil.New(nil /* opts */)
 	if err != nil {
 		return err
 	}
