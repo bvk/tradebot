@@ -117,6 +117,20 @@ func (v *Limiter) Status() *Status {
 	}
 }
 
+func (v *Limiter) BoughtValue() decimal.Decimal {
+	if v.IsBuy() {
+		return v.FilledValue()
+	}
+	return decimal.Zero
+}
+
+func (v *Limiter) SoldValue() decimal.Decimal {
+	if v.IsSell() {
+		return v.FilledValue()
+	}
+	return decimal.Zero
+}
+
 func (v *Limiter) FilledSize() decimal.Decimal {
 	var filled decimal.Decimal
 	for _, order := range v.orderMap {

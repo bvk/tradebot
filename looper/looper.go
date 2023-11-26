@@ -17,6 +17,7 @@ import (
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvkgo/kv"
+	"github.com/shopspring/decimal"
 )
 
 const DefaultKeyspace = "/loopers/"
@@ -92,6 +93,22 @@ func (v *Looper) ProductID() string {
 
 func (v *Looper) ExchangeName() string {
 	return v.exchangeName
+}
+
+func (v *Looper) BoughtValue() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, b := range v.buys {
+		sum = sum.Add(b.FilledValue())
+	}
+	return sum
+}
+
+func (v *Looper) SoldValue() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, s := range v.sells {
+		sum = sum.Add(s.FilledValue())
+	}
+	return sum
 }
 
 func (v *Looper) Status() *Status {

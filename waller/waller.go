@@ -17,6 +17,7 @@ import (
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvkgo/kv"
+	"github.com/shopspring/decimal"
 )
 
 const DefaultKeyspace = "/wallers/"
@@ -81,6 +82,22 @@ func (w *Waller) ProductID() string {
 
 func (w *Waller) ExchangeName() string {
 	return w.exchangeName
+}
+
+func (w *Waller) BoughtValue() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, l := range w.loopers {
+		sum = sum.Add(l.BoughtValue())
+	}
+	return sum
+}
+
+func (w *Waller) SoldValue() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, l := range w.loopers {
+		sum = sum.Add(l.SoldValue())
+	}
+	return sum
 }
 
 func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
