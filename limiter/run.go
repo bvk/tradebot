@@ -22,6 +22,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
 		return err
 	}
+
 	if p := v.PendingSize(); p.IsZero() {
 		return nil
 	}
@@ -36,6 +37,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 	}
 	nlive := len(live)
 	if nlive > 1 {
+		log.Printf("%s:%s: found %d live orders in the order map", v.uid, v.point, nlive)
 		return fmt.Errorf("found %d live orders (want 0 or 1)", nlive)
 	}
 
@@ -83,6 +85,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 			if order.Done && order.OrderID == activeOrderID {
 				log.Printf("%s:%s: limit order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
+				orderUpdatesCh = nil
 			}
 
 		case ticker := <-tickerCh:
@@ -93,7 +96,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 							return err
 						}
 						dirty++
-						activeOrderID, orderUpdatesCh = "", nil
+						activeOrderID = ""
 					}
 				}
 				if ticker.Price.GreaterThan(v.point.Cancel) {
@@ -116,7 +119,7 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 							return err
 						}
 						dirty++
-						activeOrderID, orderUpdatesCh = "", nil
+						activeOrderID = ""
 					}
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
