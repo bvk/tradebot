@@ -98,10 +98,9 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		}
 	}()
 
-	var coinbaseClient *coinbase.Client
+	var coinbaseClient *coinbase.Exchange
 	if secrets.Coinbase != nil {
-		opts := &coinbase.Options{}
-		client, err := coinbase.New(secrets.Coinbase.Key, secrets.Coinbase.Secret, opts)
+		client, err := coinbase.New(ctx, secrets.Coinbase.Key, secrets.Coinbase.Secret)
 		if err != nil {
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}
@@ -151,6 +150,10 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 	}
 	if err := t.loadProducts(ctx); err != nil {
 		return nil, fmt.Errorf("could not load default products: %w", err)
+	}
+
+	if err := kv.WithReader(ctx, t.db, t.loadNames); err != nil {
+		return nil, fmt.Errorf("could not populate name map: %w", err)
 	}
 
 	// Scan the database and load existing traders.
@@ -266,12 +269,17 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if err != nil {
 				return fmt.Errorf("could not load job %s: %w", id, err)
 			}
-			if manual || job.IsFinal(v.State()) {
+			if job.IsFinal(v.State()) {
+				continue
+			}
+			if manual {
+				log.Printf("job %s needs to be resumed manually", id)
 				continue
 			}
 			j = v
 		}
 
+		log.Printf("resuming job with id %s", id)
 		if err := j.Resume(s.closeCtx); err != nil {
 			log.Printf("warning: job %s could not be resumed (ignored)", id)
 			continue
@@ -295,17 +303,17 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 			ename, pname := v.ExchangeName(), v.ProductID()
 			p, err := s.getProduct(ctx, ename, pname)
 			if err != nil {
-				log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
+				log.Printf("could not load product %q in exchange %q: %v", pname, ename, err)
 				status = err
 				return false
 			}
 			if err := t.Fix(ctx, &trader.Runtime{Product: p, Database: s.db}); err != nil {
-				log.Printf("could not fix %T %v: %w", v, v, err)
+				log.Printf("could not fix %T %v: %v", v, v, err)
 				status = err
 				return false
 			}
 			if err := kv.WithReadWriter(ctx, s.db, v.Save); err != nil {
-				log.Printf("could not save %T %v: %w", v, v, err)
+				log.Printf("could not save %T %v: %v", v, v, err)
 				status = err
 				return false
 			}
@@ -338,7 +346,7 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 	// check if product is enabled.
 	estate, ok := s.state.ExchangeMap[exchangeName]
 	if !ok {
-		return nil, fmt.Errorf("exchange %q is not supported")
+		return nil, fmt.Errorf("exchange %q is not supported", exchangeName)
 	}
 	if !slices.Contains(estate.EnabledProductIDs, productID) {
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)

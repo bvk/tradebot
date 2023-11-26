@@ -50,14 +50,17 @@ type Product interface {
 	ExchangeName() string
 	BaseMinSize() decimal.Decimal
 
-	TickerCh() <-chan *Ticker
-	OrderUpdatesCh(id OrderID) <-chan *Order
+	TickerCh(context.Context) <-chan *Ticker
+
+	// OrderUpdatesCh returns a channel that receives order notifications/updates
+	// for all order on this product. Channel is closed when the input context is
+	// canceled.
+	OrderUpdatesCh(context.Context) <-chan *Order
 
 	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
 	LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
 
 	Get(ctx context.Context, id OrderID) (*Order, error)
-	List(ctx context.Context) ([]*Order, error)
 	Cancel(ctx context.Context, id OrderID) error
 
 	// Retire(id OrderID)
@@ -71,4 +74,6 @@ type Exchange interface {
 	GetProduct(ctx context.Context, id string) (*gobs.Product, error)
 	GetOrder(ctx context.Context, id OrderID) (*Order, error)
 	GetCandles(ctx context.Context, productID string, from time.Time) ([]*gobs.Candle, error)
+
+	IsDone(status string) bool
 }

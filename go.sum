@@ -4,8 +4,8 @@ github.com/bvkgo/kv v0.0.0-20231109000250-749bef1474a8 h1:vNZLxpPd89Trzpy5XLQ8oc
 github.com/bvkgo/kv v0.0.0-20231109000250-749bef1474a8/go.mod h1:qXpgt48a2BJTZuWXrCqiHqVT2UFBof1fF3qfTxCWSyo=
 github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d h1:CGE+0LsMh2bI3wo86Oyo9Joq2bbfKY1tKYusO0II76k=
 github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d/go.mod h1:iia+mSsb/epB9FACYngxxyTy+hL8r8Nufc320DhYDSg=
-github.com/bvkgo/topic v1.0.1-0.20231105161032-b58e45c1aab0 h1:6+I2qXeWhR8AvqGNsPqHbNPgEM6Do4Zez0XxBDTgsgQ=
-github.com/bvkgo/topic v1.0.1-0.20231105161032-b58e45c1aab0/go.mod h1:NX/aqgd3BLLCakz5Fvz5TWE+8+hs1JHyt2NcyxvnigA=
+github.com/bvkgo/topic v1.0.1-0.20231130001231-000588f23d94 h1:rF9ICbpB920ak4HKt9f+1w/moJX1CyasOu6vYPL7NBI=
+github.com/bvkgo/topic v1.0.1-0.20231130001231-000588f23d94/go.mod h1:NX/aqgd3BLLCakz5Fvz5TWE+8+hs1JHyt2NcyxvnigA=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/cespare/xxhash/v2 v2.1.1/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/cespare/xxhash/v2 v2.2.0 h1:DC2CZ1Ep5Y4k3ZQ899DldepgrayRUGE6BBZ/cd9Cj44=

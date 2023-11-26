@@ -45,13 +45,18 @@ func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)
+		if nbuys > 0 && nsells > 0 {
+			log.Printf("%s: nbuys %d nsells %d last-buy-pending: %s last-sell-pending: %s", v.uid, nbuys, nsells, v.buys[nbuys-1].PendingSize(), v.sells[nsells-1].PendingSize())
+		}
 
 		if nbuys == 0 {
 			if err := v.addNewBuy(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
+					continue
 				}
+				log.Printf("%v: could not create new limit-buy op: %v", v.uid, err)
 			}
 			continue
 		}
@@ -61,7 +66,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				if ctx.Err() == nil {
 					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
+					continue
 				}
+				log.Printf("%v: could not run limit-buy op: %v", v.uid, err)
 			}
 			continue
 		}
@@ -71,7 +78,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
 					time.Sleep(time.Second)
+					continue
 				}
+				log.Printf("%v: could not create new limit-sell op: %v", v.uid, err)
 			}
 			continue
 		}
@@ -81,7 +90,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				if ctx.Err() == nil {
 					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
 					time.Sleep(time.Second)
+					continue
 				}
+				log.Printf("%v: could not complete limit-sell op: %v", v.uid, err)
 			}
 			continue
 		}
@@ -90,7 +101,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			if ctx.Err() == nil {
 				log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 				time.Sleep(time.Second)
+				continue
 			}
+			log.Printf("%v: could not create new limit-buy op: %v", v.uid, err)
 			continue
 		}
 	}
@@ -99,8 +112,13 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
+	log.Printf("%s: adding new limit-buy buy-%06d", v.uid, len(v.buys))
+
 	// Wait for the ticker to go above the buy point price.
-	tickerCh := rt.Product.TickerCh()
+	tctx, tcancel := context.WithCancel(ctx)
+	defer tcancel()
+	tickerCh := rt.Product.TickerCh(tctx)
+
 	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
 		select {
 		case <-ctx.Done():
@@ -115,6 +133,7 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 	if err != nil {
 		return err
 	}
+
 	v.buys = append(v.buys, b)
 	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		v.buys = v.buys[:len(v.buys)-1]
@@ -124,17 +143,7 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Looper) addNewSell(ctx context.Context, rt *trader.Runtime) error {
-	// // Wait for the ticker to go below the sell point price.
-	// tickerCh := product.TickerCh()
-	// for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {
-	// 	log.Printf("%v:%v:%v waiting for the ticker price to go below sell point", v.uid, v.buyPoint, v.sellPoint)
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		return context.Cause(ctx)
-	// 	case ticker := <-tickerCh:
-	// 		p = ticker.Price
-	// 	}
-	// }
+	log.Printf("%s: adding new limit-sell sell-%06d", v.uid, len(v.sells))
 
 	uid := path.Join(v.uid, fmt.Sprintf("sell-%06d", len(v.sells)))
 	s, err := limiter.New(uid, v.exchangeName, v.productID, &v.sellPoint)

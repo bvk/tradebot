@@ -23,6 +23,17 @@ import (
 	"github.com/google/uuid"
 )
 
+func (s *Server) makeJobFunc(v trader.Job) job.Func {
+	return func(ctx context.Context) error {
+		ename, pid := v.ExchangeName(), v.ProductID()
+		product, err := s.getProduct(ctx, ename, pid)
+		if err != nil {
+			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", v.UID(), pid, ename, err)
+		}
+		return v.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
+	}
+}
+
 // createJob creates a job instance for the given trader id. Current state of
 // the job is fetched from the database. Returns true if the job requires a
 // manual resume request from the user.
@@ -45,15 +56,7 @@ func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
 	}
 
-	ename, pname := v.ExchangeName(), v.ProductID()
-	product, err := s.getProduct(ctx, ename, pname)
-	if err != nil {
-		return nil, false, fmt.Errorf("could not load product %q in exchange %q: %w", pname, ename, err)
-	}
-
-	j := job.New(state, func(ctx context.Context) error {
-		return v.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
-	})
+	j := job.New(state, s.makeJobFunc(v))
 	return j, gstate.NeedsManualResume, nil
 }
 

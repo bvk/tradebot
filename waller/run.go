@@ -30,6 +30,7 @@ func (w *Waller) Refresh(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
+	log.Printf("started waller %s", w.uid)
 	var wg sync.WaitGroup
 
 	for _, loop := range w.loopers {

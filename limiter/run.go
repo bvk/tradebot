@@ -15,15 +15,22 @@ import (
 )
 
 func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
+	log.Printf("%s:%s: started limiter job", v.uid, v.point)
 	if rt.Product.ProductID() != v.productID {
 		return os.ErrInvalid
 	}
 	// We also need to handle resume logic here.
-	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
+	nupdated, err := v.fetchOrderMap(ctx, rt.Product)
+	if err != nil {
+		log.Printf("%s:%s: could not refresh/fetch order map: %v", v.uid, v.point, err)
 		return err
 	}
 
 	if p := v.PendingSize(); p.IsZero() {
+		if nupdated != 0 {
+			_ = kv.WithReadWriter(ctx, rt.Database, v.Save)
+		}
+		log.Printf("%s:%s: limiter is complete cause pending size is zero", v.uid, v.point)
 		return nil
 	}
 
@@ -35,6 +42,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			live = append(live, order)
 		}
 	}
+
 	nlive := len(live)
 	if nlive > 1 {
 		log.Printf("%s:%s: found %d live orders in the order map", v.uid, v.point, nlive)
@@ -42,18 +50,18 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	}
 
 	var activeOrderID exchange.OrderID
-	var orderUpdatesCh <-chan *exchange.Order
 	if nlive != 0 {
 		activeOrderID = live[0].OrderID
-		orderUpdatesCh = rt.Product.OrderUpdatesCh(activeOrderID)
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
 
 	dirty := 0
-	tickerCh := rt.Product.TickerCh()
 	flushCh := time.After(time.Minute)
 
 	localCtx := context.Background()
+	tickerCh := rt.Product.TickerCh(localCtx)
+	orderUpdatesCh := rt.Product.OrderUpdatesCh(localCtx)
+
 	for p := v.PendingSize(); !p.IsZero(); p = v.PendingSize() {
 		select {
 		case <-ctx.Done():
@@ -85,7 +93,6 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			if order.Done && order.OrderID == activeOrderID {
 				log.Printf("%s:%s: limit order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
-				orderUpdatesCh = nil
 			}
 
 		case ticker := <-tickerCh:
@@ -101,12 +108,12 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 				if ticker.Price.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, ch, err := v.create(localCtx, rt.Product)
+						id, err := v.create(localCtx, rt.Product)
 						if err != nil {
 							return err
 						}
 						dirty++
-						activeOrderID, orderUpdatesCh = id, ch
+						activeOrderID = id
 					}
 				}
 				continue
@@ -124,12 +131,12 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 				if ticker.Price.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, ch, err := v.create(localCtx, rt.Product)
+						id, err := v.create(localCtx, rt.Product)
 						if err != nil {
 							return err
 						}
 						dirty++
-						activeOrderID, orderUpdatesCh = id, ch
+						activeOrderID = id
 					}
 				}
 				continue
@@ -137,7 +144,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 		}
 	}
 
-	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
+	if _, err := v.fetchOrderMap(ctx, rt.Product); err != nil {
 		return err
 	}
 	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
@@ -152,14 +159,14 @@ func (v *Limiter) Fix(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
-	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
+	if _, err := v.fetchOrderMap(ctx, rt.Product); err != nil {
 		return fmt.Errorf("could not refresh limiter state: %w", err)
 	}
 	// FIXME: We may also need to check for presence of unsaved orders with future client-ids.
 	return nil
 }
 
-func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, <-chan *exchange.Order, error) {
+func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, error) {
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
 	size := v.PendingSize()
@@ -182,7 +189,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	if err != nil {
 		v.idgen.RevertID()
 		log.Printf("%s:%s: create limit order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, clientOrderID, offset, latency, err)
-		return "", nil, err
+		return "", err
 	}
 
 	v.orderMap[orderID] = &exchange.Order{
@@ -193,7 +200,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	v.clientServerMap[clientOrderID.String()] = orderID
 
 	log.Printf("%s:%s: created a new limit order %s with client-order-id %s (%d) in %s", v.uid, v.point, orderID, clientOrderID, offset, latency)
-	return orderID, product.OrderUpdatesCh(orderID), nil
+	return orderID, nil
 }
 
 func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID exchange.OrderID) error {
@@ -201,23 +208,22 @@ func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOr
 		log.Printf("%s:%s: cancel limit order %s has failed: %v", v.uid, v.point, activeOrderID, err)
 		return err
 	}
-	log.Printf("%s:%s: canceled the limit order %s", v.uid, v.point, activeOrderID)
+	// log.Printf("%s:%s: canceled the limit order %s", v.uid, v.point, activeOrderID)
 	return nil
 }
 
-func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product, n int) error {
+func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (nupdated int, status error) {
 	for id, order := range v.orderMap {
 		if order.Done {
 			continue
 		}
-		order, err := product.Get(ctx, id)
+		norder, err := product.Get(ctx, id)
 		if err != nil {
-			return err
+			log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
+			return nupdated, err
 		}
-		v.orderMap[id] = order
-		if n--; n <= 0 {
-			break
-		}
+		v.orderMap[id] = norder
+		nupdated++
 	}
-	return nil
+	return nupdated, nil
 }

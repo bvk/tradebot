@@ -3,6 +3,7 @@
 package coinbase
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -14,18 +15,19 @@ func TestProductCandles(t *testing.T) {
 		return
 	}
 
-	c, err := New(testingKey, testingSecret, testingOptions)
+	ctx := context.Background()
+	ex, err := New(ctx, testingKey, testingSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := c.Close(); err != nil {
+		if err := ex.Close(); err != nil {
 			t.Fatal(err)
 		}
 	}()
 
 	from := time.Now().Add(-24 * time.Hour)
-	resp, err := c.getProductCandles(c.ctx, "BCH-USD", from, OneMinuteCandle)
+	resp, err := ex.GetCandles(ctx, "BCH-USD", from)
 	if err != nil {
 		t.Fatal(err)
 	}

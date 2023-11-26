@@ -1,20 +1,26 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package coinbase
+package internal
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/bvkgo/topic"
 )
 
 var (
-	testingKey    string
-	testingSecret string
+	testingKey     string
+	testingSecret  string
+	testingOptions *Options = &Options{}
 )
 
 func checkCredentials() bool {
+	type Credentials struct {
+		Key    string
+		Secret string
+	}
 	if len(testingKey) != 0 && len(testingSecret) != 0 {
 		return true
 	}
@@ -37,14 +43,26 @@ func TestClient(t *testing.T) {
 		return
 	}
 
-	ctx := context.Background()
-	exch, err := New(ctx, testingKey, testingSecret)
+	topic := topic.New[*Message]()
+	defer topic.Close()
+
+	c, err := New(testingKey, testingSecret, testingOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := exch.Close(); err != nil {
+		if err := c.Close(); err != nil {
 			t.Fatal(err)
 		}
 	}()
+
+	c.GetMessages([]string{"BCH-USD"}, []string{"user"}, topic)
+
+	r, ch, err := topic.Subscribe(1, false /* includeRecent */)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Unsubscribe()
+
+	t.Logf("%#v\n", <-ch)
 }

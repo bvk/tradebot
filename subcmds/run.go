@@ -155,8 +155,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
 			return err
 		}
-		log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
 	}
+
+	log.SetFlags(log.Flags() | log.Lmicroseconds)
+	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
 
 	lockPath := filepath.Join(dataDir, "tradebot.lock")
 	flock, err := lockfile.New(lockPath)

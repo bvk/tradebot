@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package coinbase
+package internal
 
 import "time"
 
@@ -29,6 +29,9 @@ type Options struct {
 	// Max number of out of order websocket messages allowed before restarting
 	// the websocket.
 	MaxWebsocketOutOfOrderAllowance int
+
+	// Max limit for time difference between local time and the server times.
+	MaxTimeAdjustment time.Duration
 }
 
 func (v *Options) setDefaults() {
@@ -52,5 +55,8 @@ func (v *Options) setDefaults() {
 	}
 	if v.MaxWebsocketOutOfOrderAllowance == 0 {
 		v.MaxWebsocketOutOfOrderAllowance = 10
+	}
+	if v.MaxTimeAdjustment == 0 {
+		v.MaxTimeAdjustment = time.Minute
 	}
 }

@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package coinbase
+package exchange
 
 import "github.com/shopspring/decimal"
 

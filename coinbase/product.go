@@ -7,94 +7,63 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"slices"
-	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/coinbase/internal"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvkgo/topic"
 	"github.com/shopspring/decimal"
 )
 
 type Product struct {
-	ctx    context.Context
-	cancel context.CancelCauseFunc
-	wg     sync.WaitGroup
+	client *internal.Client
 
-	client *Client
+	exchange *Exchange
 
-	productID string
+	lastTicker *exchange.Ticker
 
-	productData *GetProductResponse
+	prodTickerTopic *topic.Topic[*exchange.Ticker]
+	prodOrderTopic  *topic.Topic[*exchange.Order]
 
-	tickerCh    <-chan *exchange.Ticker
-	tickerTopic *topic.Topic[*exchange.Ticker]
-	tickerRecvr *topic.Receiver[*exchange.Ticker]
+	productData *internal.GetProductResponse
+
+	websocket *internal.Websocket
 }
 
-func (c *Client) OpenProduct(ctx context.Context, productID string) (exchange.Product, error) {
-	return c.NewProduct(ctx, productID)
-}
-
-func (c *Client) NewProduct(ctx context.Context, name string) (_ *Product, status error) {
-	if !slices.Contains(c.spotProducts, name) {
-		return nil, os.ErrInvalid
+func (ex *Exchange) OpenProduct(ctx context.Context, pid string) (_ exchange.Product, status error) {
+	if p, ok := ex.productMap.Load(pid); ok {
+		return p, nil
 	}
 
-	product, err := c.getProduct(ctx, name)
+	product, err := ex.client.GetProduct(ctx, pid)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not get product named %q: %w", pid, err)
 	}
-
-	pctx, pcancel := context.WithCancelCause(c.ctx)
-	defer func() {
-		if status != nil {
-			pcancel(status)
-		}
-	}()
 
 	p := &Product{
-		ctx:         pctx,
-		cancel:      pcancel,
-		client:      c,
-		productID:   name,
-		productData: product,
-		tickerTopic: topic.New[*exchange.Ticker](),
+		client:          ex.client,
+		exchange:        ex,
+		productData:     product,
+		prodTickerTopic: topic.New[*exchange.Ticker](),
+		prodOrderTopic:  topic.New[*exchange.Order](),
+		websocket:       ex.client.GetMessages("heartbeats", []string{pid}, ex.dispatchMessage),
 	}
+	p.websocket.Subscribe("ticker", []string{pid})
 
-	recvr, ch, err := p.tickerTopic.Subscribe(1, false /* includeRecent */)
-	if err != nil {
-		return nil, err
-	}
-	p.tickerCh = ch
-	p.tickerRecvr = recvr
-
-	p.tickerTopic.SendCh() <- &exchange.Ticker{
-		Timestamp: c.now(),
-		Price:     product.Price.Decimal,
-	}
-
-	p.wg.Add(1)
-	go p.goWatchPrice()
-
+	ex.productMap.Store(pid, p)
 	return p, nil
 }
 
-func (c *Client) CloseProduct(p *Product) error {
-	p.cancel(os.ErrClosed)
-	p.wg.Wait()
-	p.tickerTopic.Close()
+func (p *Product) Close() error {
+	p.exchange.productMap.Delete(p.productData.ProductID)
+	p.websocket.Close()
 	return nil
 }
 
-func (p *Product) Close() error {
-	return p.client.CloseProduct(p)
-}
-
 func (p *Product) ProductID() string {
-	return p.productID
+	return p.productData.ProductID
 }
 
 func (p *Product) ExchangeName() string {
@@ -105,119 +74,24 @@ func (p *Product) BaseMinSize() decimal.Decimal {
 	return p.productData.BaseMinSize.Decimal
 }
 
-func (p *Product) goWatchPrice() {
-	defer p.wg.Done()
-
-	for p.ctx.Err() == nil {
-		if err := p.watch(p.ctx); err != nil {
-			slog.WarnContext(p.ctx, "could not watch for websocket msgs", "error", err)
-			if p.ctx.Err() == nil {
-				time.Sleep(p.client.opts.WebsocketRetryInterval)
-			}
-		}
-	}
+func (p *Product) TickerCh(ctx context.Context) <-chan *exchange.Ticker {
+	sub, ch, _ := p.prodTickerTopic.Subscribe(1, true /* includeRecent */)
+	context.AfterFunc(ctx, func() {
+		sub.Unsubscribe()
+	})
+	return ch
 }
 
-func (p *Product) watch(ctx context.Context) (status error) {
-	ws, err := p.client.NewWebsocket(ctx, []string{p.productID})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if status != nil {
-			_ = p.client.CloseWebsocket(ws)
-		}
-	}()
-
-	if err := ws.Subscribe(ctx, "level2"); err != nil {
-		return err
-	}
-	if err := ws.Subscribe(ctx, "ticker"); err != nil {
-		return err
-	}
-
-	// var msgs []*MessageType
-	// var lastSeq int64 = -1
-
-	for ctx.Err() == nil {
-		msg, err := ws.NextMessage(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
-		}
-
-		// msgs = append(msgs, msg)
-		// sort.Slice(msgs, func(i, j int) bool {
-		// 	return msgs[i].Sequence < msgs[j].Sequence
-		// })
-
-		// if msgs[0].Sequence != lastSeq+1 {
-		// 	if len(msgs) > p.client.opts.MaxWebsocketOutOfOrderAllowance {
-		// 		slog.ErrorContext(ctx, "out of order websocket message allowance overflow", "last-seq", lastSeq, "next-msg-seq", msgs[0].Sequence)
-		// 		return fmt.Errorf("out of order allowance overflow")
-		// 	}
-		// 	continue
-		// }
-
-		// msg = msgs[0]
-		// msgs = slices.Delete(msgs, 0, 1)
-		// if len(msgs) > 0 {
-		// 	slog.Info("resolved an out of order message", "ooo-size", len(msgs))
-		// }
-
-		// if lastSeq > 0 {
-		// 	if msg.Sequence < lastSeq+1 {
-		// 		slog.InfoContext(ctx, "out of order websocket message is ignored", "last-seq", lastSeq, "msg-seq", msg.Sequence)
-		// 		continue
-		// 	}
-		// 	if msg.Sequence > lastSeq+1 {
-		// 		slog.ErrorContext(ctx, "unexpected sequence; we may've lost a few messages", "last-seq", lastSeq, "msg-seq", msg.Sequence)
-		// 		return fmt.Errorf("unexpected sequence number")
-		// 	}
-		// }
-		// lastSeq = msg.Sequence
-
-		timestamp, err := time.Parse(time.RFC3339Nano, msg.Timestamp)
-		if err != nil {
-			slog.ErrorContext(ctx, "could not parse websocket msg timestamp", "timestamp", msg.Timestamp)
-			return err
-		}
-
-		if msg.Channel == "l2_data" {
-			// TODO: Update the orderbook.
-		}
-
-		if msg.Channel == "ticker" {
-			for _, event := range msg.Events {
-				for _, tick := range event.Tickers {
-					if tick.ProductID == p.productID {
-						v := &exchange.Ticker{
-							Price:     tick.Price.Decimal,
-							Timestamp: exchange.RemoteTime{Time: timestamp},
-						}
-						p.tickerTopic.SendCh() <- v
-					}
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (p *Product) TickerCh() <-chan *exchange.Ticker {
-	_, ch, _ := p.tickerTopic.Subscribe(1 /* limit */, true /* includeRecent */)
+func (p *Product) OrderUpdatesCh(ctx context.Context) <-chan *exchange.Order {
+	sub, ch, _ := p.prodOrderTopic.Subscribe(0, true /* includeRecent */)
+	context.AfterFunc(ctx, func() {
+		sub.Unsubscribe()
+	})
 	return ch
 }
 
 func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.Order, error) {
-	resp, err := p.client.getOrder(ctx, string(serverOrderID))
-	if err != nil {
-		return nil, err
-	}
-	return toExchangeOrder(&resp.Order), nil
+	return p.exchange.GetOrder(ctx, serverOrderID)
 }
 
 func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
@@ -229,22 +103,23 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 	}
 
 	// check if this is a retry request for the clientOrderID.
-	if v, ok := p.client.recreateOldOrder(clientOrderID); ok {
-		return exchange.OrderID(v), nil
+	if order, ok := p.exchange.recreateOldOrder(clientOrderID); ok {
+		p.prodOrderTopic.Send(order)
+		return order.OrderID, nil
 	}
 
-	req := &CreateOrderRequest{
+	req := &internal.CreateOrderRequest{
 		ClientOrderID: clientOrderID,
-		ProductID:     p.productID,
+		ProductID:     p.productData.ProductID,
 		Side:          "BUY",
-		Order: OrderConfigType{
-			LimitGTC: &LimitLimitGTCType{
-				BaseSize:   NullDecimal{Decimal: size},
-				LimitPrice: NullDecimal{Decimal: price},
+		Order: &internal.OrderConfig{
+			LimitGTC: &internal.LimitLimitGTC{
+				BaseSize:   exchange.NullDecimal{Decimal: size},
+				LimitPrice: exchange.NullDecimal{Decimal: price.Round(2)}, // FIXME: Find a better way to round.
 			},
 		},
 	}
-	resp, err := p.client.createOrder(ctx, req)
+	resp, err := p.exchange.createReadyOrder(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -264,22 +139,23 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 	}
 
 	// check if this is a retry request for the clientOrderID.
-	if v, ok := p.client.recreateOldOrder(clientOrderID); ok {
-		return exchange.OrderID(v), nil
+	if order, ok := p.exchange.recreateOldOrder(clientOrderID); ok {
+		p.prodOrderTopic.Send(order)
+		return order.OrderID, nil
 	}
 
-	req := &CreateOrderRequest{
+	req := &internal.CreateOrderRequest{
 		ClientOrderID: clientOrderID,
-		ProductID:     p.productID,
+		ProductID:     p.productData.ProductID,
 		Side:          "SELL",
-		Order: OrderConfigType{
-			LimitGTC: &LimitLimitGTCType{
-				BaseSize:   NullDecimal{Decimal: size},
-				LimitPrice: NullDecimal{Decimal: price},
+		Order: &internal.OrderConfig{
+			LimitGTC: &internal.LimitLimitGTC{
+				BaseSize:   exchange.NullDecimal{Decimal: size},
+				LimitPrice: exchange.NullDecimal{Decimal: price.Round(2)},
 			},
 		},
 	}
-	resp, err := p.client.createOrder(ctx, req)
+	resp, err := p.exchange.createReadyOrder(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -287,14 +163,15 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
 		return "", errors.New(resp.FailureReason)
 	}
+
 	return exchange.OrderID(resp.OrderID), nil
 }
 
 func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) error {
-	req := &CancelOrderRequest{
+	req := &internal.CancelOrderRequest{
 		OrderIDs: []string{string(serverOrderID)},
 	}
-	resp, err := p.client.cancelOrder(ctx, req)
+	resp, err := p.client.CancelOrder(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -307,45 +184,20 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) er
 	return nil
 }
 
-// List returns open orders in the product.
-func (p *Product) List(ctx context.Context) ([]*exchange.Order, error) {
-	values := make(url.Values)
-	values.Set("product_id", p.productID)
-	values.Set("limit", "100")
-	values.Set("order_status", "OPEN")
-
-	var responses []*ListOrdersResponse
-	response, cont, err := p.client.listOrders(ctx, values)
-	if err != nil {
-		return nil, err
+func (p *Product) handleTickerEvent(timestamp time.Time, event *internal.TickerEvent) {
+	if p.lastTicker != nil && timestamp.Before(p.lastTicker.Timestamp.Time) {
+		return
 	}
-	responses = append(responses, response)
-
-	for cont != nil {
-		response, cont, err = p.client.listOrders(ctx, cont)
-		if err != nil {
-			return nil, err
-		}
-		responses = append(responses, response)
+	p.lastTicker = &exchange.Ticker{
+		Timestamp: exchange.RemoteTime{Time: timestamp},
+		Price:     event.Price.Decimal,
 	}
-
-	var orders []*exchange.Order
-	for _, resp := range responses {
-		for _, ord := range resp.Orders {
-			orders = append(orders, toExchangeOrder(ord))
-		}
-	}
-	return orders, nil
+	p.prodTickerTopic.Send(p.lastTicker)
 }
 
-func (p *Product) OrderUpdatesCh(id exchange.OrderID) <-chan *exchange.Order {
-	if data, ok := p.client.orderDataMap.Load(string(id)); ok {
-		_, ch, _ := data.topic.Subscribe(1 /* limit */, true /* includeRecent */)
-		return ch
+func (p *Product) handleOrder(order *exchange.Order) {
+	// We don't want to expose PENDING state outside this package.
+	if slices.Contains(readyStatuses, order.Status) {
+		p.prodOrderTopic.Send(order)
 	}
-	if data, ok := p.client.oldOrderDataMap.Load(string(id)); ok {
-		_, ch, _ := data.topic.Subscribe(1 /* limit */, true /* includeRecent */)
-		return ch
-	}
-	return nil
 }
