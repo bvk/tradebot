@@ -16,6 +16,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
@@ -32,6 +33,8 @@ type Waller struct {
 
 	loopers []*looper.Looper
 }
+
+var _ trader.Job = &Waller{}
 
 func New(uid, exchangeName, productID string, pairs []*point.Pair) (*Waller, error) {
 	w := &Waller{

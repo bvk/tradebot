@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvk/tradebot/runtime"
+	"github.com/bvk/tradebot/trader"
 )
 
-func (w *Waller) Fix(ctx context.Context, rt *runtime.Runtime) error {
+func (w *Waller) Fix(ctx context.Context, rt *trader.Runtime) error {
 	for _, l := range w.loopers {
 		if err := l.Fix(ctx, rt); err != nil {
 			return err
@@ -20,7 +20,7 @@ func (w *Waller) Fix(ctx context.Context, rt *runtime.Runtime) error {
 	return nil
 }
 
-func (w *Waller) Refresh(ctx context.Context, rt *runtime.Runtime) error {
+func (w *Waller) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	for _, l := range w.loopers {
 		if err := l.Refresh(ctx, rt); err != nil {
 			return err
@@ -29,7 +29,7 @@ func (w *Waller) Refresh(ctx context.Context, rt *runtime.Runtime) error {
 	return nil
 }
 
-func (w *Waller) Run(ctx context.Context, rt *runtime.Runtime) error {
+func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 	var wg sync.WaitGroup
 
 	for _, loop := range w.loopers {

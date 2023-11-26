@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package runtime
+package trader
 
 import (
 	"github.com/bvk/tradebot/exchange"

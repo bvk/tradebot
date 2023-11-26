@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/limiter"
-	"github.com/bvk/tradebot/runtime"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 )
 
-func (v *Looper) Fix(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Looper) Fix(ctx context.Context, rt *trader.Runtime) error {
 	for _, b := range v.buys {
 		if err := b.Fix(ctx, rt); err != nil {
 			return err
@@ -28,7 +28,7 @@ func (v *Looper) Fix(ctx context.Context, rt *runtime.Runtime) error {
 	return nil
 }
 
-func (v *Looper) Refresh(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	for _, b := range v.buys {
 		if err := b.Refresh(ctx, rt); err != nil {
 			return err
@@ -42,7 +42,7 @@ func (v *Looper) Refresh(ctx context.Context, rt *runtime.Runtime) error {
 	return nil
 }
 
-func (v *Looper) Run(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)
 
@@ -98,7 +98,7 @@ func (v *Looper) Run(ctx context.Context, rt *runtime.Runtime) error {
 	return context.Cause(ctx)
 }
 
-func (v *Looper) addNewBuy(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 	// Wait for the ticker to go above the buy point price.
 	tickerCh := rt.Product.TickerCh()
 	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
@@ -123,7 +123,7 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *runtime.Runtime) error {
 	return nil
 }
 
-func (v *Looper) addNewSell(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Looper) addNewSell(ctx context.Context, rt *trader.Runtime) error {
 	// // Wait for the ticker to go below the sell point price.
 	// tickerCh := product.TickerCh()
 	// for p := v.sellPoint.Price; p.GreaterThanOrEqual(v.sellPoint.Price); {

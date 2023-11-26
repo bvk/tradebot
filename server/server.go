@@ -29,8 +29,8 @@ import (
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
-	"github.com/bvk/tradebot/runtime"
 	"github.com/bvk/tradebot/syncmap"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -70,9 +70,7 @@ type Server struct {
 
 	idNameMap syncmap.Map[string, string]
 
-	limiterMap syncmap.Map[string, *limiter.Limiter]
-	looperMap  syncmap.Map[string, *looper.Looper]
-	wallerMap  syncmap.Map[string, *waller.Waller]
+	traderMap syncmap.Map[string, trader.Job]
 
 	mu sync.Mutex
 
@@ -155,6 +153,13 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		return nil, fmt.Errorf("could not load default products: %w", err)
 	}
 
+	// Scan the database and load existing traders.
+	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
+		return nil, fmt.Errorf("could not load existing trades: %w", err)
+	}
+
+	// TODO: Setup a fund
+
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
 	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
@@ -233,11 +238,6 @@ func (s *Server) Start(ctx context.Context) (status error) {
 		}
 	}()
 
-	// Scan the database and load existing traders.
-	if err := kv.WithReader(ctx, s.db, s.loadTrades); err != nil {
-		return err
-	}
-
 	if s.opts.RunFixes {
 		if err := s.runFixes(ctx); err != nil {
 			return err
@@ -249,15 +249,7 @@ func (s *Server) Start(ctx context.Context) (status error) {
 	}
 
 	var ids []string
-	s.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
-		ids = append(ids, id)
-		return true
-	})
-	s.looperMap.Range(func(id string, l *looper.Looper) bool {
-		ids = append(ids, id)
-		return true
-	})
-	s.wallerMap.Range(func(id string, w *waller.Waller) bool {
+	s.traderMap.Range(func(id string, _ trader.Job) bool {
 		ids = append(ids, id)
 		return true
 	})
@@ -290,72 +282,33 @@ func (s *Server) Start(ctx context.Context) (status error) {
 }
 
 func (s *Server) runFixes(ctx context.Context) (status error) {
-	s.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
-		ename, pname := l.ExchangeName(), l.ProductID()
-		p, err := s.getProduct(ctx, ename, pname)
-		if err != nil {
-			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
-			status = err
-			return false
-		}
-		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: s.db}); err != nil {
-			log.Printf("could not fix limiter %v: %w", l, err)
-			status = err
-			return false
-		}
-		if err := kv.WithReadWriter(ctx, s.db, l.Save); err != nil {
-			log.Printf("could not save limiter %v: %w", l, err)
-			status = err
-			return false
-		}
-		return true
-	})
-	if status != nil {
-		return
+	type Fixer interface {
+		Fix(context.Context, *trader.Runtime) error
 	}
-	s.looperMap.Range(func(id string, l *looper.Looper) bool {
-		ename, pname := l.ExchangeName(), l.ProductID()
-		p, err := s.getProduct(ctx, ename, pname)
-		if err != nil {
-			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
-			status = err
-			return false
-		}
-		if err := l.Fix(ctx, &runtime.Runtime{Product: p, Database: s.db}); err != nil {
-			log.Printf("could not fix looper %v: %w", l, err)
-			status = err
-			return false
-		}
-		if err := kv.WithReadWriter(ctx, s.db, l.Save); err != nil {
-			log.Printf("could not save looper %v: %w", l, err)
-			status = err
-			return false
-		}
-		return true
-	})
-	if status != nil {
-		return
-	}
-	s.wallerMap.Range(func(id string, w *waller.Waller) bool {
-		ename, pname := w.ExchangeName(), w.ProductID()
-		p, err := s.getProduct(ctx, ename, pname)
-		if err != nil {
-			log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
-			status = err
-			return false
-		}
-		if err := w.Fix(ctx, &runtime.Runtime{Product: p, Database: s.db}); err != nil {
-			log.Printf("could not fix waller %v: %w", w, err)
-			status = err
-			return false
-		}
-		if err := kv.WithReadWriter(ctx, s.db, w.Save); err != nil {
-			log.Printf("could not save waller %v: %w", w, err)
-			status = err
-			return false
+
+	s.traderMap.Range(func(id string, v trader.Job) bool {
+		if t, ok := v.(Fixer); ok {
+			ename, pname := v.ExchangeName(), v.ProductID()
+			p, err := s.getProduct(ctx, ename, pname)
+			if err != nil {
+				log.Printf("could not load product %q in exchange %q: %w", pname, ename, err)
+				status = err
+				return false
+			}
+			if err := t.Fix(ctx, &trader.Runtime{Product: p, Database: s.db}); err != nil {
+				log.Printf("could not fix %T %v: %w", v, v, err)
+				status = err
+				return false
+			}
+			if err := kv.WithReadWriter(ctx, s.db, v.Save); err != nil {
+				log.Printf("could not save %T %v: %w", v, v, err)
+				status = err
+				return false
+			}
 		}
 		return true
 	})
+
 	return
 }
 
@@ -428,24 +381,34 @@ func (s *Server) loadProducts(ctx context.Context) (status error) {
 }
 
 func (s *Server) loadTrades(ctx context.Context, r kv.Reader) error {
-	if err := s.loadLimiters(ctx, r); err != nil {
+	limiterLoadFunc := func(ctx context.Context, uid string, r kv.Reader) (trader.Job, error) {
+		return limiter.Load(ctx, uid, r)
+	}
+	if err := s.scan(ctx, r, limiter.DefaultKeyspace, limiterLoadFunc); err != nil {
 		return fmt.Errorf("could not load all existing limiters: %w", err)
 	}
-	if err := s.loadLoopers(ctx, r); err != nil {
+
+	looperLoadFunc := func(ctx context.Context, uid string, r kv.Reader) (trader.Job, error) {
+		return looper.Load(ctx, uid, r)
+	}
+	if err := s.scan(ctx, r, looper.DefaultKeyspace, looperLoadFunc); err != nil {
 		return fmt.Errorf("could not load all existing loopers: %w", err)
 	}
-	if err := s.loadWallers(ctx, r); err != nil {
+
+	wallerLoadFunc := func(ctx context.Context, uid string, r kv.Reader) (trader.Job, error) {
+		return waller.Load(ctx, uid, r)
+	}
+	if err := s.scan(ctx, r, waller.DefaultKeyspace, wallerLoadFunc); err != nil {
 		return fmt.Errorf("could not load all existing wallers: %w", err)
 	}
-	if err := s.loadNames(ctx, r); err != nil {
-		return fmt.Errorf("could not load all existing names: %w", err)
-	}
 	return nil
 }
 
-func (s *Server) loadLimiters(ctx context.Context, r kv.Reader) error {
-	begin := path.Join(limiter.DefaultKeyspace, minUUID)
-	end := path.Join(limiter.DefaultKeyspace, maxUUID)
+type traderLoadFunc = func(context.Context, string, kv.Reader) (trader.Job, error)
+
+func (s *Server) scan(ctx context.Context, r kv.Reader, keyspace string, loader traderLoadFunc) error {
+	begin := path.Join(keyspace, minUUID)
+	end := path.Join(keyspace, maxUUID)
 
 	it, err := r.Ascend(ctx, begin, end)
 	if err != nil {
@@ -454,88 +417,20 @@ func (s *Server) loadLimiters(ctx context.Context, r kv.Reader) error {
 	defer kv.Close(it)
 
 	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		uid := strings.TrimPrefix(k, limiter.DefaultKeyspace)
+		uid := strings.TrimPrefix(k, keyspace)
 		if _, err := uuid.Parse(uid); err != nil {
 			continue
 		}
-		if _, ok := s.limiterMap.Load(uid); ok {
+		if _, ok := s.traderMap.Load(uid); ok {
 			continue
 		}
 
-		l, err := limiter.Load(ctx, k, r)
+		v, err := loader(ctx, k, r)
 		if err != nil {
 			return err
 		}
-		if _, loaded := s.limiterMap.LoadOrStore(uid, l); loaded {
-			return fmt.Errorf("limiter %s is already loaded", uid)
-		}
-	}
-
-	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	return nil
-}
-
-func (s *Server) loadLoopers(ctx context.Context, r kv.Reader) error {
-	begin := path.Join(looper.DefaultKeyspace, minUUID)
-	end := path.Join(looper.DefaultKeyspace, maxUUID)
-
-	it, err := r.Ascend(ctx, begin, end)
-	if err != nil {
-		return err
-	}
-	defer kv.Close(it)
-
-	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		uid := strings.TrimPrefix(k, looper.DefaultKeyspace)
-		if _, err := uuid.Parse(uid); err != nil {
-			continue
-		}
-		if _, ok := s.looperMap.Load(uid); ok {
-			continue
-		}
-
-		l, err := looper.Load(ctx, k, r)
-		if err != nil {
-			return err
-		}
-		if _, loaded := s.looperMap.LoadOrStore(uid, l); loaded {
-			return fmt.Errorf("looper %s is already loaded", uid)
-		}
-	}
-
-	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	return nil
-}
-
-func (s *Server) loadWallers(ctx context.Context, r kv.Reader) error {
-	begin := path.Join(waller.DefaultKeyspace, minUUID)
-	end := path.Join(waller.DefaultKeyspace, maxUUID)
-
-	it, err := r.Ascend(ctx, begin, end)
-	if err != nil {
-		return err
-	}
-	defer kv.Close(it)
-
-	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		uid := strings.TrimPrefix(k, waller.DefaultKeyspace)
-		if _, err := uuid.Parse(uid); err != nil {
-			continue
-		}
-		if _, ok := s.wallerMap.Load(uid); ok {
-			continue
-		}
-
-		w, err := waller.Load(ctx, k, r)
-		if err != nil {
-			return err
-		}
-		if _, loaded := s.wallerMap.LoadOrStore(uid, w); loaded {
-			return fmt.Errorf("waller %s is already loaded", uid)
+		if _, loaded := s.traderMap.LoadOrStore(uid, v); loaded {
+			return fmt.Errorf("trader job %s (%T) is already loaded", uid, v)
 		}
 	}
 
@@ -635,10 +530,10 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	if err := kv.WithReadWriter(ctx, s.db, limit.Save); err != nil {
 		return nil, err
 	}
-	s.limiterMap.Store(uid, limit)
+	s.traderMap.Store(uid, limit)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return limit.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
+		return limit.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
 	})
 	s.jobMap.Store(uid, j)
 
@@ -680,10 +575,10 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err := kv.WithReadWriter(ctx, s.db, loop.Save); err != nil {
 		return nil, err
 	}
-	s.looperMap.Store(uid, loop)
+	s.traderMap.Store(uid, loop)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return loop.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
+		return loop.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
 	})
 	s.jobMap.Store(uid, j)
 
@@ -725,10 +620,10 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err := kv.WithReadWriter(ctx, s.db, wall.Save); err != nil {
 		return nil, err
 	}
-	s.wallerMap.Store(uid, wall)
+	s.traderMap.Store(uid, wall)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return wall.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
+		return wall.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
 	})
 	s.jobMap.Store(uid, j)
 

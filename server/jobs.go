@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 
 	"github.com/bvk/tradebot/api"
@@ -17,10 +18,7 @@ import (
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/kvutil"
-	"github.com/bvk/tradebot/limiter"
-	"github.com/bvk/tradebot/looper"
-	"github.com/bvk/tradebot/runtime"
-	"github.com/bvk/tradebot/waller"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
 )
@@ -41,21 +39,9 @@ func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		state = job.State(gstate.CurrentState)
 	}
 
-	type TradeJob interface {
-		UID() string
-		ProductID() string
-		ExchangeName() string
-		Run(context.Context, *runtime.Runtime) error
-	}
-
-	var v TradeJob
-	if limit, ok := s.limiterMap.Load(id); ok {
-		v = limit
-	} else if loop, ok := s.looperMap.Load(id); ok {
-		v = loop
-	} else if wall, ok := s.wallerMap.Load(id); ok {
-		v = wall
-	} else {
+	var v trader.Job
+	v, ok := s.traderMap.Load(id)
+	if !ok {
 		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
 	}
 
@@ -66,7 +52,7 @@ func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 	}
 
 	j := job.New(state, func(ctx context.Context) error {
-		return v.Run(ctx, &runtime.Runtime{Product: product, Database: s.db})
+		return v.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
 	})
 	return j, gstate.NeedsManualResume, nil
 }
@@ -200,31 +186,11 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 	}
 
 	resp := new(api.JobListResponse)
-	s.limiterMap.Range(func(id string, l *limiter.Limiter) bool {
+	s.traderMap.Range(func(id string, v trader.Job) bool {
 		name, _ := s.idNameMap.Load(id)
 		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
-			UID:   id,
-			Type:  "Limiter",
-			State: string(getState(id)),
-			Name:  name,
-		})
-		return true
-	})
-	s.looperMap.Range(func(id string, l *looper.Looper) bool {
-		name, _ := s.idNameMap.Load(id)
-		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
-			UID:   id,
-			Type:  "Looper",
-			State: string(getState(id)),
-			Name:  name,
-		})
-		return true
-	})
-	s.wallerMap.Range(func(id string, w *waller.Waller) bool {
-		name, _ := s.idNameMap.Load(id)
-		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
-			UID:   id,
-			Type:  "Waller",
+			UID:   v.UID(),
+			Type:  reflect.TypeOf(v).Elem().Name(),
 			State: string(getState(id)),
 			Name:  name,
 		})

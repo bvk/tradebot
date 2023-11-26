@@ -16,6 +16,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
@@ -34,6 +35,8 @@ type Looper struct {
 	buys  []*limiter.Limiter
 	sells []*limiter.Limiter
 }
+
+var _ trader.Job = &Looper{}
 
 type Status struct {
 	UID string

@@ -17,6 +17,7 @@ import (
 	"github.com/bvk/tradebot/idgen"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
@@ -40,6 +41,8 @@ type Limiter struct {
 
 	orderMap map[exchange.OrderID]*exchange.Order
 }
+
+var _ trader.Job = &Limiter{}
 
 type Status struct {
 	UID string

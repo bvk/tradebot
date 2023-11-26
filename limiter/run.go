@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
-	"github.com/bvk/tradebot/runtime"
+	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 )
 
-func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	if rt.Product.ProductID() != v.productID {
 		return os.ErrInvalid
 	}
@@ -147,11 +147,11 @@ func (v *Limiter) Run(ctx context.Context, rt *runtime.Runtime) error {
 }
 
 // Fix is a temporary helper interface used to fix any past mistakes.
-func (v *Limiter) Fix(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Limiter) Fix(ctx context.Context, rt *trader.Runtime) error {
 	return nil
 }
 
-func (v *Limiter) Refresh(ctx context.Context, rt *runtime.Runtime) error {
+func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	if err := v.fetchOrderMap(ctx, rt.Product, len(v.orderMap)); err != nil {
 		return fmt.Errorf("could not refresh limiter state: %w", err)
 	}
