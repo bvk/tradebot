@@ -158,6 +158,10 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		return nil, fmt.Errorf("could not load existing trades: %w", err)
 	}
 
+	if err := kv.WithReader(ctx, t.db, t.loadNames); err != nil {
+		return nil, fmt.Errorf("could not load job names: %w", err)
+	}
+
 	// TODO: Setup a fund
 
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
