@@ -151,11 +151,15 @@ func (v *Limiter) FilledValue() decimal.Decimal {
 }
 
 func (v *Limiter) PendingSize() decimal.Decimal {
-	return v.point.Size.Sub(v.FilledSize())
+	size := v.point.Size.Sub(v.FilledSize())
+	if size.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero
+	}
+	return size
 }
 
 func (v *Limiter) PendingValue() decimal.Decimal {
-	return v.point.Size.Mul(v.point.Price).Sub(v.FilledValue())
+	return v.PendingSize().Mul(v.point.Price)
 }
 
 func (v *Limiter) compactOrderMap() {
