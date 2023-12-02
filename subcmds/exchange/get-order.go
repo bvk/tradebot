@@ -10,11 +10,11 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type GetOrder struct {
-	subcmds.ClientFlags
+	cmdutil.ClientFlags
 
 	name string
 }
@@ -35,7 +35,7 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 		Name:    c.name,
 		OrderID: args[0],
 	}
-	resp, err := subcmds.Post[api.ExchangeGetOrderResponse](ctx, &c.ClientFlags, api.ExchangeGetOrderPath, req)
+	resp, err := cmdutil.Post[api.ExchangeGetOrderResponse](ctx, &c.ClientFlags, api.ExchangeGetOrderPath, req)
 	if err != nil {
 		return fmt.Errorf("POST request to get-order failed: %w", err)
 	}

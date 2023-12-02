@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package subcmds
+package cmdutil
 
 import (
 	"bytes"
@@ -16,41 +16,31 @@ import (
 	"time"
 )
 
-type ServerFlags struct {
-	port int
-	ip   string
-}
-
-func (sf *ServerFlags) SetFlags(fset *flag.FlagSet) {
-	fset.IntVar(&sf.port, "listen-port", 10000, "TCP port number for the api endpoint")
-	fset.StringVar(&sf.ip, "listen-ip", "127.0.0.1", "TCP ip address for the api endpoint")
-}
-
 type ClientFlags struct {
-	port        int
-	host        string
-	apiPath     string
-	httpTimeout time.Duration
+	Port        int
+	Host        string
+	APIPath     string
+	HTTPTimeout time.Duration
 }
 
 func (cf *ClientFlags) SetFlags(fset *flag.FlagSet) {
-	fset.IntVar(&cf.port, "connect-port", 10000, "TCP port number for the api endpoint")
-	fset.StringVar(&cf.host, "connect-host", "127.0.0.1", "Hostname or IP address for the api endpoint")
-	fset.StringVar(&cf.apiPath, "api-path", "/", "base path to the api handler")
-	fset.DurationVar(&cf.httpTimeout, "http-timeout", 30*time.Second, "http client timeout")
+	fset.IntVar(&cf.Port, "connect-port", 10000, "TCP port number for the api endpoint")
+	fset.StringVar(&cf.Host, "connect-host", "127.0.0.1", "Hostname or IP address for the api endpoint")
+	fset.StringVar(&cf.APIPath, "api-path", "/", "base path to the api handler")
+	fset.DurationVar(&cf.HTTPTimeout, "http-timeout", 30*time.Second, "http client timeout")
 }
 
 func (cf *ClientFlags) AddressURL() *url.URL {
 	return &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(cf.host, fmt.Sprintf("%d", cf.port)),
-		Path:   cf.apiPath,
+		Host:   net.JoinHostPort(cf.Host, fmt.Sprintf("%d", cf.Port)),
+		Path:   cf.APIPath,
 	}
 }
 
 func (cf *ClientFlags) HttpClient() *http.Client {
 	return &http.Client{
-		Timeout: cf.httpTimeout,
+		Timeout: cf.HTTPTimeout,
 	}
 }
 

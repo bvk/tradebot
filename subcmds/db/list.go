@@ -15,11 +15,12 @@ import (
 	"text/template"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 )
 
 type List struct {
-	Flags
+	cmdutil.DBFlags
 
 	keyRe string
 
@@ -103,7 +104,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -115,7 +116,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 
 func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.keyRe, "key-regexp", "", "regular expression to pick keys")
 	fset.StringVar(&c.valueType, "value-type", "", "gob type name for the values")
 	fset.StringVar(&c.printTemplate, "print-template", "", "text/template to print the value")

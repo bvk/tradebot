@@ -11,12 +11,12 @@ import (
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
-	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 )
 
 type Get struct {
-	db.Flags
+	cmdutil.DBFlags
 }
 
 func (c *Get) Run(ctx context.Context, args []string) error {
@@ -35,7 +35,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	return fset, cli.CmdFunc(c.Run)
 }
 

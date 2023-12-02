@@ -14,10 +14,11 @@ import (
 	"os/exec"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type Edit struct {
-	Flags
+	cmdutil.DBFlags
 
 	valueType string
 
@@ -40,7 +41,7 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("invalid type name %q: %w", c.valueType, err)
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -118,7 +119,7 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 
 func (c *Edit) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("edit", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.valueType, "value-type", "", "when non-empty unmarshals to the selected type")
 	fset.StringVar(&c.editor, "editor", "vi", "default editor")
 	fset.BoolVar(&c.create, "create", false, "when true, key will be created if it doesn't exist")

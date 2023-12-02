@@ -10,12 +10,12 @@ import (
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/looper"
-	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 )
 
 type Upgrade struct {
-	db.Flags
+	cmdutil.DBFlags
 }
 
 func (c *Upgrade) Run(ctx context.Context, args []string) error {
@@ -37,7 +37,7 @@ func (c *Upgrade) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (c *Upgrade) Run(ctx context.Context, args []string) error {
 
 func (c *Upgrade) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("upgrade", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	return fset, cli.CmdFunc(c.Run)
 }
 

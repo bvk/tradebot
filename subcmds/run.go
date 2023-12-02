@@ -23,6 +23,7 @@ import (
 	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
 	"github.com/bvk/tradebot/server"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
@@ -30,7 +31,7 @@ import (
 )
 
 type Run struct {
-	ServerFlags
+	cmdutil.ServerFlags
 
 	background bool
 
@@ -114,15 +115,15 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if ip := net.ParseIP(c.ip); ip == nil {
+	if ip := net.ParseIP(c.IP); ip == nil {
 		return fmt.Errorf("invalid ip address")
 	}
-	if c.port <= 0 {
+	if c.Port <= 0 {
 		return fmt.Errorf("invalid port number")
 	}
 	addr := &net.TCPAddr{
-		IP:   net.ParseIP(c.ip),
-		Port: c.port,
+		IP:   net.ParseIP(c.IP),
+		Port: c.Port,
 	}
 
 	// Health checker for the background process initialization. We need to

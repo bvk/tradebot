@@ -11,11 +11,11 @@ import (
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/point"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type Add struct {
-	subcmds.ClientFlags
+	cmdutil.ClientFlags
 
 	dryRun bool
 
@@ -73,7 +73,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 		ExchangeName: c.exchange,
 		Pairs:        pairs,
 	}
-	resp, err := subcmds.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req)
+	resp, err := cmdutil.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req)
 	if err != nil {
 		return err
 	}

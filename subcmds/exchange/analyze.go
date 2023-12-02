@@ -12,12 +12,12 @@ import (
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
-	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/shopspring/decimal"
 )
 
 type Analyze struct {
-	db.Flags
+	cmdutil.DBFlags
 
 	exchange string
 	product  string
@@ -30,7 +30,7 @@ type Analyze struct {
 
 func (c *Analyze) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("analyze", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.exchange, "exchange", "coinbase", "name of the exchange")
 	fset.StringVar(&c.product, "product", "", "name of the trading pair")
 	fset.StringVar(&c.fromDate, "from-date", "", "date of the day in YYYY-MM-DD format")
@@ -60,7 +60,7 @@ func (c *Analyze) run(ctx context.Context, args []string) error {
 	}
 	endTime := startTime.Add(time.Duration(c.numDays) * 24 * time.Hour)
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create database client: %w", err)
 	}

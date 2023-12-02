@@ -11,10 +11,11 @@ import (
 	"io"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type Get struct {
-	Flags
+	cmdutil.DBFlags
 
 	valueType string
 }
@@ -24,7 +25,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -64,7 +65,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.valueType, "value-type", "", "when non-empty unmarshals to the selected type")
 	return fset, cli.CmdFunc(c.Run)
 }

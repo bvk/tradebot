@@ -10,11 +10,11 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type GetProduct struct {
-	subcmds.ClientFlags
+	cmdutil.ClientFlags
 
 	name string
 }
@@ -35,7 +35,7 @@ func (c *GetProduct) run(ctx context.Context, args []string) error {
 		ExchangeName: c.name,
 		ProductID:    args[0],
 	}
-	resp, err := subcmds.Post[api.ExchangeGetProductResponse](ctx, &c.ClientFlags, api.ExchangeGetProductPath, req)
+	resp, err := cmdutil.Post[api.ExchangeGetProductResponse](ctx, &c.ClientFlags, api.ExchangeGetProductPath, req)
 	if err != nil {
 		return fmt.Errorf("POST request to get-product failed: %w", err)
 	}

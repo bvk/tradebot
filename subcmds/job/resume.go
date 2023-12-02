@@ -10,17 +10,16 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/subcmds"
-	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type Resume struct {
-	db.Flags
+	cmdutil.DBFlags
 }
 
 func (c *Resume) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("resume", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -29,7 +28,7 @@ func (c *Resume) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("this command takes one (job-id) argument")
 	}
 
-	jobID, err := c.Flags.GetJobID(ctx, args[0])
+	jobID, err := c.DBFlags.GetJobID(ctx, args[0])
 	if err != nil {
 		return fmt.Errorf("could not convert argument %q to job id: %w", jobID, err)
 	}
@@ -37,7 +36,7 @@ func (c *Resume) run(ctx context.Context, args []string) error {
 	req := &api.JobResumeRequest{
 		UID: jobID,
 	}
-	resp, err := subcmds.Post[api.JobResumeResponse](ctx, &c.ClientFlags, api.JobResumePath, req)
+	resp, err := cmdutil.Post[api.JobResumeResponse](ctx, &c.ClientFlags, api.JobResumePath, req)
 	if err != nil {
 		return err
 	}

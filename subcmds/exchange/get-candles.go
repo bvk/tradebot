@@ -16,13 +16,12 @@ import (
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/server"
-	"github.com/bvk/tradebot/subcmds"
-	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 )
 
 type GetCandles struct {
-	db.Flags
+	cmdutil.DBFlags
 
 	exchange string
 	product  string
@@ -34,7 +33,7 @@ type GetCandles struct {
 
 func (c *GetCandles) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-candles", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.exchange, "exchange", "coinbase", "name of the exchange")
 	fset.StringVar(&c.product, "product", "", "name of the trading pair")
 	fset.StringVar(&c.fromDate, "from-date", "", "date of the day in YYYY-MM-DD format")
@@ -52,7 +51,7 @@ func (c *GetCandles) fetchCandles(ctx context.Context, start, end time.Time) ([]
 		EndTime:      end,
 	}
 	for {
-		resp, err := subcmds.Post[api.ExchangeGetCandlesResponse](ctx, &c.Flags.ClientFlags, api.ExchangeGetCandlesPath, req)
+		resp, err := cmdutil.Post[api.ExchangeGetCandlesResponse](ctx, &c.DBFlags.ClientFlags, api.ExchangeGetCandlesPath, req)
 		if err != nil {
 			return nil, fmt.Errorf("POST request to get-candles failed: %w", err)
 		}
@@ -87,7 +86,7 @@ func (c *GetCandles) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not parse date argument: %w", err)
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create database client: %w", err)
 	}

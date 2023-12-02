@@ -8,10 +8,11 @@ import (
 	"fmt"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type Delete struct {
-	Flags
+	cmdutil.DBFlags
 }
 
 func (c *Delete) Run(ctx context.Context, args []string) error {
@@ -19,7 +20,7 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -40,7 +41,7 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 
 func (c *Delete) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("delete", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	return fset, cli.CmdFunc(c.Run)
 }
 

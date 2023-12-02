@@ -10,12 +10,12 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/google/uuid"
 )
 
 type Rename struct {
-	subcmds.ClientFlags
+	cmdutil.ClientFlags
 }
 
 func (c *Rename) Command() (*flag.FlagSet, cli.CmdFunc) {
@@ -38,7 +38,7 @@ func (c *Rename) run(ctx context.Context, args []string) error {
 	} else {
 		req.OldName = oldName
 	}
-	resp, err := subcmds.Post[api.JobRenameResponse](ctx, &c.ClientFlags, api.JobRenamePath, req)
+	resp, err := cmdutil.Post[api.JobRenameResponse](ctx, &c.ClientFlags, api.JobRenamePath, req)
 	if err != nil {
 		return err
 	}

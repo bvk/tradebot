@@ -1,19 +1,23 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package db
+package cmdutil
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/gob"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
 	"time"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/server"
-	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kv/kvmemdb"
@@ -22,8 +26,8 @@ import (
 	"github.com/google/uuid"
 )
 
-type Flags struct {
-	subcmds.ClientFlags
+type DBFlags struct {
+	ClientFlags
 
 	dbURLPath   string
 	httpTimeout time.Duration
@@ -33,12 +37,12 @@ type Flags struct {
 	fromBackup string
 }
 
-func (f *Flags) check() error {
+func (f *DBFlags) check() error {
 	// TODO: Add checks.
 	return nil
 }
 
-func (f *Flags) SetFlags(fset *flag.FlagSet) {
+func (f *DBFlags) SetFlags(fset *flag.FlagSet) {
 	fset.StringVar(&f.dataDir, "data-dir", "", "Path to the database directory")
 
 	fset.StringVar(&f.fromBackup, "from-backup", "", "Path to a database backup file")
@@ -47,7 +51,7 @@ func (f *Flags) SetFlags(fset *flag.FlagSet) {
 	fset.StringVar(&f.dbURLPath, "db-url-path", "/db", "path to db api handler")
 }
 
-func (f *Flags) GetDatabase(ctx context.Context) (kv.Database, error) {
+func (f *DBFlags) GetDatabase(ctx context.Context) (kv.Database, error) {
 	isGoodKey := func(k string) bool {
 		return path.IsAbs(k) && k == path.Clean(k)
 	}
@@ -82,7 +86,7 @@ func (f *Flags) GetDatabase(ctx context.Context) (kv.Database, error) {
 	return kvhttp.New(addrURL, f.ClientFlags.HttpClient()), nil
 }
 
-func (f *Flags) ResolveName(ctx context.Context, arg string) (string, error) {
+func (f *DBFlags) ResolveName(ctx context.Context, arg string) (string, error) {
 	name := arg
 	if strings.HasPrefix(arg, "name:") {
 		name = strings.TrimPrefix(arg, "name:")
@@ -98,7 +102,7 @@ func (f *Flags) ResolveName(ctx context.Context, arg string) (string, error) {
 	return v, nil
 }
 
-func (f *Flags) GetJobID(ctx context.Context, arg string) (uid string, err error) {
+func (f *DBFlags) GetJobID(ctx context.Context, arg string) (uid string, err error) {
 	prefix, value := "", ""
 	switch {
 	case strings.HasPrefix(arg, "uuid:"):
@@ -171,4 +175,41 @@ func (f *Flags) GetJobID(ctx context.Context, arg string) (uid string, err error
 		return file, nil
 	}
 	return "", fmt.Errorf("could not convert/resolve argument %q to an uuid", arg)
+}
+
+func doRestore(ctx context.Context, r io.Reader, db kv.Database) error {
+	decoder := gob.NewDecoder(r)
+	restore := func(ctx context.Context, w kv.ReadWriter) error {
+		it, err := w.Scan(ctx)
+		if err != nil {
+			return fmt.Errorf("could not create scanning iterator: %w", err)
+		}
+		defer kv.Close(it)
+		for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
+			if err := w.Delete(ctx, k); err != nil {
+				return fmt.Errorf("could not delete key %q: %w", k, err)
+			}
+		}
+		if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("iterator fetch has failed: %w", err)
+		}
+
+		var item gobs.KeyValue
+		for err = decoder.Decode(&item); err == nil; err = decoder.Decode(&item) {
+			if err := w.Set(ctx, item.Key, bytes.NewReader(item.Value)); err != nil {
+				return fmt.Errorf("could not restore at key %q: %w", item.Key, err)
+			}
+			item = gobs.KeyValue{}
+		}
+
+		if !errors.Is(err, io.EOF) {
+			return fmt.Errorf("could not decode item from backup file: %w", err)
+		}
+		return nil
+	}
+
+	if err := kv.WithReadWriter(ctx, db, restore); err != nil {
+		return fmt.Errorf("could not run restore with a transaction: %w", err)
+	}
+	return nil
 }

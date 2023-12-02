@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/subcmds/db"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
 
 type Status struct {
-	db.Flags
+	cmdutil.DBFlags
 
 	analysisOnly bool
 
@@ -29,7 +29,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("this command takes one (waller-job-id) argument")
 	}
-	uid, err := c.Flags.GetJobID(ctx, args[0])
+	uid, err := c.DBFlags.GetJobID(ctx, args[0])
 	if err != nil {
 		return fmt.Errorf("could not resolve argument: %w", err)
 	}
@@ -44,7 +44,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.Flags.GetDatabase(ctx)
+	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
-	c.Flags.SetFlags(fset)
+	c.DBFlags.SetFlags(fset)
 	fset.BoolVar(&c.analysisOnly, "analysis", false, "when true, prints only the analysis data for buy/sell pairs")
 	fset.BoolVar(&c.showPairs, "show-pairs", true, "when true, prints data for buy/sell loops with activity")
 	fset.BoolVar(&c.showBuys, "show-buys", false, "when true, prints data for buy points with activity")

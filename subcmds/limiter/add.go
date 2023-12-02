@@ -11,12 +11,12 @@ import (
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/point"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/shopspring/decimal"
 )
 
 type Add struct {
-	subcmds.ClientFlags
+	cmdutil.ClientFlags
 
 	product  string
 	exchange string
@@ -84,7 +84,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 			Cancel: decimal.NewFromFloat(cancelPrice),
 		},
 	}
-	resp, err := subcmds.Post[api.LimitResponse](ctx, &c.ClientFlags, api.LimitPath, req)
+	resp, err := cmdutil.Post[api.LimitResponse](ctx, &c.ClientFlags, api.LimitPath, req)
 	if err != nil {
 		return err
 	}

@@ -10,11 +10,11 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
 type List struct {
-	subcmds.ClientFlags
+	cmdutil.ClientFlags
 }
 
 func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
@@ -29,7 +29,7 @@ func (c *List) run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.JobListRequest{}
-	resp, err := subcmds.Post[api.JobListResponse](ctx, &c.ClientFlags, api.JobListPath, req)
+	resp, err := cmdutil.Post[api.JobListResponse](ctx, &c.ClientFlags, api.JobListPath, req)
 	if err != nil {
 		return err
 	}
