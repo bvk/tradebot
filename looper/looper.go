@@ -79,6 +79,9 @@ func (v *Looper) check() error {
 	if side := v.sellPoint.Side(); side != "SELL" {
 		return fmt.Errorf("sell point %v has invalid side", v.sellPoint)
 	}
+	if v.sellPoint.Size.GreaterThan(v.buyPoint.Size) {
+		return fmt.Errorf("sell size %s is more than buy size %s", v.sellPoint.Size, v.buyPoint.Size)
+	}
 	return nil
 }
 

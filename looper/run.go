@@ -12,6 +12,7 @@ import (
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/shopspring/decimal"
 )
 
 func (v *Looper) Fix(ctx context.Context, rt *trader.Runtime) error {
@@ -45,11 +46,31 @@ func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)
-		if nbuys > 0 && nsells > 0 {
-			log.Printf("%s: nbuys %d nsells %d last-buy-pending: %s last-sell-pending: %s", v.uid, nbuys, nsells, v.buys[nbuys-1].PendingSize(), v.sells[nsells-1].PendingSize())
+
+		var bought decimal.Decimal
+		for _, b := range v.buys {
+			bought = bought.Add(b.FilledSize())
+		}
+		var sold decimal.Decimal
+		for _, s := range v.sells {
+			sold = sold.Add(s.FilledSize())
 		}
 
-		if nbuys == 0 {
+		// Start a buy if holding amount is less than buy size.
+		holdings := bought.Sub(sold)
+		if holdings.LessThan(v.buyPoint.Size) {
+			log.Printf("%s: current holding size %s is less than buy size %s (starting a buy)", v.uid, holdings, v.buyPoint.Size)
+			if nbuys > 0 && !v.buys[nbuys-1].PendingSize().IsZero() {
+				if err := v.buys[nbuys-1].Run(ctx, rt); err != nil {
+					if ctx.Err() == nil {
+						log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
+						time.Sleep(time.Second)
+						continue
+					}
+					log.Printf("%v: could not run limit-buy op: %v", v.uid, err)
+				}
+				continue
+			}
 			if err := v.addNewBuy(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
@@ -58,22 +79,22 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 				log.Printf("%v: could not create new limit-buy op: %v", v.uid, err)
 			}
-			continue
 		}
 
-		if last := v.buys[nbuys-1]; !last.PendingSize().IsZero() {
-			if err := last.Run(ctx, rt); err != nil {
-				if ctx.Err() == nil {
-					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
-					time.Sleep(time.Second)
-					continue
+		// Start a sell if holding amount is greater than sell size.
+		if holdings.GreaterThanOrEqual(v.sellPoint.Size) {
+			log.Printf("%s: current holding size %s is greater-than or equal to sell size %s (starting a sell)", v.uid, holdings, v.sellPoint.Size)
+			if nsells > 0 && !v.sells[nsells-1].PendingSize().IsZero() {
+				if err := v.sells[nsells-1].Run(ctx, rt); err != nil {
+					if ctx.Err() == nil {
+						log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
+						time.Sleep(time.Second)
+						continue
+					}
+					log.Printf("%v: could not complete limit-sell op: %v", v.uid, err)
 				}
-				log.Printf("%v: could not run limit-buy op: %v", v.uid, err)
+				continue
 			}
-			continue
-		}
-
-		if nsells < nbuys {
 			if err := v.addNewSell(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
@@ -82,32 +103,8 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 				log.Printf("%v: could not create new limit-sell op: %v", v.uid, err)
 			}
-			continue
-		}
-
-		if last := v.sells[nsells-1]; !last.PendingSize().IsZero() {
-			if err := last.Run(ctx, rt); err != nil {
-				if ctx.Err() == nil {
-					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
-					time.Sleep(time.Second)
-					continue
-				}
-				log.Printf("%v: could not complete limit-sell op: %v", v.uid, err)
-			}
-			continue
-		}
-
-		if err := v.addNewBuy(ctx, rt); err != nil {
-			if ctx.Err() == nil {
-				log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
-				time.Sleep(time.Second)
-				continue
-			}
-			log.Printf("%v: could not create new limit-buy op: %v", v.uid, err)
-			continue
 		}
 	}
-
 	return context.Cause(ctx)
 }
 
