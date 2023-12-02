@@ -120,6 +120,14 @@ func (v *Limiter) Status() *Status {
 	}
 }
 
+func (v *Limiter) Fees() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, order := range v.orderMap {
+		sum = sum.Add(order.Fee)
+	}
+	return sum
+}
+
 func (v *Limiter) BoughtValue() decimal.Decimal {
 	if v.IsBuy() {
 		return v.FilledValue()

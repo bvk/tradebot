@@ -87,6 +87,14 @@ func (w *Waller) ExchangeName() string {
 	return w.exchangeName
 }
 
+func (w *Waller) Fees() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, l := range w.loopers {
+		sum = sum.Add(l.Fees())
+	}
+	return sum
+}
+
 func (w *Waller) BoughtValue() decimal.Decimal {
 	var sum decimal.Decimal
 	for _, l := range w.loopers {

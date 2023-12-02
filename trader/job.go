@@ -14,6 +14,7 @@ type Job interface {
 	ProductID() string
 	ExchangeName() string
 
+	Fees() decimal.Decimal
 	SoldValue() decimal.Decimal
 	BoughtValue() decimal.Decimal
 

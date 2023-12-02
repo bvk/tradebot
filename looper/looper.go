@@ -101,6 +101,17 @@ func (v *Looper) ExchangeName() string {
 	return v.exchangeName
 }
 
+func (v *Looper) Fees() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, b := range v.buys {
+		sum = sum.Add(b.Fees())
+	}
+	for _, s := range v.sells {
+		sum = sum.Add(s.Fees())
+	}
+	return sum
+}
+
 func (v *Looper) BoughtValue() decimal.Decimal {
 	var sum decimal.Decimal
 	for _, b := range v.buys {
