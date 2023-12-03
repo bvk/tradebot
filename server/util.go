@@ -5,11 +5,18 @@ package server
 import (
 	"context"
 	"crypto/md5"
+	"errors"
 	"fmt"
+	"io"
 	"path"
+	"strings"
 
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/limiter"
+	"github.com/bvk/tradebot/looper"
+	"github.com/bvk/tradebot/trader"
+	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
 )
@@ -22,4 +29,58 @@ func ResolveName(ctx context.Context, db kv.Database, name string) (string, erro
 		return "", fmt.Errorf("could not load old name data: %w", err)
 	}
 	return old.Data, nil
+}
+
+func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loader func(context.Context, string, kv.Reader) (T, error)) ([]trader.Job, error) {
+	begin := path.Join(keyspace, minUUID)
+	end := path.Join(keyspace, maxUUID)
+
+	it, err := r.Ascend(ctx, begin, end)
+	if err != nil {
+		return nil, err
+	}
+	defer kv.Close(it)
+
+	var jobs []trader.Job
+	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
+		uid := strings.TrimPrefix(k, keyspace)
+		if _, err := uuid.Parse(uid); err != nil {
+			continue
+		}
+
+		v, err := loader(ctx, k, r)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, v)
+	}
+
+	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Job, error) {
+	var traders []trader.Job
+
+	limiters, err := load(ctx, r, limiter.DefaultKeyspace, limiter.Load)
+	if err != nil {
+		return nil, fmt.Errorf("could not load all existing limiters: %w", err)
+	}
+	traders = append(traders, limiters...)
+
+	loopers, err := load(ctx, r, looper.DefaultKeyspace, looper.Load)
+	if err != nil {
+		return nil, fmt.Errorf("could not load all existing loopers: %w", err)
+	}
+	traders = append(traders, loopers...)
+
+	wallers, err := load(ctx, r, waller.DefaultKeyspace, waller.Load)
+	if err != nil {
+		return nil, fmt.Errorf("could not load all existing wallers: %w", err)
+	}
+	traders = append(traders, wallers...)
+
+	return traders, nil
 }

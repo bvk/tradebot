@@ -17,6 +17,7 @@ type Job interface {
 	Fees() decimal.Decimal
 	SoldValue() decimal.Decimal
 	BoughtValue() decimal.Decimal
+	UnsoldValue() decimal.Decimal
 
 	Save(context.Context, kv.ReadWriter) error
 

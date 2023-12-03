@@ -38,18 +38,6 @@ type Looper struct {
 
 var _ trader.Job = &Looper{}
 
-type Status struct {
-	UID string
-
-	ProductID string
-
-	BuyPoint  point.Point
-	SellPoint point.Point
-
-	NumBuys  int
-	NumSells int
-}
-
 func New(uid, exchangeName, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
 		productID: productID,
@@ -128,15 +116,13 @@ func (v *Looper) SoldValue() decimal.Decimal {
 	return sum
 }
 
-func (v *Looper) Status() *Status {
-	return &Status{
-		UID:       v.uid,
-		ProductID: v.productID,
-		BuyPoint:  v.buyPoint,
-		SellPoint: v.sellPoint,
-		NumBuys:   len(v.buys), // FIXME: Remove the incomplete ones?
-		NumSells:  len(v.sells),
+func (v *Looper) UnsoldValue() decimal.Decimal {
+	bsize := v.BoughtValue().Div(v.buyPoint.Price)
+	ssize := v.SoldValue().Div(v.sellPoint.Price)
+	if d := bsize.Sub(ssize); d.GreaterThan(decimal.Zero) {
+		return d.Mul(v.buyPoint.Price)
 	}
+	return decimal.Zero
 }
 
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
@@ -145,15 +131,13 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 		if err := b.Save(ctx, rw); err != nil {
 			return fmt.Errorf("could not save child limiter: %w", err)
 		}
-		s := b.Status()
-		limiters = append(limiters, s.UID)
+		limiters = append(limiters, b.UID())
 	}
 	for _, s := range v.sells {
 		if err := s.Save(ctx, rw); err != nil {
 			return fmt.Errorf("could not save child limiter: %w", err)
 		}
-		ss := s.Status()
-		limiters = append(limiters, ss.UID)
+		limiters = append(limiters, s.UID())
 	}
 	gv := &gobs.LooperState{
 		V2: &gobs.LooperStateV2{

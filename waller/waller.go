@@ -111,14 +111,21 @@ func (w *Waller) SoldValue() decimal.Decimal {
 	return sum
 }
 
+func (w *Waller) UnsoldValue() decimal.Decimal {
+	var sum decimal.Decimal
+	for _, l := range w.loopers {
+		sum = sum.Add(l.UnsoldValue())
+	}
+	return sum
+}
+
 func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	var loopers []string
 	for _, l := range w.loopers {
 		if err := l.Save(ctx, rw); err != nil {
 			return fmt.Errorf("could not save looper state: %w", err)
 		}
-		s := l.Status()
-		loopers = append(loopers, s.UID)
+		loopers = append(loopers, l.UID())
 	}
 	gv := &gobs.WallerState{
 		V2: &gobs.WallerStateV2{

@@ -393,61 +393,12 @@ func (s *Server) loadProducts(ctx context.Context) (status error) {
 }
 
 func (s *Server) loadTrades(ctx context.Context, r kv.Reader) error {
-	limiterLoadFunc := func(ctx context.Context, uid string, r kv.Reader) (trader.Job, error) {
-		return limiter.Load(ctx, uid, r)
-	}
-	if err := s.scan(ctx, r, limiter.DefaultKeyspace, limiterLoadFunc); err != nil {
-		return fmt.Errorf("could not load all existing limiters: %w", err)
-	}
-
-	looperLoadFunc := func(ctx context.Context, uid string, r kv.Reader) (trader.Job, error) {
-		return looper.Load(ctx, uid, r)
-	}
-	if err := s.scan(ctx, r, looper.DefaultKeyspace, looperLoadFunc); err != nil {
-		return fmt.Errorf("could not load all existing loopers: %w", err)
-	}
-
-	wallerLoadFunc := func(ctx context.Context, uid string, r kv.Reader) (trader.Job, error) {
-		return waller.Load(ctx, uid, r)
-	}
-	if err := s.scan(ctx, r, waller.DefaultKeyspace, wallerLoadFunc); err != nil {
-		return fmt.Errorf("could not load all existing wallers: %w", err)
-	}
-	return nil
-}
-
-type traderLoadFunc = func(context.Context, string, kv.Reader) (trader.Job, error)
-
-func (s *Server) scan(ctx context.Context, r kv.Reader, keyspace string, loader traderLoadFunc) error {
-	begin := path.Join(keyspace, minUUID)
-	end := path.Join(keyspace, maxUUID)
-
-	it, err := r.Ascend(ctx, begin, end)
+	traders, err := LoadTraders(ctx, r)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not load existing traders: %w", err)
 	}
-	defer kv.Close(it)
-
-	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		uid := strings.TrimPrefix(k, keyspace)
-		if _, err := uuid.Parse(uid); err != nil {
-			continue
-		}
-		if _, ok := s.traderMap.Load(uid); ok {
-			continue
-		}
-
-		v, err := loader(ctx, k, r)
-		if err != nil {
-			return err
-		}
-		if _, loaded := s.traderMap.LoadOrStore(uid, v); loaded {
-			return fmt.Errorf("trader job %s (%T) is already loaded", uid, v)
-		}
-	}
-
-	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
-		return err
+	for _, t := range traders {
+		s.traderMap.LoadOrStore(t.UID(), t)
 	}
 	return nil
 }

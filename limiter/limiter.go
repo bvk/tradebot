@@ -44,18 +44,6 @@ type Limiter struct {
 
 var _ trader.Job = &Limiter{}
 
-type Status struct {
-	UID string
-
-	ProductID string
-
-	Side string
-
-	Point point.Point
-
-	Pending decimal.Decimal
-}
-
 // New creates a new BUY or SELL limit order at the given price point. Limit
 // orders at the exchange are canceled and recreated automatically as the
 // ticker price crosses the cancel threshold and comes closer to the
@@ -110,16 +98,6 @@ func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
 }
 
-func (v *Limiter) Status() *Status {
-	return &Status{
-		UID:       v.uid,
-		ProductID: v.productID,
-		Side:      v.point.Side(),
-		Point:     v.point,
-		Pending:   v.PendingSize(),
-	}
-}
-
 func (v *Limiter) Fees() decimal.Decimal {
 	var sum decimal.Decimal
 	for _, order := range v.orderMap {
@@ -140,6 +118,13 @@ func (v *Limiter) SoldValue() decimal.Decimal {
 		return v.FilledValue()
 	}
 	return decimal.Zero
+}
+
+func (v *Limiter) UnsoldValue() decimal.Decimal {
+	if v.IsSell() {
+		return decimal.Zero
+	}
+	return v.BoughtValue()
 }
 
 func (v *Limiter) FilledSize() decimal.Decimal {
