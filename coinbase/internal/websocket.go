@@ -276,6 +276,13 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 	w := c.newWebsocket()
 	w.Subscribe(channel, products)
 
+	keys := func(m map[string][]string) (vs []string) {
+		for k := range m {
+			vs = append(vs, k)
+		}
+		return
+	}
+
 	dispatch := func(ctx context.Context) error {
 		conn, err := w.dial(ctx)
 		if err != nil {
@@ -284,6 +291,7 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 		}
 		defer conn.Close()
 
+		channels := []string{}
 		chanProductsMap := make(map[string][]string)
 
 		for ctx.Err() == nil {
@@ -307,12 +315,13 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 				if len(clone) == 0 {
 					break
 				}
+				channels = keys(chanProductsMap)
 			}
 
 			msg, err := readMessage(ctx, conn)
 			if err != nil {
 				if ctx.Err() == nil {
-					log.Printf("closing the websocket connection: %v", err)
+					log.Printf("closing the websocket connection to channels %v: %v", channels, err)
 				}
 				return err
 			}
