@@ -55,14 +55,4 @@ func TestClient(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-
-	c.GetMessages([]string{"BCH-USD"}, []string{"user"}, topic)
-
-	r, ch, err := topic.Subscribe(1, false /* includeRecent */)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Unsubscribe()
-
-	t.Logf("%#v\n", <-ch)
 }

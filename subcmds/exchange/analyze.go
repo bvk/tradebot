@@ -48,7 +48,7 @@ func (c *Analyze) run(ctx context.Context, args []string) error {
 	}
 
 	if c.dropPct >= 50 {
-		return fmt.Errorf("drop percentage %q is too high", c.dropPct)
+		return fmt.Errorf("drop percentage %f is too high", c.dropPct)
 	}
 
 	if len(c.fromDate) == 0 {

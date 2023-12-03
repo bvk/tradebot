@@ -15,5 +15,4 @@ func TestServer(t *testing.T) {
 		}
 	}()
 
-	t.Logf("started server at %s:%d", s.opts.ListenIP, s.opts.ListenPort)
 }
