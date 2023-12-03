@@ -398,7 +398,11 @@ func (s *Server) loadTrades(ctx context.Context, r kv.Reader) error {
 		return fmt.Errorf("could not load existing traders: %w", err)
 	}
 	for _, t := range traders {
-		s.traderMap.LoadOrStore(t.UID(), t)
+		uid := t.UID()
+		uid = strings.TrimPrefix(uid, limiter.DefaultKeyspace)
+		uid = strings.TrimPrefix(uid, looper.DefaultKeyspace)
+		uid = strings.TrimPrefix(uid, waller.DefaultKeyspace)
+		s.traderMap.LoadOrStore(uid, t)
 	}
 	return nil
 }

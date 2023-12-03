@@ -44,6 +44,7 @@ func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, false, err
 		}
+		return nil, false, os.ErrNotExist
 	}
 	var state job.State
 	if gstate.CurrentState != "" {

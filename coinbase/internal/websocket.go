@@ -311,11 +311,13 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 					}
 					log.Printf("subscribed to channel %s for products %v", ch, ps)
 				}
+				oldChannels := keys(chanProductsMap)
 				chanProductsMap = clone
 				if len(clone) == 0 {
 					break
 				}
-				channels = keys(chanProductsMap)
+				channels = keys(clone)
+				log.Printf("websocket is updated to watch channels %v from previous %v", channels, oldChannels)
 			}
 
 			msg, err := readMessage(ctx, conn)
