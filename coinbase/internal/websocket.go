@@ -334,6 +334,7 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 
 	c.Go(func(ctx context.Context) {
 		for ctx.Err() == nil {
+			w.dirty.Store(true)
 			if err := dispatch(ctx); err != nil && ctx.Err() == nil {
 				ctxutil.Sleep(ctx, time.Second)
 				continue

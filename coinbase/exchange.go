@@ -142,9 +142,8 @@ func (ex *Exchange) dispatchOrder(productID string, order *exchange.Order) {
 	done := slices.Contains(doneStatuses, order.Status)
 
 	if ready || done {
-		if ch, ok := ex.pendingMap.Load(order.ClientOrderID); ok {
+		if ch, ok := ex.pendingMap.LoadAndDelete(order.ClientOrderID); ok {
 			close(ch)
-			ex.pendingMap.Delete(order.ClientOrderID)
 		}
 	}
 
