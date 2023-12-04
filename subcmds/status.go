@@ -7,8 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
+	"slices"
+	"sort"
+	"text/tabwriter"
 	"time"
 
 	"github.com/bvk/tradebot/cli"
@@ -22,6 +23,8 @@ import (
 
 type Status struct {
 	cmdutil.DBFlags
+
+	startTime string
 }
 
 func (c *Status) Synopsis() string {
@@ -31,12 +34,16 @@ func (c *Status) Synopsis() string {
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
+	fset.StringVar(&c.startTime, "start-time", "2023-11-01T00:00:00Z", "Time when tradebot was deployed to production")
 	return fset, cli.CmdFunc(c.run)
 }
 
 func (c *Status) run(ctx context.Context, args []string) error {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	start, err := time.Parse(time.RFC3339, c.startTime)
+	if err != nil {
+		return err
+	}
+	ndays := int(time.Now().Sub(start) / (24 * time.Hour))
 
 	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
@@ -55,12 +62,16 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if err := kv.WithReader(ctx, db, load); err != nil {
 		return err
 	}
+	jobs = slices.DeleteFunc(jobs, func(j trader.Job) bool {
+		_, ok := j.(*limiter.Limiter)
+		return ok
+	})
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].ProductID() < jobs[j].ProductID()
+	})
 
 	var fees, bought, sold, unsold decimal.Decimal
 	for _, j := range jobs {
-		if _, ok := j.(*limiter.Limiter); ok {
-			continue
-		}
 		fees = fees.Add(j.Fees())
 		bought = bought.Add(j.BoughtValue())
 		sold = sold.Add(j.SoldValue())
@@ -72,12 +83,6 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		d100 = decimal.NewFromInt(100)
 		d365 = decimal.NewFromInt(365)
 	)
-
-	start, err := time.Parse(time.RFC3339, "2023-11-01T00:00:00Z")
-	if err != nil {
-		return err
-	}
-	ndays := int(time.Now().Sub(start) / (24 * time.Hour))
 
 	fmt.Printf("Num Days: %d\n", ndays)
 	fmt.Println()
@@ -104,5 +109,20 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		covered := profit.Div(decimal.NewFromFloat(rate).Div(d100))
 		fmt.Printf("Investment covered at %.03f APY: %s\n", rate, covered.StringFixed(3))
 	}
+
+	fmt.Println()
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+	fmt.Fprintf(tw, "UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
+	for _, job := range jobs {
+		uid := job.UID()
+		pid := job.ProductID()
+		fees := job.Fees()
+		bought := job.BoughtValue()
+		sold := job.SoldValue()
+		unsold := job.UnsoldValue()
+		profit := sold.Sub(bought.Sub(unsold)).Sub(fees)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
+	}
+	tw.Flush()
 	return nil
 }
