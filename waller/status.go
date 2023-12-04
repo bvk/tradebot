@@ -6,14 +6,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
 	"github.com/shopspring/decimal"
 )
 
 type buyData struct {
-	orders []*exchange.Order
+	orders []*gobs.Order
 	fees   decimal.Decimal
 	size   decimal.Decimal
 	value  decimal.Decimal
@@ -25,7 +25,7 @@ type buyData struct {
 }
 
 type sellData struct {
-	orders []*exchange.Order
+	orders []*gobs.Order
 	fees   decimal.Decimal
 	size   decimal.Decimal
 	value  decimal.Decimal
@@ -293,20 +293,34 @@ func (w *Waller) findLooper(p *point.Pair) *looper.Looper {
 	return nil
 }
 
-func (w *Waller) getBuyOrders(p *point.Pair) []*exchange.Order {
+func (w *Waller) getBuyOrders(p *point.Pair) []*gobs.Order {
 	loop := w.findLooper(p)
 	if loop == nil {
 		return nil
 	}
-	return loop.GetBuyOrders()
+	var vs []*gobs.Order
+	for _, a := range loop.Actions() {
+		p := point.Point(a.Point)
+		if p.Side() == "BUY" {
+			vs = append(vs, a.Orders...)
+		}
+	}
+	return vs
 }
 
-func (w *Waller) getSellOrders(p *point.Pair) []*exchange.Order {
+func (w *Waller) getSellOrders(p *point.Pair) []*gobs.Order {
 	loop := w.findLooper(p)
 	if loop == nil {
 		return nil
 	}
-	return loop.GetSellOrders()
+	var vs []*gobs.Order
+	for _, a := range loop.Actions() {
+		p := point.Point(a.Point)
+		if p.Side() == "SELL" {
+			vs = append(vs, a.Orders...)
+		}
+	}
+	return vs
 }
 
 func (w *Waller) summarize(s *Status) {
@@ -335,7 +349,7 @@ func (w *Waller) summarize(s *Status) {
 			continue
 		}
 
-		dupOrderIDs := make(map[exchange.OrderID]int)
+		dupOrderIDs := make(map[string]int)
 		dupClientIDs := make(map[string]int)
 
 		sdata := &sellData{
@@ -346,25 +360,25 @@ func (w *Waller) summarize(s *Status) {
 			if !sell.Done {
 				continue
 			}
-			if v, ok := dupOrderIDs[sell.OrderID]; ok {
-				dupOrderIDs[sell.OrderID] = v + 1
+			if v, ok := dupOrderIDs[sell.ServerOrderID]; ok {
+				dupOrderIDs[sell.ServerOrderID] = v + 1
 			}
 			if v, ok := dupClientIDs[sell.ClientOrderID]; ok {
 				dupClientIDs[sell.ClientOrderID] = v + 1
 			}
 
-			if _, ok := dupOrderIDs[sell.OrderID]; !ok {
-				sdata.fees = sdata.fees.Add(sell.Fee)
+			if _, ok := dupOrderIDs[sell.ServerOrderID]; !ok {
+				sdata.fees = sdata.fees.Add(sell.FilledFee)
 				sdata.size = sdata.size.Add(sell.FilledSize)
 				sdata.value = sdata.value.Add(sell.FilledSize.Mul(sell.FilledPrice))
 				lastSellTime = sell.CreateTime.Time
 
 				summary.firstOrderTime = minTime(summary.firstOrderTime, sell.CreateTime.Time)
 
-				if sell.Fee.IsZero() {
-					log.Printf("warning: order id %s has zero fee", sell.OrderID)
+				if sell.FilledFee.IsZero() {
+					log.Printf("warning: order id %s has zero fee", sell.ServerOrderID)
 				}
-				dupOrderIDs[sell.OrderID] = 1
+				dupOrderIDs[sell.ServerOrderID] = 1
 				dupClientIDs[sell.ClientOrderID] = 1
 			}
 		}
@@ -379,30 +393,30 @@ func (w *Waller) summarize(s *Status) {
 			if !buy.Done {
 				continue
 			}
-			if v, ok := dupOrderIDs[buy.OrderID]; ok {
-				dupOrderIDs[buy.OrderID] = v + 1
+			if v, ok := dupOrderIDs[buy.ServerOrderID]; ok {
+				dupOrderIDs[buy.ServerOrderID] = v + 1
 			}
 			if v, ok := dupClientIDs[buy.ClientOrderID]; ok {
 				dupClientIDs[buy.ClientOrderID] = v + 1
 			}
-			if _, ok := dupOrderIDs[buy.OrderID]; !ok {
-				bdata.fees = bdata.fees.Add(buy.Fee)
+			if _, ok := dupOrderIDs[buy.ServerOrderID]; !ok {
+				bdata.fees = bdata.fees.Add(buy.FilledFee)
 				bdata.size = bdata.size.Add(buy.FilledSize)
 				bdata.value = bdata.value.Add(buy.FilledSize.Mul(buy.FilledPrice))
 
 				if buy.CreateTime.Time.After(lastSellTime) {
-					bdata.unsoldFees = bdata.unsoldFees.Add(buy.Fee)
+					bdata.unsoldFees = bdata.unsoldFees.Add(buy.FilledFee)
 					bdata.unsoldSize = bdata.unsoldSize.Add(buy.FilledSize)
 					bdata.unsoldValue = bdata.unsoldValue.Add(buy.FilledSize.Mul(buy.FilledPrice))
 				}
 
 				summary.firstOrderTime = minTime(summary.firstOrderTime, buy.CreateTime.Time)
 
-				if buy.Fee.IsZero() {
-					log.Printf("warning: order id %s has zero fee", buy.OrderID)
+				if buy.FilledFee.IsZero() {
+					log.Printf("warning: order id %s has zero fee", buy.ServerOrderID)
 				}
 			}
-			dupOrderIDs[buy.OrderID] = 1
+			dupOrderIDs[buy.ServerOrderID] = 1
 			dupClientIDs[buy.ClientOrderID] = 1
 		}
 		if len(buys) > 0 {

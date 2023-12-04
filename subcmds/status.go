@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"text/tabwriter"
-	"time"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/limiter"
@@ -23,8 +22,6 @@ import (
 
 type Status struct {
 	cmdutil.DBFlags
-
-	startTime string
 }
 
 func (c *Status) Synopsis() string {
@@ -34,17 +31,10 @@ func (c *Status) Synopsis() string {
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
-	fset.StringVar(&c.startTime, "start-time", "2023-11-01T00:00:00Z", "Time when tradebot was deployed to production")
 	return fset, cli.CmdFunc(c.run)
 }
 
 func (c *Status) run(ctx context.Context, args []string) error {
-	start, err := time.Parse(time.RFC3339, c.startTime)
-	if err != nil {
-		return err
-	}
-	ndays := int(time.Now().Sub(start) / (24 * time.Hour))
-
 	db, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
@@ -62,6 +52,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if err := kv.WithReader(ctx, db, load); err != nil {
 		return err
 	}
+
+	// Remove limiter jobs cause they are one-side trades.
 	jobs = slices.DeleteFunc(jobs, func(j trader.Job) bool {
 		_, ok := j.(*limiter.Limiter)
 		return ok
@@ -70,12 +62,11 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		return jobs[i].ProductID() < jobs[j].ProductID()
 	})
 
-	var fees, bought, sold, unsold decimal.Decimal
+	var statuses []*trader.Status
 	for _, j := range jobs {
-		fees = fees.Add(j.Fees())
-		bought = bought.Add(j.BoughtValue())
-		sold = sold.Add(j.SoldValue())
-		unsold = unsold.Add(j.UnsoldValue())
+		if s := trader.GetStatus(j); s != nil {
+			statuses = append(statuses, s)
+		}
 	}
 
 	var (
@@ -84,43 +75,45 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		d365 = decimal.NewFromInt(365)
 	)
 
-	fmt.Printf("Num Days: %d\n", ndays)
+	sum := trader.Summarize(statuses)
+	fmt.Printf("Num Days: %d\n", sum.NumDays)
 	fmt.Println()
-	fmt.Printf("Fees: %s\n", fees.StringFixed(3))
-	fmt.Printf("Sold: %s\n", sold.StringFixed(3))
-	fmt.Printf("Bought: %s\n", bought.StringFixed(3))
-	fmt.Printf("Unsold: %s\n", unsold.StringFixed(3))
-
-	feePct := fees.Mul(d100).Div(sold.Add(bought))
-	profit := sold.Sub(bought.Sub(unsold)).Sub(fees)
-	profitPerDay := profit.Div(decimal.NewFromInt(int64(ndays)))
+	fmt.Printf("Fees: %s\n", sum.TotalFees.StringFixed(3))
+	fmt.Printf("Sold: %s\n", sum.SoldValue.StringFixed(3))
+	fmt.Printf("Bought: %s\n", sum.BoughtValue.StringFixed(3))
+	fmt.Printf("Unsold: %s\n", sum.UnsoldValue.StringFixed(3))
 
 	fmt.Println()
-	fmt.Printf("Profit: %s\n", profit.StringFixed(3))
-	fmt.Printf("Effective Fee Pct: %s%%\n", feePct.StringFixed(3))
+	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
+	fmt.Printf("Effective Fee Pct: %s%%\n", sum.FeePct().StringFixed(3))
 
 	fmt.Println()
-	fmt.Printf("Profit per month: %s\n", profitPerDay.Mul(d30).StringFixed(3))
-	fmt.Printf("Profit per year: %s\n", profitPerDay.Mul(d365).StringFixed(3))
+	fmt.Printf("Profit per month: %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
+	fmt.Printf("Profit per year: %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
 
 	fmt.Println()
 	rates := []float64{2.625, 5, 8, 10, 15, 20}
 	for _, rate := range rates {
-		covered := profit.Div(decimal.NewFromFloat(rate).Div(d100))
-		fmt.Printf("Investment covered at %.03f APY: %s\n", rate, covered.StringFixed(3))
+		covered := sum.Profit().Div(decimal.NewFromFloat(rate).Div(d100))
+		fmt.Printf("Investment already covered at %.03f APY: %s\n", rate, covered.StringFixed(3))
+	}
+	fmt.Println()
+	for _, rate := range rates {
+		projected := sum.ProfitPerDay().Mul(d365).Div(decimal.NewFromFloat(rate).Div(d100))
+		fmt.Printf("Projected investment covered at %.03f APY: %s\n", rate, projected.StringFixed(3))
 	}
 
 	fmt.Println()
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 	fmt.Fprintf(tw, "UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
-	for _, job := range jobs {
-		uid := job.UID()
-		pid := job.ProductID()
-		fees := job.Fees()
-		bought := job.BoughtValue()
-		sold := job.SoldValue()
-		unsold := job.UnsoldValue()
-		profit := sold.Sub(bought.Sub(unsold)).Sub(fees)
+	for _, s := range statuses {
+		uid := s.UID()
+		pid := s.ProductID()
+		fees := s.TotalFees()
+		bought := s.BoughtValue()
+		sold := s.SoldValue()
+		unsold := s.UnsoldValue()
+		profit := s.Profit()
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
 	}
 	tw.Flush()

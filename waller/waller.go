@@ -87,6 +87,16 @@ func (w *Waller) ExchangeName() string {
 	return w.exchangeName
 }
 
+func (w *Waller) Actions() []*gobs.Action {
+	var actions []*gobs.Action
+	for _, l := range w.loopers {
+		if as := l.Actions(); as != nil {
+			actions = append(actions, as...)
+		}
+	}
+	return actions
+}
+
 func (w *Waller) Fees() decimal.Decimal {
 	var sum decimal.Decimal
 	for _, l := range w.loopers {

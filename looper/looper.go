@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/bvk/tradebot/gobs"
@@ -87,6 +88,31 @@ func (v *Looper) ProductID() string {
 
 func (v *Looper) ExchangeName() string {
 	return v.exchangeName
+}
+
+func (v *Looper) Actions() []*gobs.Action {
+	var actions []*gobs.Action
+	for _, b := range v.buys {
+		if as := b.Actions(); as != nil {
+			actions = append(actions, as[0])
+		}
+	}
+	for _, s := range v.sells {
+		if as := s.Actions(); as != nil {
+			actions = append(actions, as[0])
+		}
+	}
+	sort.Slice(actions, func(i, j int) bool {
+		return actions[i].Orders[0].CreateTime.Time.Before(actions[j].Orders[0].CreateTime.Time)
+	})
+	if len(actions) == 0 {
+		return nil
+	}
+	return actions
+}
+
+func (v *Looper) Pair() *point.Pair {
+	return &point.Pair{Buy: v.buyPoint, Sell: v.sellPoint}
 }
 
 func (v *Looper) Fees() decimal.Decimal {

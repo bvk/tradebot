@@ -87,7 +87,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 		NewName: c.name,
 	}
 	if _, err := cmdutil.Post[api.JobRenameResponse](ctx, &c.ClientFlags, api.JobRenamePath, req2); err != nil {
-		log.Printf("job is created, but could not set the job name (ignored): %w", err)
+		log.Printf("job is created, but could not set the job name (ignored): %v", err)
 	}
 
 	jsdata, _ := json.MarshalIndent(resp1, "", "  ")

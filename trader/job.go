@@ -5,8 +5,8 @@ package trader
 import (
 	"context"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvkgo/kv"
-	"github.com/shopspring/decimal"
 )
 
 type Job interface {
@@ -14,12 +14,13 @@ type Job interface {
 	ProductID() string
 	ExchangeName() string
 
-	Fees() decimal.Decimal
-	SoldValue() decimal.Decimal
-	BoughtValue() decimal.Decimal
-	UnsoldValue() decimal.Decimal
-
 	Save(context.Context, kv.ReadWriter) error
 
 	Run(context.Context, *Runtime) error
+
+	// Actions returns all buy/sell actions performed by the trader.
+	//
+	// Typically, orders for buy actions are followed by their corresponding sell
+	// action orders. However, an unsold buy may not have a matching a sell.
+	Actions() []*gobs.Action
 }

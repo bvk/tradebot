@@ -46,8 +46,12 @@ func (p *Point) Check() error {
 	return nil
 }
 
-func (p *Point) Equal(v *Point) bool {
-	return p.Size.Equal(v.Size) && p.Price.Equal(v.Price) && p.Cancel.Equal(v.Cancel)
+func Equal(a, b gobs.Point) bool {
+	return a.Size.Equal(b.Size) && a.Price.Equal(b.Price) && a.Cancel.Equal(b.Cancel)
+}
+
+func (p Point) Equal(v *Point) bool {
+	return Equal(gobs.Point(p), gobs.Point(*v))
 }
 
 // Side returns "BUY" or "SELL" side for the point. Side is determined by

@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
@@ -96,6 +98,46 @@ func (v *Limiter) IsBuy() bool {
 
 func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
+}
+
+func (v *Limiter) StartTime() time.Time {
+	var min time.Time
+	for _, order := range v.orderMap {
+		if min.IsZero() {
+			min = order.CreateTime.Time
+		} else if order.CreateTime.Time.Before(min) {
+			min = order.CreateTime.Time
+		}
+	}
+	return min
+}
+
+func (v *Limiter) Actions() []*gobs.Action {
+	var orders []*gobs.Order
+	for _, order := range v.orderMap {
+		if order.Done && !order.FilledSize.IsZero() {
+			gorder := &gobs.Order{
+				ServerOrderID: string(order.OrderID),
+				ClientOrderID: order.ClientOrderID,
+				CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
+				Side:          order.Side,
+				Status:        order.Status,
+				FilledFee:     order.Fee,
+				FilledSize:    order.FilledSize,
+				FilledPrice:   order.FilledPrice,
+				Done:          order.Done,
+				DoneReason:    order.DoneReason,
+			}
+			orders = append(orders, gorder)
+		}
+	}
+	sort.Slice(orders, func(i, j int) bool {
+		return orders[i].CreateTime.Before(orders[j].CreateTime.Time)
+	})
+	if len(orders) == 0 {
+		return nil
+	}
+	return []*gobs.Action{{Point: gobs.Point(v.point), Orders: orders}}
 }
 
 func (v *Limiter) Fees() decimal.Decimal {
