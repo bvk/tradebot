@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
@@ -21,6 +22,7 @@ type Add struct {
 
 	product  string
 	exchange string
+	name     string
 
 	spec Spec
 }
@@ -37,6 +39,9 @@ func (c *Add) check() error {
 	}
 	if c.product == "" {
 		return fmt.Errorf("product name must be specified")
+	}
+	if c.name == "" {
+		return fmt.Errorf("job name must be specified")
 	}
 	return nil
 }
@@ -68,16 +73,24 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	req := &api.WallRequest{
+	req1 := &api.WallRequest{
 		ProductID:    c.product,
 		ExchangeName: c.exchange,
 		Pairs:        pairs,
 	}
-	resp, err := cmdutil.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req)
+	resp1, err := cmdutil.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req1)
 	if err != nil {
 		return err
 	}
-	jsdata, _ := json.MarshalIndent(resp, "", "  ")
+
+	req2 := &api.JobRenameRequest{
+		NewName: c.name,
+	}
+	if _, err := cmdutil.Post[api.JobRenameResponse](ctx, &c.ClientFlags, api.JobRenamePath, req2); err != nil {
+		log.Printf("job is created, but could not set the job name (ignored): %w", err)
+	}
+
+	jsdata, _ := json.MarshalIndent(resp1, "", "  ")
 	fmt.Printf("%s\n", jsdata)
 	return nil
 }
@@ -87,13 +100,14 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	c.ClientFlags.SetFlags(fset)
 	c.spec.SetFlags(fset)
 	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
-	fset.StringVar(&c.product, "product", "", "product id for the trade")
+	fset.StringVar(&c.name, "name", "", "a name for the trader job")
+	fset.StringVar(&c.product, "product", "", "product id for the trader")
 	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
 	return fset, cli.CmdFunc(c.Run)
 }
 
 func (c *Add) Synopsis() string {
-	return "Creates a new buy-sell over a range job"
+	return "Creates a new waller job over a price range"
 }
 
 func (c *Add) CommandHelp() string {
