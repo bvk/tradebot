@@ -111,7 +111,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				continue
 			}
 
-			profit := v.SoldValue().Sub(v.BoughtValue()).Sub(v.Fees())
+			sell, buy := v.sells[nsells-1], v.buys[nbuys-1]
+			fees := sell.Fees().Add(buy.Fees())
+			profit := sell.SoldValue().Sub(buy.BoughtValue()).Sub(fees)
 			rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.exchangeName, profit.StringFixed(3))
 		}
 	}
