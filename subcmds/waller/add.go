@@ -85,6 +85,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 
 	req2 := &api.JobRenameRequest{
 		NewName: c.name,
+		UID:     resp1.UID,
 	}
 	if _, err := cmdutil.Post[api.JobRenameResponse](ctx, &c.ClientFlags, api.JobRenamePath, req2); err != nil {
 		log.Printf("job is created, but could not set the job name (ignored): %v", err)

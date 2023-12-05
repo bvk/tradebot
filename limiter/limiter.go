@@ -6,9 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"errors"
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -269,9 +267,6 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		key = path.Join(DefaultKeyspace, v)
 	}
 	gv, err := kvutil.Get[gobs.LimiterState](ctx, r, key)
-	if errors.Is(err, os.ErrNotExist) {
-		gv, err = kvutil.Get[gobs.LimiterState](ctx, r, uid)
-	}
 	if err != nil {
 		return nil, fmt.Errorf("could not load limiter state: %w", err)
 	}

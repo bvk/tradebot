@@ -34,6 +34,8 @@ func main() {
 		new(job.Resume),
 		new(job.Cancel),
 		new(job.Rename),
+		new(job.Export),
+		new(job.Import),
 	}
 
 	limiterCmds := []cli.Command{

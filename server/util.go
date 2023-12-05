@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strings"
 
@@ -83,4 +84,33 @@ func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Job, error) {
 	traders = append(traders, wallers...)
 
 	return traders, nil
+}
+
+func Load(ctx context.Context, r kv.Reader, uid string) (trader.Job, error) {
+	if v, err := limiter.Load(ctx, uid, r); err == nil {
+		return v, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("could not load limiter: %w", err)
+	}
+
+	if v, err := looper.Load(ctx, uid, r); err == nil {
+		return v, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("could not load looper: %w", err)
+	}
+
+	if v, err := waller.Load(ctx, uid, r); err == nil {
+		return v, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("could not load waller: %w", err)
+	}
+	return nil, os.ErrNotExist
+}
+
+func loadFromDB(ctx context.Context, db kv.Database, uid string) (job trader.Job, err error) {
+	kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
+		job, err = Load(ctx, r, uid)
+		return err
+	})
+	return
 }

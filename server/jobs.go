@@ -54,7 +54,12 @@ func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 	var v trader.Job
 	v, ok := s.traderMap.Load(id)
 	if !ok {
-		return nil, false, fmt.Errorf("job %s not found: %w", id, os.ErrNotExist)
+		x, err := loadFromDB(ctx, s.db, id)
+		if err != nil {
+			return nil, false, fmt.Errorf("job %s not found and could not be loaded: %w", id, err)
+		}
+		s.traderMap.Store(id, x)
+		v = x
 	}
 
 	j := job.New(state, s.makeJobFunc(v))
