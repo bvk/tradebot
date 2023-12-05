@@ -203,7 +203,15 @@ func (s *Server) HandlerMap() map[string]http.Handler {
 	return maps.Clone(s.handlerMap)
 }
 
-func (s *Server) Notify(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
+func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
+	return &trader.Runtime{
+		Database:  s.db,
+		Product:   product,
+		Messenger: s,
+	}
+}
+
+func (s *Server) SendMessage(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
 	if s.pushoverClient != nil {
 		if err := s.pushoverClient.SendMessage(ctx, at, fmt.Sprintf(msgfmt, args...)); err != nil {
 			log.Printf("warning: could not send pushover message (ignored): %v", err)
@@ -231,7 +239,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	})
 
 	hostname, _ := os.Hostname()
-	s.Notify(ctx, time.Now(), "Trader has stopped gracefully on host named '%s'.", hostname)
+	s.SendMessage(ctx, time.Now(), "Trader has stopped gracefully on host named '%s'.", hostname)
 	return nil
 }
 
@@ -239,9 +247,9 @@ func (s *Server) Start(ctx context.Context) (status error) {
 	defer func() {
 		hostname, _ := os.Hostname()
 		if status == nil {
-			s.Notify(ctx, time.Now(), "Trader has started successfully on host named '%s'.", hostname)
+			s.SendMessage(ctx, time.Now(), "Trader has started successfully on host named '%s'.", hostname)
 		} else {
-			s.Notify(ctx, time.Now(), "Trader has failed to start on host named '%s' with error `%v`.", hostname, status)
+			s.SendMessage(ctx, time.Now(), "Trader has failed to start on host named '%s' with error `%v`.", hostname, status)
 		}
 	}()
 
@@ -307,7 +315,7 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 				status = err
 				return false
 			}
-			if err := t.Fix(ctx, &trader.Runtime{Product: p, Database: s.db}); err != nil {
+			if err := t.Fix(ctx, s.Runtime(p)); err != nil {
 				log.Printf("could not fix %T %v: %v", v, v, err)
 				status = err
 				return false
@@ -500,7 +508,7 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 	s.traderMap.Store(uid, limit)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return limit.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
+		return limit.Run(ctx, s.Runtime(product))
 	})
 	s.jobMap.Store(uid, j)
 
@@ -545,7 +553,7 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	s.traderMap.Store(uid, loop)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return loop.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
+		return loop.Run(ctx, s.Runtime(product))
 	})
 	s.jobMap.Store(uid, j)
 
@@ -590,7 +598,7 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	s.traderMap.Store(uid, wall)
 
 	j := job.New("" /* state */, func(ctx context.Context) error {
-		return wall.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
+		return wall.Run(ctx, s.Runtime(product))
 	})
 	s.jobMap.Store(uid, j)
 

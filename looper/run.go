@@ -60,49 +60,57 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 		holdings := bought.Sub(sold)
 		if holdings.LessThan(v.buyPoint.Size) {
 			log.Printf("%s: current holding size %s is less than buy size %s (starting a buy)", v.uid, holdings, v.buyPoint.Size)
-			if nbuys > 0 && !v.buys[nbuys-1].PendingSize().IsZero() {
-				if err := v.buys[nbuys-1].Run(ctx, rt); err != nil {
+
+			if nbuys == 0 || v.buys[nbuys-1].PendingSize().IsZero() {
+				if err := v.addNewBuy(ctx, rt); err != nil {
 					if ctx.Err() == nil {
-						log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
+						log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
 						time.Sleep(time.Second)
 						continue
 					}
-					log.Printf("%v: could not run limit-buy op: %v", v.uid, err)
+					log.Printf("%v: could not create new limit-buy op (will retry): %v", v.uid, err)
+					continue
 				}
-				continue
 			}
-			if err := v.addNewBuy(ctx, rt); err != nil {
+
+			if err := v.buys[nbuys-1].Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
-					log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
+					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
 					continue
 				}
-				log.Printf("%v: could not create new limit-buy op: %v", v.uid, err)
+				log.Printf("%v: could not complete limit-buy op (will retry): %v", v.uid, err)
+				continue
 			}
 		}
 
 		// Start a sell if holding amount is greater than sell size.
 		if holdings.GreaterThanOrEqual(v.sellPoint.Size) {
 			log.Printf("%s: current holding size %s is greater-than or equal to sell size %s (starting a sell)", v.uid, holdings, v.sellPoint.Size)
-			if nsells > 0 && !v.sells[nsells-1].PendingSize().IsZero() {
-				if err := v.sells[nsells-1].Run(ctx, rt); err != nil {
+			if nsells == 0 || v.sells[nsells-1].PendingSize().IsZero() {
+				if err := v.addNewSell(ctx, rt); err != nil {
 					if ctx.Err() == nil {
-						log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
+						log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
 						time.Sleep(time.Second)
 						continue
 					}
-					log.Printf("%v: could not complete limit-sell op: %v", v.uid, err)
+					log.Printf("%v: could not create new limit-sell op (will retry): %v", v.uid, err)
+					continue
 				}
-				continue
 			}
-			if err := v.addNewSell(ctx, rt); err != nil {
+
+			if err := v.sells[nsells-1].Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
-					log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
+					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
 					time.Sleep(time.Second)
 					continue
 				}
-				log.Printf("%v: could not create new limit-sell op: %v", v.uid, err)
+				log.Printf("%v: could not complete limit-sell op (will retry): %v", v.uid, err)
+				continue
 			}
+
+			profit := v.SoldValue().Sub(v.BoughtValue()).Sub(v.Fees())
+			rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.exchangeName, profit.StringFixed(3))
 		}
 	}
 	return context.Cause(ctx)

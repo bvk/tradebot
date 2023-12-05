@@ -30,7 +30,7 @@ func (s *Server) makeJobFunc(v trader.Job) job.Func {
 		if err != nil {
 			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", v.UID(), pid, ename, err)
 		}
-		return v.Run(ctx, &trader.Runtime{Product: product, Database: s.db})
+		return v.Run(ctx, s.Runtime(product))
 	}
 }
 
