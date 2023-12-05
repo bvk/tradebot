@@ -71,6 +71,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 					log.Printf("%v: could not create new limit-buy op (will retry): %v", v.uid, err)
 					continue
 				}
+				nbuys = len(v.buys)
 			}
 
 			if err := v.buys[nbuys-1].Run(ctx, rt); err != nil {
@@ -97,6 +98,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 					log.Printf("%v: could not create new limit-sell op (will retry): %v", v.uid, err)
 					continue
 				}
+				nsells = len(v.sells)
 			}
 
 			if err := v.sells[nsells-1].Run(ctx, rt); err != nil {
