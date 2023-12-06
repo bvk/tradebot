@@ -83,6 +83,7 @@ func (c *Import) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("cannot import the job to the target db: %w", err)
 	}
 
+	jobName := export.State.JobName
 	importer := func(ctx context.Context, rw kv.ReadWriter) error {
 		// Erase job name cause we will use REST request below.
 		export.State.JobName = ""
@@ -103,11 +104,11 @@ func (c *Import) run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.JobRenameRequest{
-		NewName: export.State.JobName,
+		NewName: jobName,
 		UID:     export.ID,
 	}
 	if _, err := cmdutil.Post[api.JobRenameResponse](ctx, &c.DBFlags.ClientFlags, api.JobRenamePath, req); err != nil {
-		log.Printf("job is imported, but could not set the job name (ignored): %v", err)
+		log.Printf("job with id %s is imported, but could not set the job name (ignored): %v", export.ID, err)
 	}
 
 	// TODO: Verify that job can be loaded successfully.
