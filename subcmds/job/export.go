@@ -16,6 +16,7 @@ import (
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/trader"
@@ -61,22 +62,33 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	}
 
 	var job trader.Job
+	var name, typename string
 	loader := func(ctx context.Context, r kv.Reader) (err error) {
 		job, err = server.Load(ctx, r, jobID)
+		if err != nil {
+			return fmt.Errorf("could not load job: %w", err)
+		}
+
+		name, typename, err = namer.ResolveID(ctx, r, jobID)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("could not resolve job id to name: %w", err)
+		}
 		return
 	}
 	if err := kv.WithReader(ctx, db, loader); err != nil {
 		return fmt.Errorf("could not load trader job: %w", err)
 	}
 
-	tdb := kvmemdb.New()
-	if err := kv.WithReadWriter(ctx, tdb, job.Save); err != nil {
+	memdb := kvmemdb.New()
+	if err := kv.WithReadWriter(ctx, memdb, job.Save); err != nil {
 		return fmt.Errorf("could not save job to a temporary memdb: %w", err)
 	}
 
 	export := &gobs.JobExportData{
-		ID:    jobID,
-		State: jstate,
+		ID:       jobID,
+		Name:     name,
+		Typename: typename,
+		State:    jstate,
 	}
 	iterate := func(ctx context.Context, r kv.Reader) error {
 		it, err := r.Scan(ctx)
@@ -101,7 +113,7 @@ func (c *Export) run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	if err := kv.WithReader(ctx, tdb, iterate); err != nil {
+	if err := kv.WithReader(ctx, memdb, iterate); err != nil {
 		return fmt.Errorf("could not iterate over temporary memdb: %w", err)
 	}
 

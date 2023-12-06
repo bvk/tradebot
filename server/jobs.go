@@ -4,20 +4,19 @@ package server
 
 import (
 	"context"
-	"crypto/md5"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path"
 	"reflect"
-	"strings"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -194,9 +193,15 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 		return job.State(v.CurrentState)
 	}
 
+	snap, err := s.db.NewSnapshot(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not create a db snapshot: %w", err)
+	}
+	defer snap.Discard(ctx)
+
 	resp := new(api.JobListResponse)
 	s.traderMap.Range(func(id string, v trader.Job) bool {
-		name, _ := s.idNameMap.Load(id)
+		name, _, _ := namer.ResolveID(ctx, snap, id)
 		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
 			UID:   v.UID(),
 			Type:  reflect.TypeOf(v).Elem().Name(),
@@ -208,69 +213,40 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 	return resp, nil
 }
 
-func (s *Server) doRename(ctx context.Context, req *api.JobRenameRequest) (*api.JobRenameResponse, error) {
+func (s *Server) doSetJobName(ctx context.Context, req *api.SetJobNameRequest) (*api.SetJobNameResponse, error) {
 	if err := req.Check(); err != nil {
 		return nil, fmt.Errorf("invalid rename request: %w", err)
 	}
 
-	// TODO: If NewName is empty, we should just delete the OldName.
+	if _, err := uuid.Parse(req.UID); err != nil {
+		return nil, fmt.Errorf("job uid must be an uuid: %w", err)
+	}
 
-	uid := req.UID
+	setName := func(ctx context.Context, rw kv.ReadWriter) error {
+		key := path.Join(JobsKeyspace, req.UID)
+		if _, err := kvutil.Get[gobs.ServerJobState](ctx, rw, key); err != nil {
+			return fmt.Errorf("could not fetch job state: %w", err)
+		}
 
-	rename := func(ctx context.Context, rw kv.ReadWriter) error {
-		if len(uid) == 0 {
-			checksum := md5.Sum([]byte(req.OldName))
-			key := path.Join(NamesKeyspace, uuid.UUID(checksum).String())
-			old, err := kvutil.Get[gobs.NameData](ctx, rw, key)
+		job, ok := s.traderMap.Load(req.UID)
+		if !ok {
+			x, err := Load(ctx, rw, req.UID)
 			if err != nil {
-				return fmt.Errorf("could not load old name data: %w", err)
+				return fmt.Errorf("job %s not found and could not be loaded: %w", req.UID, err)
 			}
-			if !strings.HasPrefix(old.Data, JobsKeyspace) {
-				return fmt.Errorf("old name is not a job: %w", os.ErrInvalid)
-			}
-			if err := rw.Delete(ctx, key); err != nil {
-				return fmt.Errorf("could not delete old name: %w", err)
-			}
-			uid = strings.TrimPrefix(old.Data, JobsKeyspace)
+			s.traderMap.Store(req.UID, x)
+			job = x
 		}
 
-		// Only valid jobs can be named.
-		if _, ok := s.jobMap.Load(uid); !ok {
-			if _, _, err := s.createJob(ctx, uid); err != nil {
-				return fmt.Errorf("job %s not found: %w", uid, os.ErrNotExist)
-			}
+		typename := reflect.TypeOf(job).Elem().Name()
+		if err := namer.SetName(ctx, rw, req.UID, req.JobName, typename); err != nil {
+			return fmt.Errorf("could not set job name: %w", err)
 		}
-
-		checksum := md5.Sum([]byte(req.NewName))
-		nkey := path.Join(NamesKeyspace, uuid.UUID(checksum).String())
-		if _, err := rw.Get(ctx, nkey); err == nil {
-			return fmt.Errorf("new name already exists: %w", os.ErrExist)
-		}
-
-		jkey := path.Join(JobsKeyspace, uid)
-		state, err := kvutil.Get[gobs.ServerJobState](ctx, rw, jkey)
-		if err != nil {
-			return fmt.Errorf("could not load job state: %w", err)
-		}
-		state.JobName = req.NewName
-		if err := kvutil.Set(ctx, rw, jkey, state); err != nil {
-			return fmt.Errorf("could not update job name: %w", err)
-		}
-
-		v := &gobs.NameData{
-			Name: req.NewName,
-			Data: path.Join(JobsKeyspace, uid),
-		}
-		if err := kvutil.Set(ctx, rw, nkey, v); err != nil {
-			return fmt.Errorf("could not set new name: %w", err)
-		}
-
 		return nil
 	}
-	if err := kv.WithReadWriter(ctx, s.db, rename); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, setName); err != nil {
 		return nil, err
 	}
 
-	s.idNameMap.Store(uid, req.NewName)
-	return &api.JobRenameResponse{UID: uid}, nil
+	return &api.SetJobNameResponse{}, nil
 }

@@ -4,11 +4,9 @@ package server
 
 import (
 	"context"
-	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"maps"
@@ -67,8 +65,6 @@ type Server struct {
 	// removed from this map. TODO: We could periodically scan-and-remove
 	// completed jobs.
 	jobMap syncmap.Map[string, *job.Job]
-
-	idNameMap syncmap.Map[string, string]
 
 	traderMap syncmap.Map[string, trader.Job]
 
@@ -152,17 +148,9 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		return nil, fmt.Errorf("could not load default products: %w", err)
 	}
 
-	if err := kv.WithReader(ctx, t.db, t.loadNames); err != nil {
-		return nil, fmt.Errorf("could not populate name map: %w", err)
-	}
-
 	// Scan the database and load existing traders.
 	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
 		return nil, fmt.Errorf("could not load existing trades: %w", err)
-	}
-
-	if err := kv.WithReader(ctx, t.db, t.loadNames); err != nil {
-		return nil, fmt.Errorf("could not load job names: %w", err)
 	}
 
 	// TODO: Setup a fund
@@ -171,7 +159,7 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
 	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
 	t.handlerMap[api.JobPausePath] = httpPostJSONHandler(t.doPause)
-	t.handlerMap[api.JobRenamePath] = httpPostJSONHandler(t.doRename)
+	t.handlerMap[api.SetJobNamePath] = httpPostJSONHandler(t.doSetJobName)
 
 	t.handlerMap[api.LimitPath] = httpPostJSONHandler(t.doLimit)
 	t.handlerMap[api.LoopPath] = httpPostJSONHandler(t.doLoop)
@@ -411,38 +399,6 @@ func (s *Server) loadTrades(ctx context.Context, r kv.Reader) error {
 		uid = strings.TrimPrefix(uid, looper.DefaultKeyspace)
 		uid = strings.TrimPrefix(uid, waller.DefaultKeyspace)
 		s.traderMap.LoadOrStore(uid, t)
-	}
-	return nil
-}
-
-func (s *Server) loadNames(ctx context.Context, r kv.Reader) error {
-	begin := path.Join(NamesKeyspace, minUUID)
-	end := path.Join(NamesKeyspace, maxUUID)
-
-	it, err := r.Ascend(ctx, begin, end)
-	if err != nil {
-		return fmt.Errorf("could not create iterator for names keyspace: %w", err)
-	}
-	defer kv.Close(it)
-
-	for k, v, err := it.Fetch(ctx, false); err == nil; k, v, err = it.Fetch(ctx, true) {
-		uid := strings.TrimPrefix(k, NamesKeyspace)
-		if _, err := uuid.Parse(uid); err != nil {
-			continue
-		}
-
-		ndata := new(gobs.NameData)
-		if err := gob.NewDecoder(v).Decode(ndata); err != nil {
-			return fmt.Errorf("could not decode name data: %w", err)
-		}
-
-		if strings.HasPrefix(ndata.Data, JobsKeyspace) {
-			s.idNameMap.Store(strings.TrimPrefix(ndata.Data, JobsKeyspace), ndata.Name)
-		}
-	}
-
-	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
-		return err
 	}
 	return nil
 }

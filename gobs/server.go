@@ -10,12 +10,6 @@ type ServerJobState struct {
 	NeedsManualResume bool
 }
 
-type NameData struct {
-	Name string
-
-	Data string
-}
-
 type ServerExchangeState struct {
 	EnabledProductIDs []string
 

@@ -17,6 +17,7 @@ import (
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
@@ -54,15 +55,19 @@ func (c *Import) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not get db access: %w", err)
 	}
 
-	// Verify that job name is unused in the target db.
-	if len(export.State.JobName) > 0 {
-		if _, err := server.ResolveName(ctx, db, export.State.JobName); err == nil {
-			return fmt.Errorf("target already has job named %q: %w", export.State.JobName, os.ErrExist)
-		}
+	name := export.Name
+	if len(name) == 0 {
+		name = export.State.JobName
 	}
 
-	// Verify that job key and all other keys doesn't exist in the target db.
+	// Verify that name, job id and all other keys doesn't exist in the target db.
 	verifier := func(ctx context.Context, r kv.Reader) error {
+		if len(name) > 0 {
+			if _, _, err := namer.ResolveName(ctx, r, name); err == nil {
+				return fmt.Errorf("target already has job named %q: %w", name, os.ErrExist)
+			}
+		}
+
 		jobKey := path.Join(server.JobsKeyspace, export.ID)
 		if _, err := r.Get(ctx, jobKey); err == nil {
 			return fmt.Errorf("job key %q already exists in the target: %w", jobKey, os.ErrExist)
@@ -83,7 +88,6 @@ func (c *Import) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("cannot import the job to the target db: %w", err)
 	}
 
-	jobName := export.State.JobName
 	importer := func(ctx context.Context, rw kv.ReadWriter) error {
 		// Erase job name cause we will use REST request below.
 		export.State.JobName = ""
@@ -103,12 +107,12 @@ func (c *Import) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not import the job: %w", err)
 	}
 
-	if len(jobName) > 0 {
-		req := &api.JobRenameRequest{
-			NewName: jobName,
+	if len(name) > 0 {
+		req := &api.SetJobNameRequest{
 			UID:     export.ID,
+			JobName: name,
 		}
-		if _, err := cmdutil.Post[api.JobRenameResponse](ctx, &c.DBFlags.ClientFlags, api.JobRenamePath, req); err != nil {
+		if _, err := cmdutil.Post[api.SetJobNameResponse](ctx, &c.DBFlags.ClientFlags, api.SetJobNamePath, req); err != nil {
 			log.Printf("job with id %s is imported, but could not set the job name (ignored): %v", export.ID, err)
 		}
 	}

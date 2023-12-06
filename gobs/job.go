@@ -5,6 +5,9 @@ package gobs
 type JobExportData struct {
 	ID string
 
+	Name     string
+	Typename string
+
 	State *ServerJobState
 
 	KeyValues []*KeyValue
