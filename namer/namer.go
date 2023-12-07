@@ -131,32 +131,3 @@ func toUUID(s string) string {
 	checksum := md5.Sum([]byte(s))
 	return uuid.UUID(checksum).String()
 }
-
-func Upgrade(ctx context.Context, rw kv.ReadWriter, name string) error {
-	nkey := path.Join(Keyspace, toUUID(name))
-	data, err := kvutil.Get[gobs.NameData](ctx, rw, nkey)
-	if err != nil {
-		return fmt.Errorf("could not fetch name data: %w", err)
-	}
-	if data.Data == "" {
-		return nil
-	}
-	_, id := path.Split(data.Data)
-	if _, err := uuid.Parse(id); err != nil {
-		return fmt.Errorf("could not parse uuid from id data: %w", err)
-	}
-	if data.ID == "" {
-		data.ID = id
-	}
-	if data.Typename == "" {
-		data.Typename = "Waller"
-	}
-	if err := kvutil.Set(ctx, rw, nkey, data); err != nil {
-		return fmt.Errorf("could not update name key data: %w", err)
-	}
-	ikey := path.Join(Keyspace, toUUID(data.ID))
-	if err := kvutil.Set(ctx, rw, ikey, data); err != nil {
-		return fmt.Errorf("could not update id key data: %w", err)
-	}
-	return nil
-}

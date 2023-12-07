@@ -47,10 +47,10 @@ func (c *Rename) run(ctx context.Context, args []string) error {
 				return fmt.Errorf("could not fetch job with id %q: %w", oldName, err)
 			}
 		}
-		if err := namer.Upgrade(ctx, rw, oldName); err != nil {
-			return fmt.Errorf("could not upgrade: %w", err)
+		if err := namer.Rename(ctx, rw, oldName, newName); err != nil {
+			return fmt.Errorf("could not rename: %w", err)
 		}
-		return namer.Rename(ctx, rw, oldName, newName)
+		return nil
 	}
 	if err := kv.WithReadWriter(ctx, db, checkAndRename); err != nil {
 		return fmt.Errorf("could not rename: %w", err)
