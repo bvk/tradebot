@@ -19,6 +19,7 @@ import (
 	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -249,23 +250,36 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return fmt.Errorf("could not encode limiter state: %w", err)
 	}
-	key := v.uid
-	if !strings.HasPrefix(key, DefaultKeyspace) {
-		v := strings.TrimPrefix(v.uid, "/wallers")
-		key = path.Join(DefaultKeyspace, v)
-	}
+	key := path.Join(DefaultKeyspace, v.uid)
 	if err := rw.Set(ctx, key, &buf); err != nil {
 		return fmt.Errorf("could not save limiter state: %w", err)
 	}
 	return nil
 }
 
-func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
-	key := uid
-	if !strings.HasPrefix(key, DefaultKeyspace) {
-		v := strings.TrimPrefix(uid, "/wallers")
-		key = path.Join(DefaultKeyspace, v)
+func checkUID(uid string) error {
+	fs := strings.Split(uid, "/")
+	if len(fs) == 0 {
+		return fmt.Errorf("uid cannot be empty")
 	}
+	if _, err := uuid.Parse(fs[0]); err != nil {
+		return fmt.Errorf("uid %q doesn't start with an uuid: %w", uid, err)
+	}
+	return nil
+}
+
+func cleanUID(uid string) string {
+	uid = strings.TrimPrefix(uid, "/wallers/")
+	uid = strings.TrimPrefix(uid, "/limiters/")
+	uid = strings.TrimPrefix(uid, "/loopers/")
+	return uid
+}
+
+func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
+	if err := checkUID(uid); err != nil {
+		return nil, err
+	}
+	key := path.Join(DefaultKeyspace, uid)
 	gv, err := kvutil.Get[gobs.LimiterState](ctx, r, key)
 	if err != nil {
 		return nil, fmt.Errorf("could not load limiter state: %w", err)

@@ -6,9 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
-	"errors"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 
@@ -18,6 +16,7 @@ import (
 	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -155,25 +154,37 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return fmt.Errorf("could not encode waller state: %w", err)
 	}
-	key := w.uid
-	if !strings.HasPrefix(key, DefaultKeyspace) {
-		key = path.Join(DefaultKeyspace, w.uid)
-	}
+	key := path.Join(DefaultKeyspace, w.uid)
 	if err := rw.Set(ctx, key, &buf); err != nil {
 		return fmt.Errorf("could not save waller state: %w", err)
 	}
 	return nil
 }
 
+func checkUID(uid string) error {
+	fs := strings.Split(uid, "/")
+	if len(fs) == 0 {
+		return fmt.Errorf("uid cannot be empty")
+	}
+	if _, err := uuid.Parse(fs[0]); err != nil {
+		return fmt.Errorf("uid %q doesn't start with an uuid: %w", uid, err)
+	}
+	return nil
+}
+
+func cleanUID(uid string) string {
+	uid = strings.TrimPrefix(uid, "/wallers/")
+	uid = strings.TrimPrefix(uid, "/limiters/")
+	uid = strings.TrimPrefix(uid, "/loopers/")
+	return uid
+}
+
 func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
-	key := uid
-	if !strings.HasPrefix(key, DefaultKeyspace) {
-		key = path.Join(DefaultKeyspace, uid)
+	if err := checkUID(uid); err != nil {
+		return nil, err
 	}
+	key := path.Join(DefaultKeyspace, uid)
 	gv, err := kvutil.Get[gobs.WallerState](ctx, r, key)
-	if errors.Is(err, os.ErrNotExist) {
-		gv, err = kvutil.Get[gobs.WallerState](ctx, r, uid)
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +192,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 	var loopers []*looper.Looper
 	for _, id := range gv.V2.LooperIDs {
 		id := strings.TrimPrefix(id, DefaultKeyspace) // TODO: Remove after prod rollout.
-		v, err := looper.Load(ctx, id, r)
+		v, err := looper.Load(ctx, cleanUID(id), r)
 		if err != nil {
 			return nil, err
 		}

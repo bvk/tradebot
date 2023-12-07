@@ -36,7 +36,7 @@ func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loade
 			continue
 		}
 
-		v, err := loader(ctx, k, r)
+		v, err := loader(ctx, uid, r)
 		if err != nil {
 			return nil, err
 		}
