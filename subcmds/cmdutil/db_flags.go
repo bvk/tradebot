@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvhttp"
@@ -86,20 +87,28 @@ func (f *DBFlags) GetDatabase(ctx context.Context) (kv.Database, error) {
 	return kvhttp.New(addrURL, f.ClientFlags.HttpClient()), nil
 }
 
-func (f *DBFlags) ResolveName(ctx context.Context, arg string) (string, error) {
+func (f *DBFlags) ResolveName(ctx context.Context, arg string) (string, string, error) {
 	name := arg
 	if strings.HasPrefix(arg, "name:") {
 		name = strings.TrimPrefix(arg, "name:")
 	}
 	db, err := f.GetDatabase(ctx)
 	if err != nil {
-		return "", fmt.Errorf("could not create database client: %w", err)
+		return "", "", fmt.Errorf("could not create database client: %w", err)
 	}
-	v, err := server.ResolveName(ctx, db, name)
-	if err != nil {
-		return "", fmt.Errorf("could not resolve name %q: %w", arg, err)
+	var id, typename string
+	resolve := func(ctx context.Context, r kv.Reader) error {
+		a, b, err := namer.ResolveName(ctx, r, name)
+		if err != nil {
+			return fmt.Errorf("could not resolve name %q: %w", arg, err)
+		}
+		id, typename = a, b
+		return nil
 	}
-	return v, nil
+	if err := kv.WithReader(ctx, db, resolve); err != nil {
+		return "", "", fmt.Errorf("could not resolve name: %w", err)
+	}
+	return id, typename, nil
 }
 
 func (f *DBFlags) GetJobID(ctx context.Context, arg string) (uid string, err error) {
@@ -135,18 +144,11 @@ func (f *DBFlags) GetJobID(ctx context.Context, arg string) (uid string, err err
 		return file, nil
 	}
 	if prefix == "name" {
-		data, err := f.ResolveName(ctx, value)
+		id, _, err := f.ResolveName(ctx, value)
 		if err != nil {
 			return "", fmt.Errorf("could not resolve name prefixed argument %q: %w", value, err)
 		}
-		dir, file := path.Split(data)
-		if dir != server.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
-		}
-		if _, err := uuid.Parse(file); err != nil {
-			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
-		}
-		return file, nil
+		return id, nil
 	}
 	// Automatic UUID resolution.
 	if _, err := uuid.Parse(arg); err == nil {
@@ -164,15 +166,8 @@ func (f *DBFlags) GetJobID(ctx context.Context, arg string) (uid string, err err
 		return file, nil
 	}
 	// Automatic name resolution.
-	if data, err := f.ResolveName(ctx, arg); err == nil {
-		dir, file := path.Split(data)
-		if dir != server.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
-		}
-		if _, err := uuid.Parse(file); err != nil {
-			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
-		}
-		return file, nil
+	if id, _, err := f.ResolveName(ctx, arg); err == nil {
+		return id, nil
 	}
 	return "", fmt.Errorf("could not convert/resolve argument %q to an uuid", arg)
 }

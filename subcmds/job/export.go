@@ -16,6 +16,7 @@ import (
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
@@ -59,6 +60,9 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	jstate, err := dbutil.Get[gobs.ServerJobState](ctx, db, jobKey)
 	if err != nil {
 		return fmt.Errorf("could not load job state: %w", err)
+	}
+	if !job.IsStopped(job.State(jstate.CurrentState)) {
+		return fmt.Errorf("job is actively running; cannot be exported")
 	}
 
 	var job trader.Job

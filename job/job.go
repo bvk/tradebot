@@ -132,6 +132,10 @@ func (j *Job) goRun(ctx context.Context) {
 	}
 }
 
+func IsStopped(s State) bool {
+	return s != "RESUMED"
+}
+
 func IsFinal(s State) bool {
 	return s == "COMPLETED" || s == "CANCELED" || strings.HasPrefix(string(s), "FAILED:")
 }

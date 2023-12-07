@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,11 +26,14 @@ import (
 
 type Import struct {
 	cmdutil.DBFlags
+
+	dryRun bool
 }
 
 func (c *Import) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("import", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
+	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the imported data")
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -86,6 +90,12 @@ func (c *Import) run(ctx context.Context, args []string) error {
 	}
 	if err := kv.WithReader(ctx, db, verifier); err != nil {
 		return fmt.Errorf("cannot import the job to the target db: %w", err)
+	}
+
+	if c.dryRun {
+		data, _ := json.MarshalIndent(export, "", "  ")
+		fmt.Printf("%s\n", data)
+		return nil
 	}
 
 	importer := func(ctx context.Context, rw kv.ReadWriter) error {

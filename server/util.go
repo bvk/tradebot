@@ -4,7 +4,6 @@ package server
 
 import (
 	"context"
-	"crypto/md5"
 	"errors"
 	"fmt"
 	"io"
@@ -12,8 +11,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/bvk/tradebot/dbutil"
-	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/trader"
@@ -21,16 +18,6 @@ import (
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
 )
-
-func ResolveName(ctx context.Context, db kv.Database, name string) (string, error) {
-	checksum := md5.Sum([]byte(name))
-	key := path.Join(NamesKeyspace, uuid.UUID(checksum).String())
-	old, err := dbutil.Get[gobs.NameData](ctx, db, key)
-	if err != nil {
-		return "", fmt.Errorf("could not load old name data: %w", err)
-	}
-	return old.Data, nil
-}
 
 func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loader func(context.Context, string, kv.Reader) (T, error)) ([]trader.Job, error) {
 	begin := path.Join(keyspace, minUUID)
