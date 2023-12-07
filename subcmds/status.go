@@ -9,13 +9,17 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/limiter"
+	"github.com/bvk/tradebot/looper"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/trader"
+	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
@@ -41,12 +45,23 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 
 	var jobs []trader.Job
+	uid2nameMap := make(map[string]string)
 	load := func(ctx context.Context, r kv.Reader) error {
 		vs, err := server.LoadTraders(ctx, r)
 		if err != nil {
 			return fmt.Errorf("could not load traders: %w", err)
 		}
 		jobs = vs
+
+		for _, j := range jobs {
+			uid := j.UID()
+			uid = strings.TrimPrefix(uid, limiter.DefaultKeyspace)
+			uid = strings.TrimPrefix(uid, looper.DefaultKeyspace)
+			uid = strings.TrimPrefix(uid, waller.DefaultKeyspace)
+			if name, _, err := namer.ResolveID(ctx, r, uid); err == nil {
+				uid2nameMap[j.UID()] = name
+			}
+		}
 		return nil
 	}
 	if err := kv.WithReader(ctx, db, load); err != nil {
@@ -105,9 +120,12 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	fmt.Println()
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-	fmt.Fprintf(tw, "UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
+	fmt.Fprintf(tw, "Name/UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
 	for _, s := range statuses {
 		uid := s.UID()
+		if name, ok := uid2nameMap[uid]; ok {
+			uid = name
+		}
 		pid := s.ProductID()
 		fees := s.TotalFees()
 		bought := s.BoughtValue()
