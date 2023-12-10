@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -182,6 +184,9 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 				},
 			},
 		},
+	}
+	if !slices.IsSorted(gv.V2.LimiterIDs) {
+		log.Printf("error: %s: limiter ids are not found in the sorted order", v.uid)
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
