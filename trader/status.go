@@ -111,9 +111,13 @@ func GetStatus(job Job) *Status {
 		// This adjustment is necessary cause we had an incident that required
 		// multiple sells for a single buy.
 		if side(this) == "SELL" {
-			last := pairs[len(pairs)-1]
-			if point.Equal(last[1].Point, this.Point) {
-				last[1].Orders = append(last[1].Orders, this.Orders...)
+			if len(pairs) > 0 {
+				last := pairs[len(pairs)-1]
+				if point.Equal(last[1].Point, this.Point) {
+					last[1].Orders = append(last[1].Orders, this.Orders...)
+				}
+			} else {
+				log.Printf("%s: noticed a sell for point %s before any buy-sell pairs", job.UID(), this.Point)
 			}
 			continue
 		}
@@ -138,7 +142,8 @@ func GetStatus(job Job) *Status {
 	var usize, uvalue decimal.Decimal
 	for i, v := range unpaired {
 		if side(v) != "BUY" {
-			log.Fatalf("%s: unpaired order %d (%#v) is not a buy order", job.UID(), i, v)
+			log.Printf("%s: unpaired order %d (%#v) is not a buy order (ignored)", job.UID(), i, v)
+			continue
 		}
 		fees = fees.Add(filledFee(v.Orders))
 		bsize = bsize.Add(filledSize(v.Orders))
