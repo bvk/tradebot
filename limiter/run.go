@@ -15,6 +15,9 @@ import (
 )
 
 func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
+	v.runtimeLock.Lock()
+	defer v.runtimeLock.Unlock()
+
 	log.Printf("%s:%s: started limiter job", v.uid, v.point)
 	if rt.Product.ProductID() != v.productID {
 		return os.ErrInvalid
@@ -155,10 +158,16 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 // Fix is a temporary helper interface used to fix any past mistakes.
 func (v *Limiter) Fix(ctx context.Context, rt *trader.Runtime) error {
+	v.runtimeLock.Lock()
+	defer v.runtimeLock.Unlock()
+
 	return nil
 }
 
 func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
+	v.runtimeLock.Lock()
+	defer v.runtimeLock.Unlock()
+
 	if _, err := v.fetchOrderMap(ctx, rt.Product); err != nil {
 		return fmt.Errorf("could not refresh limiter state: %w", err)
 	}

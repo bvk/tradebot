@@ -16,6 +16,9 @@ import (
 )
 
 func (v *Looper) Fix(ctx context.Context, rt *trader.Runtime) error {
+	v.runtimeLock.Lock()
+	defer v.runtimeLock.Unlock()
+
 	for _, b := range v.buys {
 		if err := b.Fix(ctx, rt); err != nil {
 			return err
@@ -30,6 +33,9 @@ func (v *Looper) Fix(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
+	v.runtimeLock.Lock()
+	defer v.runtimeLock.Unlock()
+
 	for _, b := range v.buys {
 		if err := b.Refresh(ctx, rt); err != nil {
 			return err
@@ -44,6 +50,9 @@ func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
+	v.runtimeLock.Lock()
+	defer v.runtimeLock.Unlock()
+
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)
 

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
@@ -26,6 +27,8 @@ import (
 const DefaultKeyspace = "/loopers/"
 
 type Looper struct {
+	runtimeLock sync.Mutex
+
 	productID    string
 	exchangeName string
 

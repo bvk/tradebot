@@ -10,6 +10,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
@@ -26,6 +27,8 @@ import (
 const DefaultKeyspace = "/limiters/"
 
 type Limiter struct {
+	runtimeLock sync.Mutex
+
 	productID    string
 	exchangeName string
 
