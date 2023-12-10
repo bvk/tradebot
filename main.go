@@ -11,6 +11,7 @@ import (
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvk/tradebot/subcmds/exchange"
+	"github.com/bvk/tradebot/subcmds/fix"
 	"github.com/bvk/tradebot/subcmds/job"
 	"github.com/bvk/tradebot/subcmds/limiter"
 	"github.com/bvk/tradebot/subcmds/looper"
@@ -26,6 +27,10 @@ func main() {
 		new(db.List),
 		new(db.Backup),
 		new(db.Restore),
+	}
+
+	fixCmds := []cli.Command{
+		new(fix.CancelOffset),
 	}
 
 	jobCmds := []cli.Command{
@@ -71,6 +76,7 @@ func main() {
 		new(subcmds.Run),
 		new(subcmds.Status),
 		new(subcmds.IDGen),
+		cli.CommandGroup("fix", "Fix misc. metadata issues", fixCmds...),
 		cli.CommandGroup("job", "Control trader jobs", jobCmds...),
 		cli.CommandGroup("db", "View/update database directly", dbCmds...),
 		cli.CommandGroup("limiter", "Manage limit buys/sells", limiterCmds...),
