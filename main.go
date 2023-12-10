@@ -33,6 +33,7 @@ func main() {
 		new(job.Pause),
 		new(job.Resume),
 		new(job.Cancel),
+		new(job.Actions),
 		new(job.SetName),
 		new(job.Export),
 		new(job.Import),
