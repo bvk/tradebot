@@ -20,8 +20,8 @@ import (
 )
 
 func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loader func(context.Context, string, kv.Reader) (T, error)) ([]trader.Job, error) {
-	begin := path.Join(keyspace, minUUID)
-	end := path.Join(keyspace, maxUUID)
+	begin := path.Join(keyspace, MinUUID)
+	end := path.Join(keyspace, MaxUUID)
 
 	it, err := r.Ascend(ctx, begin, end)
 	if err != nil {

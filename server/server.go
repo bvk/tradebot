@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	// We assume minUUID and maxUUID are never "generated".
-	minUUID = "00000000-0000-0000-0000-000000000000"
-	maxUUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+	// We assume MinUUID and MaxUUID are never "generated".
+	MinUUID = "00000000-0000-0000-0000-000000000000"
+	MaxUUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 	JobsKeyspace    = "/jobs/"
 	NamesKeyspace   = "/names/"
