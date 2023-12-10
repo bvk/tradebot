@@ -139,7 +139,7 @@ func (v *Limiter) Actions() []*gobs.Action {
 	if len(orders) == 0 {
 		return nil
 	}
-	return []*gobs.Action{{Point: gobs.Point(v.point), Orders: orders}}
+	return []*gobs.Action{{UID: v.uid, Point: gobs.Point(v.point), Orders: orders}}
 }
 
 func (v *Limiter) Fees() decimal.Decimal {

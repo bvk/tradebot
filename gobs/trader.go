@@ -3,6 +3,8 @@
 package gobs
 
 type Action struct {
+	UID string
+
 	Point Point
 
 	Orders []*Order
