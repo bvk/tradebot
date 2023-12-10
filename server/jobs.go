@@ -12,7 +12,6 @@ import (
 	"reflect"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/kvutil"
@@ -38,7 +37,7 @@ func (s *Server) makeJobFunc(v trader.Job) job.Func {
 // manual resume request from the user.
 func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, error) {
 	key := path.Join(JobsKeyspace, id)
-	gstate, err := dbutil.Get[gobs.ServerJobState](ctx, s.db, key)
+	gstate, err := kvutil.GetDB[gobs.ServerJobState](ctx, s.db, key)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, false, err
@@ -93,7 +92,7 @@ func (s *Server) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.Jo
 		NeedsManualResume: true,
 	}
 	key := path.Join(JobsKeyspace, req.UID)
-	if err := dbutil.Set(ctx, s.db, key, gstate); err != nil {
+	if err := kvutil.SetDB(ctx, s.db, key, gstate); err != nil {
 		return nil, err
 	}
 	s.jobMap.Delete(req.UID)
@@ -131,7 +130,7 @@ func (s *Server) doResume(ctx context.Context, req *api.JobResumeRequest) (*api.
 		NeedsManualResume: false,
 	}
 	key := path.Join(JobsKeyspace, req.UID)
-	if err := dbutil.Set(ctx, s.db, key, gstate); err != nil {
+	if err := kvutil.SetDB(ctx, s.db, key, gstate); err != nil {
 		return nil, err
 	}
 	s.jobMap.Store(req.UID, j)
@@ -168,7 +167,7 @@ func (s *Server) doCancel(ctx context.Context, req *api.JobCancelRequest) (*api.
 		CurrentState: string(j.State()),
 	}
 	key := path.Join(JobsKeyspace, req.UID)
-	if err := dbutil.Set(ctx, s.db, key, gstate); err != nil {
+	if err := kvutil.SetDB(ctx, s.db, key, gstate); err != nil {
 		return nil, err
 	}
 	s.jobMap.Delete(req.UID)
@@ -185,7 +184,7 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 			return j.State()
 		}
 		key := path.Join(JobsKeyspace, id)
-		v, err := dbutil.Get[gobs.ServerJobState](ctx, s.db, key)
+		v, err := kvutil.GetDB[gobs.ServerJobState](ctx, s.db, key)
 		if err != nil {
 			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
 			return ""

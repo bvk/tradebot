@@ -8,8 +8,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
@@ -19,7 +19,7 @@ func LoadCandles(ctx context.Context, db kv.Database, exchange, product string, 
 	day = day.UTC()
 	key := path.Join(server.CandlesKeyspace, exchange, product, day.Format("2006-01-02"))
 
-	gcs, err := dbutil.Get[gobs.Candles](ctx, db, key)
+	gcs, err := kvutil.GetDB[gobs.Candles](ctx, db, key)
 	if err != nil {
 		return nil, fmt.Errorf("could not load candles from key %q: %w", key, err)
 	}

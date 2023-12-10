@@ -14,9 +14,9 @@ import (
 	"path"
 
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
@@ -57,7 +57,7 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	}
 
 	jobKey := path.Join(server.JobsKeyspace, jobID)
-	jstate, err := dbutil.Get[gobs.ServerJobState](ctx, db, jobKey)
+	jstate, err := kvutil.GetDB[gobs.ServerJobState](ctx, db, jobKey)
 	if err != nil {
 		return fmt.Errorf("could not load job state: %w", err)
 	}

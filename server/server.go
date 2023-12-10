@@ -20,10 +20,10 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
-	"github.com/bvk/tradebot/dbutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
@@ -113,7 +113,7 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		pushoverClient = client
 	}
 
-	state, err := dbutil.Get[gobs.ServerState](ctx, db, serverStateKey)
+	state, err := kvutil.GetDB[gobs.ServerState](ctx, db, serverStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("could not load trader state: %w", err)
@@ -217,7 +217,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		key := path.Join(JobsKeyspace, id)
 		state := j.State()
 		gstate := &gobs.ServerJobState{CurrentState: string(state), NeedsManualResume: false}
-		if err := dbutil.Set(ctx, s.db, key, gstate); err != nil {
+		if err := kvutil.SetDB(ctx, s.db, key, gstate); err != nil {
 			log.Printf("warning: job %s state could not be updated (ignored)", id)
 		}
 		if job.IsFinal(state) {
@@ -472,7 +472,7 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, err
 	}
 	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
-	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := kvutil.SetDB(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
@@ -517,7 +517,7 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		return nil, err
 	}
 	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
-	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := kvutil.SetDB(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
@@ -562,7 +562,7 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		return nil, err
 	}
 	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
-	if err := dbutil.Set(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := kvutil.SetDB(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
 		return nil, err
 	}
 
