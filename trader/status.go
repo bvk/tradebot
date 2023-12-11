@@ -3,6 +3,7 @@
 package trader
 
 import (
+	"fmt"
 	"log"
 	"slices"
 	"time"
@@ -23,16 +24,19 @@ type Status struct {
 
 	minCreateTime time.Time
 
-	soldSize   decimal.Decimal
-	boughtSize decimal.Decimal
-	unsoldSize decimal.Decimal
+	soldSize     decimal.Decimal
+	boughtSize   decimal.Decimal
+	unsoldSize   decimal.Decimal
+	oversoldSize decimal.Decimal
 
-	soldValue   decimal.Decimal
-	boughtValue decimal.Decimal
-	unsoldValue decimal.Decimal
+	soldValue     decimal.Decimal
+	boughtValue   decimal.Decimal
+	unsoldValue   decimal.Decimal
+	oversoldValue decimal.Decimal
 
-	totalFees  decimal.Decimal
-	unsoldFees decimal.Decimal
+	totalFees    decimal.Decimal
+	unsoldFees   decimal.Decimal
+	oversoldFees decimal.Decimal
 }
 
 func (s *Status) UID() string {
@@ -41,6 +45,10 @@ func (s *Status) UID() string {
 
 func (s *Status) ProductID() string {
 	return s.productID
+}
+
+func (s *Status) String() string {
+	return fmt.Sprintf("uid %s product %s bvalue %s s %s usize %s", s.uid, s.productID, s.boughtSize, s.soldSize, s.unsoldSize)
 }
 
 func (s *Status) TotalFees() decimal.Decimal {
@@ -65,7 +73,9 @@ func (s *Status) StartTime() time.Time {
 
 func (s *Status) Profit() decimal.Decimal {
 	unsold := s.unsoldValue.Add(s.unsoldFees)
-	return s.soldValue.Sub(s.boughtValue).Sub(s.totalFees).Add(unsold)
+	oversold := s.oversoldValue.Add(s.oversoldFees)
+	profit := s.soldValue.Sub(s.boughtValue).Sub(s.totalFees).Add(unsold)
+	return profit.Sub(oversold)
 }
 
 func (s *Status) FeePct() decimal.Decimal {
@@ -125,33 +135,73 @@ func GetStatus(job Job) *Status {
 		unpaired = append(unpaired, this)
 	}
 
-	var fees decimal.Decimal
-	var bsize, ssize decimal.Decimal
-	var bvalue, svalue decimal.Decimal
+	var feesTotal decimal.Decimal
+	var buySizeTotal, buyValueTotal decimal.Decimal
+	var sellSizeTotal, sellValueTotal decimal.Decimal
+	var unsoldFeesTotal, unsoldSizeTotal, unsoldValueTotal decimal.Decimal
+	var oversoldFeesTotal, oversoldSizeTotal, oversoldValueTotal decimal.Decimal
 	for _, bs := range pairs {
-		fees = fees.Add(filledFee(bs[0].Orders))
-		bsize = bsize.Add(filledSize(bs[0].Orders))
-		bvalue = bvalue.Add(filledValue(bs[0].Orders))
+		bfees := filledFee(bs[0].Orders)
+		bsize := filledSize(bs[0].Orders)
+		bvalue := filledValue(bs[0].Orders)
+		bprice := avgPrice(bs[0].Orders)
 
-		fees = fees.Add(filledFee(bs[1].Orders))
-		ssize = ssize.Add(filledSize(bs[1].Orders))
-		svalue = svalue.Add(filledValue(bs[1].Orders))
+		sfees := filledFee(bs[1].Orders)
+		ssize := filledSize(bs[1].Orders)
+		svalue := filledValue(bs[1].Orders)
+		sprice := avgPrice(bs[1].Orders)
+
+		feesTotal = feesTotal.Add(bfees)
+		buySizeTotal = buySizeTotal.Add(bsize)
+		buyValueTotal = buyValueTotal.Add(bvalue)
+
+		feesTotal = feesTotal.Add(sfees)
+		sellSizeTotal = sellSizeTotal.Add(ssize)
+		sellValueTotal = sellValueTotal.Add(svalue)
+
+		if ssize.LessThan(bsize) {
+			log.Printf("UNDERSELL: %s sold only size %s of buy size %s by %s", bs[1].UID, ssize.StringFixed(3), bsize.StringFixed(3), bs[0].UID)
+			usize := bsize.Sub(ssize)
+			uvalue := bvalue.Sub(svalue)
+			ufees := bfees.Div(bsize).Mul(usize)
+
+			unsoldFeesTotal = unsoldFeesTotal.Add(ufees)
+			unsoldSizeTotal = unsoldSizeTotal.Add(usize)
+			unsoldValueTotal = unsoldValueTotal.Add(uvalue)
+		}
+		if ssize.GreaterThan(bsize) {
+			log.Printf("OVERSELL: %s sold size %s at %s, but only bought size %s at %s by %s", bs[1].UID, ssize.StringFixed(3), sprice.StringFixed(3), bsize.StringFixed(3), bprice.StringFixed(3), bs[0].UID)
+			osize := ssize.Sub(bsize)
+			ovalue := svalue.Sub(bvalue)
+			ofees := sfees.Div(ssize).Mul(osize)
+
+			oversoldFeesTotal = oversoldFeesTotal.Add(ofees)
+			oversoldSizeTotal = oversoldSizeTotal.Add(osize)
+			oversoldValueTotal = oversoldValueTotal.Add(ovalue)
+		}
+		if sprice.LessThan(bprice) {
+			log.Printf("LOSS: %s sold size %s at %s of buy size %s at %s by %s", bs[1].UID, ssize.StringFixed(3), sprice.StringFixed(3), bsize.StringFixed(3), bprice.StringFixed(3), bs[0].UID)
+			// TODO: Keep accounting for all losses.
+		}
 	}
 
-	var ufees decimal.Decimal
-	var usize, uvalue decimal.Decimal
 	for i, v := range unpaired {
 		if side(v) != "BUY" {
 			log.Printf("%s: unpaired order %d (%#v) is not a buy order (ignored)", job.UID(), i, v)
 			continue
 		}
-		fees = fees.Add(filledFee(v.Orders))
-		bsize = bsize.Add(filledSize(v.Orders))
-		bvalue = bvalue.Add(filledValue(v.Orders))
 
-		ufees = ufees.Add(filledFee(v.Orders))
-		usize = usize.Add(filledSize(v.Orders))
-		uvalue = uvalue.Add(filledValue(v.Orders))
+		ufees := filledFee(v.Orders)
+		usize := filledSize(v.Orders)
+		uvalue := filledValue(v.Orders)
+
+		feesTotal = feesTotal.Add(ufees)
+		buySizeTotal = buySizeTotal.Add(usize)
+		buyValueTotal = buyValueTotal.Add(uvalue)
+
+		unsoldFeesTotal = unsoldFeesTotal.Add(ufees)
+		unsoldSizeTotal = unsoldSizeTotal.Add(usize)
+		unsoldValueTotal = unsoldValueTotal.Add(uvalue)
 	}
 
 	s := &Status{
@@ -159,16 +209,19 @@ func GetStatus(job Job) *Status {
 		productID:    job.ProductID(),
 		exchangeName: job.ExchangeName(),
 
-		soldValue:   svalue,
-		boughtValue: bvalue,
-		unsoldValue: uvalue,
+		soldValue:     sellValueTotal,
+		boughtValue:   buyValueTotal,
+		unsoldValue:   unsoldValueTotal,
+		oversoldValue: oversoldValueTotal,
 
-		soldSize:   ssize,
-		boughtSize: bsize,
-		unsoldSize: usize,
+		soldSize:     sellSizeTotal,
+		boughtSize:   buySizeTotal,
+		unsoldSize:   unsoldSizeTotal,
+		oversoldSize: oversoldSizeTotal,
 
-		totalFees:  fees,
-		unsoldFees: ufees,
+		totalFees:    feesTotal,
+		unsoldFees:   unsoldFeesTotal,
+		oversoldFees: oversoldFeesTotal,
 
 		minCreateTime: first.Orders[0].CreateTime.Time,
 	}

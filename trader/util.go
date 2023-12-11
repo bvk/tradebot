@@ -30,3 +30,11 @@ func filledFee(vs []*gobs.Order) decimal.Decimal {
 	}
 	return sum
 }
+
+func avgPrice(vs []*gobs.Order) decimal.Decimal {
+	var sum decimal.Decimal
+	for _, v := range vs {
+		sum = sum.Add(v.FilledPrice)
+	}
+	return sum.Div(decimal.NewFromInt(int64(len(vs))))
+}
