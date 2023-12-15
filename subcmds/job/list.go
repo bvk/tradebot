@@ -4,9 +4,10 @@ package job
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
+	"text/tabwriter"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
@@ -33,8 +34,13 @@ func (c *List) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	jsdata, _ := json.MarshalIndent(resp, "", "  ")
-	fmt.Printf("%s\n", jsdata)
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+	fmt.Fprintf(tw, "Name\tUID\tType\tStatus\t\n")
+	for _, job := range resp.Jobs {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t\n", job.Name, job.UID, job.Type, job.State)
+	}
+	tw.Flush()
 	return nil
 }
 

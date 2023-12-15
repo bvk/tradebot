@@ -6,10 +6,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"reflect"
+	"strings"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/gobs"
@@ -56,7 +56,9 @@ func (s *Server) createJob(ctx context.Context, id string) (*job.Job, bool, erro
 		if err != nil {
 			return nil, false, fmt.Errorf("job %s not found and could not be loaded: %w", id, err)
 		}
-		s.traderMap.Store(id, x)
+		if old, loaded := s.traderMap.LoadOrStore(id, x); loaded {
+			x = old
+		}
 		v = x
 	}
 
@@ -179,19 +181,6 @@ func (s *Server) doCancel(ctx context.Context, req *api.JobCancelRequest) (*api.
 }
 
 func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobListResponse, error) {
-	getState := func(id string) job.State {
-		if j, ok := s.jobMap.Load(id); ok {
-			return j.State()
-		}
-		key := path.Join(JobsKeyspace, id)
-		v, err := kvutil.GetDB[gobs.ServerJobState](ctx, s.db, key)
-		if err != nil {
-			log.Printf("could not fetch job state for %s (ignored): %v", id, err)
-			return ""
-		}
-		return job.State(v.CurrentState)
-	}
-
 	snap, err := s.db.NewSnapshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not create a db snapshot: %w", err)
@@ -199,16 +188,28 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 	defer snap.Discard(ctx)
 
 	resp := new(api.JobListResponse)
-	s.traderMap.Range(func(id string, v trader.Job) bool {
-		name, _, _ := namer.ResolveID(ctx, snap, id)
-		resp.Jobs = append(resp.Jobs, &api.JobListResponseItem{
-			UID:   v.UID(),
-			Type:  reflect.TypeOf(v).Elem().Name(),
-			State: string(getState(id)),
+	collect := func(key string, state *gobs.ServerJobState) error {
+		id := strings.TrimPrefix(key, JobsKeyspace)
+		name, typename, err := namer.ResolveID(ctx, snap, id)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("could not resolve job id %q: %w", id, err)
+			}
+		}
+		item := &api.JobListResponseItem{
+			UID:   id,
+			Type:  typename,
+			State: state.CurrentState,
 			Name:  name,
-		})
-		return true
-	})
+		}
+		resp.Jobs = append(resp.Jobs, item)
+		return nil
+	}
+	begin := path.Join(JobsKeyspace, MinUUID)
+	end := path.Join(JobsKeyspace, MaxUUID)
+	if err := kvutil.Ascend(ctx, snap, begin, end, collect); err != nil {
+		return nil, fmt.Errorf("could not scan jobs keyspace: %w", err)
+	}
 	return resp, nil
 }
 
@@ -233,7 +234,9 @@ func (s *Server) doSetJobName(ctx context.Context, req *api.SetJobNameRequest) (
 			if err != nil {
 				return fmt.Errorf("job %s not found and could not be loaded: %w", req.UID, err)
 			}
-			s.traderMap.Store(req.UID, x)
+			if old, loaded := s.traderMap.LoadOrStore(req.UID, x); loaded {
+				x = old
+			}
 			job = x
 		}
 
