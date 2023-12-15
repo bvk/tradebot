@@ -63,10 +63,12 @@ func (c *SetName) run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not open database client: %w", err)
 	}
+	defer closer()
+
 	if err := kv.WithReadWriter(ctx, db, rename); err != nil {
 		return fmt.Errorf("could not rename: %w", err)
 	}

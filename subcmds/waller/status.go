@@ -4,11 +4,14 @@ package waller
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -29,13 +32,25 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("this command takes one (waller-job-id) argument")
 	}
-	uid, err := c.DBFlags.GetJobID(ctx, args[0])
+
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
-		return fmt.Errorf("could not resolve argument: %w", err)
+		return err
 	}
+	defer closer()
 
 	var status *waller.Status
 	getter := func(ctx context.Context, r kv.Reader) error {
+		uid, typename, err := namer.ResolveName(ctx, r, args[0])
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("could not resolve job argument %q: %w", args[0], err)
+			}
+			uid = args[0]
+		}
+		if typename != "" && typename != "Waller" {
+			return fmt.Errorf("job id resolved to job type %q", typename)
+		}
 		w, err := waller.Load(ctx, uid, r)
 		if err != nil {
 			return err
@@ -44,10 +59,6 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
-	if err != nil {
-		return err
-	}
 	if err := kv.WithReader(ctx, db, getter); err != nil {
 		return err
 	}

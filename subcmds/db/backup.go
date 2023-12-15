@@ -63,10 +63,12 @@ func (c *Backup) run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not get database instance: %w", err)
 	}
+	defer closer()
+
 	if err := kv.WithReader(ctx, db, backup); err != nil {
 		return fmt.Errorf("could not run backup on the snapshot: %w", err)
 	}

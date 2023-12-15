@@ -54,10 +54,11 @@ func (c *Import) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not gob-decode data file: %w", err)
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not get db access: %w", err)
 	}
+	defer closer()
 
 	name := export.Name
 	if len(name) == 0 {

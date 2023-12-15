@@ -37,10 +37,12 @@ func (c *Upgrade) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
+	defer closer()
+
 	if err := kv.WithReadWriter(ctx, db, upgrader); err != nil {
 		return err
 	}

@@ -43,10 +43,11 @@ func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *Status) run(ctx context.Context, args []string) error {
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
+	defer closer()
 
 	var jobs []trader.Job
 	uid2nameMap := make(map[string]string)

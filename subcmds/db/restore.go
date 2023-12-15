@@ -36,10 +36,12 @@ func (c *Restore) run(ctx context.Context, args []string) error {
 
 	r := bufio.NewReader(fp)
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not get database instance: %w", err)
 	}
+	defer closer()
+
 	if err := doRestore(ctx, r, db); err != nil {
 		return fmt.Errorf("could not run restore from backup: %w", err)
 	}

@@ -33,10 +33,11 @@ func (c *Actions) run(ctx context.Context, args []string) error {
 	}
 	jobArg := args[0]
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create db instance: %w", err)
 	}
+	defer closer()
 
 	printer := func(ctx context.Context, r kv.Reader) error {
 		uid, _, err := namer.ResolveName(ctx, r, jobArg)

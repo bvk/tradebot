@@ -86,10 +86,11 @@ func (c *GetCandles) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not parse date argument: %w", err)
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create database client: %w", err)
 	}
+	defer closer()
 
 	for i := 0; i < c.numDays; i++ {
 		end := start.Add(24 * time.Hour)

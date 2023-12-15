@@ -41,10 +41,12 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("invalid type name %q: %w", c.valueType, err)
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
+	defer closer()
+
 	tx, err := db.NewTransaction(ctx)
 	if err != nil {
 		return err

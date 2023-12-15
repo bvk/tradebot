@@ -21,10 +21,12 @@ func (c *Set) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs two (key, value) arguments")
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
+	defer closer()
+
 	tx, err := db.NewTransaction(ctx)
 	if err != nil {
 		return err

@@ -60,10 +60,11 @@ func (c *Analyze) run(ctx context.Context, args []string) error {
 	}
 	endTime := startTime.Add(time.Duration(c.numDays) * 24 * time.Hour)
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create database client: %w", err)
 	}
+	defer closer()
 
 	var candles []*gobs.Candle
 	for s := startTime; s.Before(endTime); s = s.Add(24 * time.Hour) {

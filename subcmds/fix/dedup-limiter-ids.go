@@ -39,10 +39,11 @@ func (c *DedupLimiterIDs) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("command takes no arguments")
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create db instance: %w", err)
 	}
+	defer closer()
 
 	fixer := func(ctx context.Context, rw kv.ReadWriter) error {
 		begin := path.Join(looper.DefaultKeyspace, server.MinUUID)

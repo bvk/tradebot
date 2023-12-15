@@ -11,20 +11,18 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/gobs"
-	"github.com/bvk/tradebot/namer"
-	"github.com/bvk/tradebot/server"
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kv/kvmemdb"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
-	"github.com/google/uuid"
 )
 
 type DBFlags struct {
@@ -36,6 +34,9 @@ type DBFlags struct {
 	dataDir string
 
 	fromBackup string
+
+	backupBefore string
+	backupAfter  string
 }
 
 func (f *DBFlags) check() error {
@@ -50,9 +51,34 @@ func (f *DBFlags) SetFlags(fset *flag.FlagSet) {
 
 	f.ClientFlags.SetFlags(fset)
 	fset.StringVar(&f.dbURLPath, "db-url-path", "/db", "path to db api handler")
+
+	fset.StringVar(&f.backupBefore, "backup-before", "", "Path to a file to receive db backup before cmd is run")
+	fset.StringVar(&f.backupAfter, "backup-after", "", "Path to a file to receive db backup after cmd is run")
 }
 
-func (f *DBFlags) GetDatabase(ctx context.Context) (kv.Database, error) {
+func (f *DBFlags) dbCloser(db kv.Database, c io.Closer) func() {
+	return func() {
+		if len(f.backupAfter) != 0 {
+			if err := kvutil.BackupDB(context.Background(), db, f.backupAfter); err != nil {
+				log.Printf("could not take db backup after it is used (ignored): %v", err)
+			}
+		}
+		if c != nil {
+			c.Close()
+		}
+	}
+}
+
+func (f *DBFlags) GetDatabase(ctx context.Context) (db kv.Database, closer func(), status error) {
+	defer func() {
+		if status == nil && len(f.backupBefore) != 0 {
+			if err := kvutil.BackupDB(ctx, db, f.backupBefore); err != nil {
+				log.Printf("could not take a db backup before it is used: %v", err)
+				db, closer, status = nil, nil, err
+			}
+		}
+	}()
+
 	isGoodKey := func(k string) bool {
 		return path.IsAbs(k) && k == path.Clean(k)
 	}
@@ -60,7 +86,7 @@ func (f *DBFlags) GetDatabase(ctx context.Context) (kv.Database, error) {
 	if len(f.fromBackup) != 0 {
 		fp, err := os.Open(f.fromBackup)
 		if err != nil {
-			return nil, fmt.Errorf("could not open file %q: %w", f.fromBackup, err)
+			return nil, nil, fmt.Errorf("could not open file %q: %w", f.fromBackup, err)
 		}
 		defer fp.Close()
 
@@ -68,108 +94,25 @@ func (f *DBFlags) GetDatabase(ctx context.Context) (kv.Database, error) {
 
 		db := kvmemdb.New()
 		if err := doRestore(ctx, r, db); err != nil {
-			return nil, fmt.Errorf("could not restore in-memory db from backup: %w", err)
+			return nil, nil, fmt.Errorf("could not restore in-memory db from backup: %w", err)
 		}
-		return db, nil
+		return db, f.dbCloser(db, nil), nil
 	}
 
 	if len(f.dataDir) != 0 {
 		bopts := badger.DefaultOptions(f.dataDir)
 		bdb, err := badger.Open(bopts)
 		if err != nil {
-			return nil, fmt.Errorf("could not open the database: %w", err)
+			return nil, nil, fmt.Errorf("could not open the database: %w", err)
 		}
-		return kvbadger.New(bdb, isGoodKey), nil
+		db := kvbadger.New(bdb, isGoodKey)
+		return db, f.dbCloser(db, nil), nil
 	}
 
 	addrURL := f.ClientFlags.AddressURL()
 	addrURL.Path = path.Join(addrURL.Path, f.dbURLPath)
-	return kvhttp.New(addrURL, f.ClientFlags.HttpClient()), nil
-}
-
-func (f *DBFlags) ResolveName(ctx context.Context, arg string) (string, string, error) {
-	name := arg
-	if strings.HasPrefix(arg, "name:") {
-		name = strings.TrimPrefix(arg, "name:")
-	}
-	db, err := f.GetDatabase(ctx)
-	if err != nil {
-		return "", "", fmt.Errorf("could not create database client: %w", err)
-	}
-	var id, typename string
-	resolve := func(ctx context.Context, r kv.Reader) error {
-		a, b, err := namer.ResolveName(ctx, r, name)
-		if err != nil {
-			return fmt.Errorf("could not resolve name %q: %w", arg, err)
-		}
-		id, typename = a, b
-		return nil
-	}
-	if err := kv.WithReader(ctx, db, resolve); err != nil {
-		return "", "", fmt.Errorf("could not resolve name: %w", err)
-	}
-	return id, typename, nil
-}
-
-func (f *DBFlags) GetJobID(ctx context.Context, arg string) (uid string, err error) {
-	prefix, value := "", ""
-	switch {
-	case strings.HasPrefix(arg, "uuid:"):
-		prefix = "uuid"
-		value = strings.TrimPrefix(arg, "uuid:")
-	case strings.HasPrefix(arg, "key:"):
-		prefix = "key"
-		value = strings.TrimPrefix(arg, "key:")
-	case strings.HasPrefix(arg, "name:"):
-		prefix = "name"
-		value = strings.TrimPrefix(arg, "name:")
-	}
-	if prefix == "uuid" {
-		if _, err := uuid.Parse(value); err != nil {
-			return "", fmt.Errorf("could not parse argument %q to uuid: %w", arg, err)
-		}
-		return value, nil
-	}
-	if prefix == "key" {
-		if !path.IsAbs(value) {
-			return "", os.ErrInvalid
-		}
-		dir, file := path.Split(value)
-		if dir != server.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
-		}
-		if _, err := uuid.Parse(file); err != nil {
-			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
-		}
-		return file, nil
-	}
-	if prefix == "name" {
-		id, _, err := f.ResolveName(ctx, value)
-		if err != nil {
-			return "", fmt.Errorf("could not resolve name prefixed argument %q: %w", value, err)
-		}
-		return id, nil
-	}
-	// Automatic UUID resolution.
-	if _, err := uuid.Parse(arg); err == nil {
-		return arg, nil
-	}
-	// Automatic key resolution.
-	if path.IsAbs(arg) {
-		dir, file := path.Split(arg)
-		if dir != server.JobsKeyspace {
-			return "", fmt.Errorf("argument must be from %q keyspace", server.JobsKeyspace)
-		}
-		if _, err := uuid.Parse(file); err != nil {
-			return "", fmt.Errorf("could not parse base component %q to uuid: %w", file, err)
-		}
-		return file, nil
-	}
-	// Automatic name resolution.
-	if id, _, err := f.ResolveName(ctx, arg); err == nil {
-		return id, nil
-	}
-	return "", fmt.Errorf("could not convert/resolve argument %q to an uuid", arg)
+	db = kvhttp.New(addrURL, f.ClientFlags.HttpClient())
+	return db, f.dbCloser(db, nil), nil
 }
 
 func doRestore(ctx context.Context, r io.Reader, db kv.Database) error {

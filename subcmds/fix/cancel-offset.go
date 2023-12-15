@@ -35,10 +35,11 @@ func (c *CancelOffset) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("job argument cannot be empty")
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create db instance: %w", err)
 	}
+	defer closer()
 
 	fixer := func(ctx context.Context, rw kv.ReadWriter) error {
 		uid, typename, err := namer.ResolveName(ctx, rw, jobArg)

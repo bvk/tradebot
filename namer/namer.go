@@ -18,6 +18,18 @@ import (
 
 var Keyspace = "/names/"
 
+func Resolve(ctx context.Context, db kv.Database, name string) (id, typename string, err error) {
+	if len(name) == 0 {
+		return "", "", fmt.Errorf("name cannot be empty")
+	}
+	nkey := path.Join(Keyspace, toUUID(name))
+	data, err := kvutil.GetDB[gobs.NameData](ctx, db, nkey)
+	if err != nil {
+		return "", "", fmt.Errorf("could not fetch name-to-id data: %w", err)
+	}
+	return data.ID, data.Typename, nil
+}
+
 func ResolveName(ctx context.Context, r kv.Reader, name string) (id, typename string, err error) {
 	if len(name) == 0 {
 		return "", "", fmt.Errorf("name cannot be empty")

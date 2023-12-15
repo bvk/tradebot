@@ -5,11 +5,14 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
@@ -21,14 +24,24 @@ func (c *Cancel) run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("this command takes one (job-id) argument")
 	}
+	jobArg := args[0]
 
-	jobID, err := c.DBFlags.GetJobID(ctx, args[0])
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
-		return fmt.Errorf("could not convert argument %q to job id: %w", jobID, err)
+		return fmt.Errorf("could not create database client: %w", err)
+	}
+	defer closer()
+
+	uid, _, err := namer.Resolve(ctx, db, jobArg)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)
+		}
+		uid = jobArg
 	}
 
 	req := &api.JobCancelRequest{
-		UID: jobID,
+		UID: uid,
 	}
 	resp, err := cmdutil.Post[api.JobCancelResponse](ctx, &c.ClientFlags, api.JobCancelPath, req)
 	if err != nil {

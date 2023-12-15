@@ -20,10 +20,12 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("needs one (key) argument")
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return err
 	}
+	defer closer()
+
 	tx, err := db.NewTransaction(ctx)
 	if err != nil {
 		return err

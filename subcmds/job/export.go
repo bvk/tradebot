@@ -42,21 +42,27 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("this command takes one (job-id) argument")
 	}
+	jobArg := args[0]
+
 	if len(c.outfile) == 0 {
 		return fmt.Errorf("output file name must be specified")
 	}
 
-	db, err := c.DBFlags.GetDatabase(ctx)
+	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("could not get db access: %w", err)
 	}
+	defer closer()
 
-	jobID, err := c.DBFlags.GetJobID(ctx, args[0])
+	uid, _, err := namer.Resolve(ctx, db, jobArg)
 	if err != nil {
-		return fmt.Errorf("could not convert argument %q to job id: %w", jobID, err)
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)
+		}
+		uid = jobArg
 	}
 
-	jobKey := path.Join(server.JobsKeyspace, jobID)
+	jobKey := path.Join(server.JobsKeyspace, uid)
 	jstate, err := kvutil.GetDB[gobs.ServerJobState](ctx, db, jobKey)
 	if err != nil {
 		return fmt.Errorf("could not load job state: %w", err)
@@ -68,12 +74,12 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	var job trader.Job
 	var name, typename string
 	loader := func(ctx context.Context, r kv.Reader) (err error) {
-		job, err = server.Load(ctx, r, jobID)
+		job, err = server.Load(ctx, r, uid)
 		if err != nil {
 			return fmt.Errorf("could not load job: %w", err)
 		}
 
-		name, typename, err = namer.ResolveID(ctx, r, jobID)
+		name, typename, err = namer.ResolveID(ctx, r, uid)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("could not resolve job id to name: %w", err)
 		}
@@ -89,7 +95,7 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	}
 
 	export := &gobs.JobExportData{
-		ID:       jobID,
+		ID:       uid,
 		Name:     name,
 		Typename: typename,
 		State:    jstate,
