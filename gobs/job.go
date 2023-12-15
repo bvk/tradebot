@@ -3,12 +3,20 @@
 package gobs
 
 type JobExportData struct {
-	ID string
-
+	UID      string
 	Name     string
 	Typename string
 
-	State *ServerJobState
+	JobFlags uint64
+	JobState string
 
 	KeyValues []*KeyValue
+}
+
+type JobData struct {
+	ID       string
+	Typename string
+	Flags    uint64
+
+	State string
 }

@@ -11,12 +11,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
-	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
@@ -62,44 +60,38 @@ func (c *Export) run(ctx context.Context, args []string) error {
 		uid = jobArg
 	}
 
-	jobKey := path.Join(server.JobsKeyspace, uid)
-	jstate, err := kvutil.GetDB[gobs.ServerJobState](ctx, db, jobKey)
-	if err != nil {
-		return fmt.Errorf("could not load job state: %w", err)
-	}
-	if !job.IsStopped(job.State(jstate.CurrentState)) {
-		return fmt.Errorf("job is actively running; cannot be exported")
+	export := &gobs.JobExportData{
+		UID: uid,
 	}
 
-	var job trader.Job
-	var name, typename string
-	loader := func(ctx context.Context, r kv.Reader) (err error) {
-		job, err = server.Load(ctx, r, uid)
-		if err != nil {
-			return fmt.Errorf("could not load job: %w", err)
+	var trader trader.Job
+	loader := func(ctx context.Context, r kv.Reader) error {
+		runner := job.NewRunner()
+		if err := runner.Export(ctx, r, export); err != nil {
+			return fmt.Errorf("could not export job data: %w", err)
 		}
 
-		name, typename, err = namer.ResolveID(ctx, r, uid)
+		name, _, err := namer.ResolveID(ctx, r, export.UID)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("could not resolve job id to name: %w", err)
 		}
-		return
+		export.Name = name
+
+		trader, err = server.Load(ctx, r, export.UID)
+		if err != nil {
+			return fmt.Errorf("could not load trader: %w", err)
+		}
+		return nil
 	}
 	if err := kv.WithReader(ctx, db, loader); err != nil {
 		return fmt.Errorf("could not load trader job: %w", err)
 	}
 
 	memdb := kvmemdb.New()
-	if err := kv.WithReadWriter(ctx, memdb, job.Save); err != nil {
+	if err := kv.WithReadWriter(ctx, memdb, trader.Save); err != nil {
 		return fmt.Errorf("could not save job to a temporary memdb: %w", err)
 	}
 
-	export := &gobs.JobExportData{
-		ID:       uid,
-		Name:     name,
-		Typename: typename,
-		State:    jstate,
-	}
 	iterate := func(ctx context.Context, r kv.Reader) error {
 		it, err := r.Scan(ctx)
 		if err != nil {

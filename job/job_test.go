@@ -4,9 +4,9 @@ package job
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"os"
 	"testing"
-	"time"
 )
 
 func TestPauseResume(t *testing.T) {
@@ -15,69 +15,29 @@ func TestPauseResume(t *testing.T) {
 		<-ctx.Done()
 		return context.Cause(ctx)
 	}
-	j1 := New("", jobf)
+	j1 := Run(jobf, context.Background())
+	if j1.State() != RUNNING {
+		t.Fatalf("j1 must be running")
+	}
+	j1.Pause()
+	j1.Wait()
+	if j1.State() != PAUSED {
+		t.Fatalf("j1 must be paused")
+	}
 	if err := j1.Resume(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := j1.Pause(); err != nil {
-		t.Fatal(err)
+	if j1.State() != RUNNING {
+		t.Fatalf("j1 must be running again")
 	}
-	if err := j1.Resume(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := j1.Cancel(); err != nil {
-		t.Fatal(err)
+	j1.Cancel()
+	j1.Wait()
+	if j1.State() != CANCELED {
+		t.Fatalf("j1 must be canceled")
 	}
 	if err := j1.Resume(context.Background()); err == nil {
-		t.Fatalf("Resume: wanted non-nil, got nil")
-	}
-	if err := j1.Pause(); err == nil {
-		t.Fatalf("Pause: wanted non-nil, got nil")
-	}
-}
-
-func TestCancel(t *testing.T) {
-	jobf := func(ctx context.Context) error {
-		t.Logf("resumed")
-		<-ctx.Done()
-		return context.Cause(ctx)
-	}
-
-	j1 := New("", jobf)
-	if err := j1.Cancel(); err != nil {
+		t.Fatalf("j1 resume must've failed")
+	} else if !errors.Is(err, os.ErrClosed) {
 		t.Fatal(err)
-	}
-
-	j2 := New("", jobf)
-	if err := j2.Resume(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := j2.Cancel(); err != nil {
-		t.Fatal(err)
-	}
-
-	j3 := New("", jobf)
-	if err := j3.Pause(); err != nil {
-		t.Fatal(err)
-	}
-	if err := j3.Cancel(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestFailed(t *testing.T) {
-	jobf := func(ctx context.Context) error {
-		return fmt.Errorf("error message")
-	}
-
-	j1 := New("", jobf)
-	if err := j1.Resume(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	for !IsFinal(j1.State()) {
-		time.Sleep(time.Millisecond)
-	}
-	if !IsFailed(j1.State()) {
-		t.Fatalf("IsFailed: wanted true, got false")
 	}
 }

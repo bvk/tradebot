@@ -13,6 +13,8 @@ func TypeNameValue(typename string) (any, error) {
 	switch typename {
 	case "ServerJobState":
 		v = new(gobs.ServerJobState)
+	case "JobData":
+		v = new(gobs.JobData)
 	case "LimiterState":
 		v = new(gobs.LimiterState)
 	case "LooperState":

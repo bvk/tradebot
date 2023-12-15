@@ -12,6 +12,8 @@ type JobListResponseItem struct {
 	Type  string
 	State string
 	Name  string
+
+	ManualFlag bool
 }
 
 type JobListResponse struct {

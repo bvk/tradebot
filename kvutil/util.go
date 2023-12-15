@@ -65,7 +65,9 @@ func SetDB[T any](ctx context.Context, db kv.Database, key string, value *T) err
 	})
 }
 
-func Ascend[T any](ctx context.Context, r kv.Reader, begin, end string, fn func(string, *T) error) error {
+type IterFunc[T any] func(context.Context, kv.Reader, string, *T) error
+
+func Ascend[T any](ctx context.Context, r kv.Reader, begin, end string, fn IterFunc[T]) error {
 	it, err := r.Ascend(ctx, begin, end)
 	if err != nil {
 		return err
@@ -77,7 +79,7 @@ func Ascend[T any](ctx context.Context, r kv.Reader, begin, end string, fn func(
 		if err := gob.NewDecoder(v).Decode(gv); err != nil {
 			return fmt.Errorf("could not decode value at key %q: %w", k, err)
 		}
-		if err := fn(k, gv); err != nil {
+		if err := fn(ctx, r, k, gv); err != nil {
 			return err
 		}
 	}
@@ -88,7 +90,7 @@ func Ascend[T any](ctx context.Context, r kv.Reader, begin, end string, fn func(
 	return nil
 }
 
-func AscendDB[T any](ctx context.Context, db kv.Database, begin, end string, fn func(string, *T) error) error {
+func AscendDB[T any](ctx context.Context, db kv.Database, begin, end string, fn IterFunc[T]) error {
 	return kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
 		return Ascend[T](ctx, r, begin, end, fn)
 	})

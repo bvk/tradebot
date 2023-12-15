@@ -74,7 +74,7 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 	// Collect cid seed information for all jobs.
 	uidSeedMap := make(map[string]string)
 	uidOffsetMap := make(map[string]uint64)
-	collect := func(key string, value *gobs.LimiterState) error {
+	collect := func(ctx context.Context, r kv.Reader, key string, value *gobs.LimiterState) error {
 		uid := strings.TrimPrefix(key, limiter.DefaultKeyspace)
 		uidSeedMap[uid] = value.V2.ClientIDSeed
 		uidOffsetMap[uid] = value.V2.ClientIDOffset

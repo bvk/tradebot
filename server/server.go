@@ -12,7 +12,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -27,7 +26,6 @@ import (
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
-	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -39,7 +37,6 @@ const (
 	MinUUID = "00000000-0000-0000-0000-000000000000"
 	MaxUUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
-	JobsKeyspace    = "/jobs/"
 	NamesKeyspace   = "/names/"
 	CandlesKeyspace = "/candles/"
 
@@ -60,13 +57,7 @@ type Server struct {
 
 	handlerMap map[string]http.Handler
 
-	// jobMap holds all running (or completed) jobs that are *not* manually
-	// paused or canceled. If a job is manually paused or canceled, it is be
-	// removed from this map. TODO: We could periodically scan-and-remove
-	// completed jobs.
-	jobMap syncmap.Map[string, *job.Job]
-
-	traderMap syncmap.Map[string, trader.Job]
+	runner *job.Runner
 
 	mu sync.Mutex
 
@@ -128,6 +119,7 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 		state:          state,
 		exchangeMap:    exchangeMap,
 		handlerMap:     make(map[string]http.Handler),
+		runner:         job.NewRunner(),
 		pushoverClient: pushoverClient,
 	}
 
@@ -146,11 +138,6 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 	}
 	if err := t.loadProducts(ctx); err != nil {
 		return nil, fmt.Errorf("could not load default products: %w", err)
-	}
-
-	// Scan the database and load existing traders.
-	if err := kv.WithReader(ctx, t.db, t.loadTrades); err != nil {
-		return nil, fmt.Errorf("could not load existing trades: %w", err)
 	}
 
 	// TODO: Setup a fund
@@ -208,24 +195,9 @@ func (s *Server) SendMessage(ctx context.Context, at time.Time, msgfmt string, a
 }
 
 func (s *Server) Stop(ctx context.Context) error {
-	s.jobMap.Range(func(id string, j *job.Job) bool {
-		if s := j.State(); !job.IsFinal(s) {
-			if err := j.Pause(); err != nil {
-				log.Printf("warning: job %s could not be paused (ignored)", id)
-			}
-		}
-		key := path.Join(JobsKeyspace, id)
-		state := j.State()
-		gstate := &gobs.ServerJobState{CurrentState: string(state), NeedsManualResume: false}
-		if err := kvutil.SetDB(ctx, s.db, key, gstate); err != nil {
-			log.Printf("warning: job %s state could not be updated (ignored)", id)
-		}
-		if job.IsFinal(state) {
-			s.jobMap.Delete(id)
-		}
-		return true
-	})
-
+	if err := job.StopAllDB(ctx, s.runner, s.db); err != nil {
+		return fmt.Errorf("could not stop all jobs: %w", err)
+	}
 	hostname, _ := os.Hostname()
 	s.SendMessage(ctx, time.Now(), "Trader has stopped gracefully on host named '%s'.", hostname)
 	return nil
@@ -251,41 +223,32 @@ func (s *Server) Start(ctx context.Context) (status error) {
 		return nil
 	}
 
-	var ids []string
-	s.traderMap.Range(func(id string, _ trader.Job) bool {
-		ids = append(ids, id)
-		return true
-	})
+	if err := job.ScanDB(ctx, s.runner, s.db, s.resume); err != nil {
+		return fmt.Errorf("could not resume all jobs: %w", err)
+	}
+	return nil
+}
 
-	nresumed := 0
-	for _, id := range ids {
-		j, ok := s.jobMap.Load(id)
-		if !ok {
-			v, manual, err := s.createJob(ctx, id)
-			if err != nil {
-				return fmt.Errorf("could not load job %s: %w", id, err)
-			}
-			if job.IsFinal(v.State()) {
-				continue
-			}
-			if manual {
-				log.Printf("job %s needs to be resumed manually", id)
-				continue
-			}
-			j = v
-		}
-
-		log.Printf("resuming job with id %s", id)
-		if err := j.Resume(s.closeCtx); err != nil {
-			log.Printf("warning: job %s could not be resumed (ignored)", id)
-			continue
-		}
-
-		s.jobMap.Store(id, j)
-		nresumed++
+func (s *Server) resume(ctx context.Context, r kv.Reader, jdata *job.JobData) error {
+	if jdata.State == job.RUNNING || job.IsDone(jdata.State) {
+		return nil
 	}
 
-	log.Printf("%d jobs are resumed", nresumed)
+	uid := jdata.UID
+	if jdata.Flags != 0 { // TODO: We should introduce flags
+		log.Printf("job %q needs to be resumed manually", uid)
+		return nil
+	}
+
+	trader, err := Load(ctx, r, uid) // FIXME: Use jdata.Typename
+	if err != nil {
+		return fmt.Errorf("could not load trader job %q: %w", uid, err)
+	}
+
+	log.Printf("resuming job with id %q", uid)
+	if _, err := job.ResumeDB(ctx, s.runner, s.db, uid, s.makeJobFunc(trader), s.closeCtx); err != nil {
+		return fmt.Errorf("could not resume job %q: %w", uid, err)
+	}
 	return nil
 }
 
@@ -294,30 +257,29 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 		Fix(context.Context, *trader.Runtime) error
 	}
 
-	s.traderMap.Range(func(id string, v trader.Job) bool {
-		if t, ok := v.(Fixer); ok {
-			ename, pname := v.ExchangeName(), v.ProductID()
-			p, err := s.getProduct(ctx, ename, pname)
-			if err != nil {
-				log.Printf("could not load product %q in exchange %q: %v", pname, ename, err)
-				status = err
-				return false
-			}
-			if err := t.Fix(ctx, s.Runtime(p)); err != nil {
-				log.Printf("could not fix %T %v: %v", v, v, err)
-				status = err
-				return false
-			}
-			if err := kv.WithReadWriter(ctx, s.db, v.Save); err != nil {
-				log.Printf("could not save %T %v: %v", v, v, err)
-				status = err
-				return false
-			}
+	fix := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
+		trader, err := Load(ctx, r, jd.UID) // FIXME: Use jd.Typename
+		if err != nil {
+			return fmt.Errorf("could not load trader %q: %w", jd.UID, err)
 		}
-		return true
-	})
 
-	return
+		fixer, ok := trader.(Fixer)
+		if !ok {
+			return nil
+		}
+
+		ename, pid := trader.ExchangeName(), trader.ProductID()
+		product, err := s.getProduct(ctx, ename, pid)
+		if err != nil {
+			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", jd.UID, pid, ename, err)
+		}
+
+		if err := fixer.Fix(ctx, s.Runtime(product)); err != nil {
+			return fmt.Errorf("could not fix trader %q: %w", jd.UID, err)
+		}
+		return nil
+	}
+	return job.ScanDB(ctx, s.runner, s.db, fix)
 }
 
 func (s *Server) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
@@ -388,21 +350,6 @@ func (s *Server) loadProducts(ctx context.Context) (status error) {
 	return nil
 }
 
-func (s *Server) loadTrades(ctx context.Context, r kv.Reader) error {
-	traders, err := LoadTraders(ctx, r)
-	if err != nil {
-		return fmt.Errorf("could not load existing traders: %w", err)
-	}
-	for _, t := range traders {
-		uid := t.UID()
-		uid = strings.TrimPrefix(uid, limiter.DefaultKeyspace)
-		uid = strings.TrimPrefix(uid, looper.DefaultKeyspace)
-		uid = strings.TrimPrefix(uid, waller.DefaultKeyspace)
-		s.traderMap.LoadOrStore(uid, t)
-	}
-	return nil
-}
-
 func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -447,8 +394,7 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, fmt.Errorf("invalid limit request: %w", err)
 	}
 
-	product, err := s.getProduct(ctx, req.ExchangeName, req.ProductID)
-	if err != nil {
+	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
 		return nil, err
 	}
 
@@ -458,21 +404,19 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, err
 	}
 
-	if err := kv.WithReadWriter(ctx, s.db, limit.Save); err != nil {
-		return nil, err
+	start := func(ctx context.Context, rw kv.ReadWriter) error {
+		if err := limit.Save(ctx, rw); err != nil {
+			return fmt.Errorf("could not save new limiter: %v", err)
+		}
+		if err := s.runner.Add(ctx, rw, uid, "Limiter"); err != nil {
+			return fmt.Errorf("could not add new limiter as a job: %w", err)
+		}
+		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(limit), s.closeCtx); err != nil {
+			return fmt.Errorf("could not resume new limiter job: %w", err)
+		}
+		return nil
 	}
-	s.traderMap.Store(uid, limit)
-
-	j := job.New("" /* state */, func(ctx context.Context) error {
-		return limit.Run(ctx, s.Runtime(product))
-	})
-	s.jobMap.Store(uid, j)
-
-	if err := j.Resume(s.closeCtx); err != nil {
-		return nil, err
-	}
-	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
-	if err := kvutil.SetDB(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
 		return nil, err
 	}
 
@@ -493,8 +437,7 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		return nil, fmt.Errorf("invalid loop request: %w", err)
 	}
 
-	product, err := s.getProduct(ctx, req.ExchangeName, req.ProductID)
-	if err != nil {
+	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
 		return nil, err
 	}
 
@@ -503,21 +446,20 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithReadWriter(ctx, s.db, loop.Save); err != nil {
-		return nil, err
-	}
-	s.traderMap.Store(uid, loop)
 
-	j := job.New("" /* state */, func(ctx context.Context) error {
-		return loop.Run(ctx, s.Runtime(product))
-	})
-	s.jobMap.Store(uid, j)
-
-	if err := j.Resume(s.closeCtx); err != nil {
-		return nil, err
+	start := func(ctx context.Context, rw kv.ReadWriter) error {
+		if err := loop.Save(ctx, rw); err != nil {
+			return fmt.Errorf("could not save new looper: %v", err)
+		}
+		if err := s.runner.Add(ctx, rw, uid, "Looper"); err != nil {
+			return fmt.Errorf("could not add new looper as a job: %w", err)
+		}
+		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(loop), s.closeCtx); err != nil {
+			return fmt.Errorf("could not resume new looper job: %w", err)
+		}
+		return nil
 	}
-	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
-	if err := kvutil.SetDB(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
 		return nil, err
 	}
 
@@ -538,8 +480,7 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		return nil, fmt.Errorf("invalid wall request: %w", err)
 	}
 
-	product, err := s.getProduct(ctx, req.ExchangeName, req.ProductID)
-	if err != nil {
+	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
 		return nil, err
 	}
 
@@ -548,21 +489,20 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	if err != nil {
 		return nil, err
 	}
-	if err := kv.WithReadWriter(ctx, s.db, wall.Save); err != nil {
-		return nil, err
-	}
-	s.traderMap.Store(uid, wall)
 
-	j := job.New("" /* state */, func(ctx context.Context) error {
-		return wall.Run(ctx, s.Runtime(product))
-	})
-	s.jobMap.Store(uid, j)
-
-	if err := j.Resume(s.closeCtx); err != nil {
-		return nil, err
+	start := func(ctx context.Context, rw kv.ReadWriter) error {
+		if err := wall.Save(ctx, rw); err != nil {
+			return fmt.Errorf("could not save new waller: %v", err)
+		}
+		if err := s.runner.Add(ctx, rw, uid, "Waller"); err != nil {
+			return fmt.Errorf("could not add new waller as a job: %w", err)
+		}
+		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(wall), s.closeCtx); err != nil {
+			return fmt.Errorf("could not resume new waller job: %w", err)
+		}
+		return nil
 	}
-	gstate := &gobs.ServerJobState{CurrentState: string(j.State())}
-	if err := kvutil.SetDB(ctx, s.db, path.Join(JobsKeyspace, uid), gstate); err != nil {
+	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
 		return nil, err
 	}
 

@@ -37,7 +37,7 @@ func NewDatastore(db kv.Database) *Datastore {
 
 func (ds *Datastore) ScanFilled(ctx context.Context, product string, fn func(string, *exchange.Order) error) error {
 	begin, end := kvutil.PathRange(path.Join(Keyspace, "filled"))
-	wrapper := func(key string, value *gobs.CoinbaseOrders) error {
+	wrapper := func(ctx context.Context, r kv.Reader, key string, value *gobs.CoinbaseOrders) error {
 		for id, str := range value.OrderMap {
 			order := new(internal.Order)
 			if err := json.NewDecoder(bytes.NewReader([]byte(str))).Decode(order); err != nil {
