@@ -65,10 +65,28 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			sold = sold.Add(s.FilledSize())
 		}
 
-		// Start a buy if holding amount is less than buy size.
 		holdings := bought.Sub(sold)
+		if holdings.IsNegative() {
+			log.Printf("%s: WARNING: current holding size %s-%s = %s is negative (out of %d buys and %d sells)", v.uid, bought, sold, holdings, nbuys, nsells)
+			var bought decimal.Decimal
+			for i, b := range v.buys {
+				size := b.FilledSize()
+				log.Printf("%s: WARNING: buyer %d (%s) has filled size %s", v.uid, i, b.UID(), size)
+				bought = bought.Add(size)
+			}
+			var sold decimal.Decimal
+			for i, s := range v.sells {
+				size := s.FilledSize()
+				log.Printf("%s: WARNING: seller %d (%s) has filled size %s", v.uid, i, s.UID(), size)
+				sold = sold.Add(size)
+			}
+			<-ctx.Done()
+			return context.Cause(ctx)
+		}
+
+		// Start a buy if holding amount is less than buy size.
 		if holdings.LessThan(v.buyPoint.Size) {
-			log.Printf("%s: current holding size %s is less than buy size %s (starting a buy)", v.uid, holdings, v.buyPoint.Size)
+			log.Printf("%s: current holding size %s-%s=%s is less than buy size %s (starting a buy)", v.uid, bought, sold, holdings, v.buyPoint.Size)
 
 			if nbuys == 0 || v.buys[nbuys-1].PendingSize().IsZero() {
 				if err := v.addNewBuy(ctx, rt); err != nil {
@@ -96,7 +114,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 
 		// Start a sell if holding amount is greater than sell size.
 		if holdings.GreaterThanOrEqual(v.sellPoint.Size) {
-			log.Printf("%s: current holding size %s is greater-than or equal to sell size %s (starting a sell)", v.uid, holdings, v.sellPoint.Size)
+			log.Printf("%s: current holding size %s-%s=%s is greater-than or equal to sell size %s (starting a sell)", v.uid, bought, sold, holdings, v.sellPoint.Size)
 			if nsells == 0 || v.sells[nsells-1].PendingSize().IsZero() {
 				if err := v.addNewSell(ctx, rt); err != nil {
 					if ctx.Err() == nil {

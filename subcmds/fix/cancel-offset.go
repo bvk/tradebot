@@ -46,7 +46,7 @@ func (c *CancelOffset) Run(ctx context.Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)
 		}
-		if strings.EqualFold(typename, "Waller") {
+		if !strings.EqualFold(typename, "Waller") {
 			return fmt.Errorf("this fix is only meant for waller jobs")
 		}
 		w, err := waller.Load(ctx, uid, rw)

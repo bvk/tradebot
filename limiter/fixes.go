@@ -5,13 +5,18 @@ package limiter
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/shopspring/decimal"
 )
 
 func FixCancelOffset(ctx context.Context, l *Limiter, offset decimal.Decimal) error {
-	l.point.Cancel = l.point.Price.Add(offset)
-	l.point.Cancel = l.point.Price.Sub(offset)
+	if strings.Contains(l.UID(), "/buy-") {
+		l.point.Cancel = l.point.Price.Add(offset)
+	}
+	if strings.Contains(l.UID(), "/sell-") {
+		l.point.Cancel = l.point.Price.Sub(offset)
+	}
 	if err := l.check(); err != nil {
 		return fmt.Errorf("could not adjust cancel price for %v: %w", l.UID(), err)
 	}
