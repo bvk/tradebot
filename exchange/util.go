@@ -2,6 +2,11 @@
 
 package exchange
 
+import (
+	"fmt"
+	"time"
+)
+
 func Equal(a, b *Order) bool {
 	return a.OrderID == b.OrderID &&
 		a.ClientOrderID == b.ClientOrderID &&
@@ -61,4 +66,9 @@ func Merge(known, update *Order) *Order {
 		tmp.DoneReason = update.DoneReason
 	}
 	return tmp
+}
+
+func (v *Order) String() string {
+	return fmt.Sprintf("{ID: %s ClientID %s Side %s Price %s Size %s Fee %s Status %s CreatedAt %s}",
+		v.OrderID, v.ClientOrderID, v.Side, v.FilledPrice.StringFixed(3), v.FilledSize.StringFixed(3), v.Fee.StringFixed(3), v.Status, v.CreateTime.Time.Format(time.DateTime))
 }
