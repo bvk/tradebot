@@ -266,7 +266,7 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOrderRequest) (*internal.CreateOrderResponse, error) {
 	statusReadyCh := make(chan struct{})
 	if v, loaded := ex.pendingMap.LoadOrStore(req.ClientOrderID, statusReadyCh); loaded {
-		log.Printf("unexpected: client id %s already exists in the pending map (ignored)", req.ClientOrderID)
+		log.Printf("unexpected: client id %s already exists in the pending map (previous request may've failed; ignored)", req.ClientOrderID)
 		statusReadyCh = v
 	}
 

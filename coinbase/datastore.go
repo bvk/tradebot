@@ -133,40 +133,51 @@ func (ex *Exchange) goSaveOrders(ctx context.Context) {
 			if order.FilledSize.Decimal.IsZero() {
 				continue
 			}
+			if _, ok := slices.BinarySearchFunc(filled, order, compareInternalOrder); ok {
+				continue
+			}
 			filled = append(filled, order)
-			slices.SortFunc(filled, compareLastFillTime)
+			slices.SortFunc(filled, compareInternalOrder)
 
 			// Do not save orders filled in the current-hour. This will reduce the
 			// load on the database.
 			currentHour := time.Now().Truncate(time.Hour)
-			if filled[0].LastFillTime.Time.After(currentHour) {
+			minFilled := slices.MinFunc(filled, compareLastFillTime)
+			if minFilled.LastFillTime.Time.After(currentHour) {
+				log.Printf("added order %s with size %s and fill-time %s to the batch", order.OrderID, order.FilledSize.Decimal, order.LastFillTime.Time)
 				continue
 			}
 
 			// Batch as many as possible and also start a timer.
+			maxFilled := slices.MaxFunc(filled, compareLastFillTime)
 			if n := len(filled); n < 100 {
+				log.Printf("collected %d orders with fill times between %s - %s", len(filled), minFilled.LastFillTime, maxFilled.LastFillTime)
 				if timerCh == nil {
-					timerCh = time.After(time.Second)
+					timerCh = time.After(time.Minute)
 				}
 				continue
 			}
 
+			log.Printf("saving %d orders from coinbase with fillled timestamps between %s - %s", len(filled), minFilled.LastFillTime, maxFilled.LastFillTime)
 			if err := ex.datastore.saveOrdersHourly(localCtx, filled); err != nil {
 				log.Printf("could not save order (will retry): %v", err)
 				continue
 			}
-			log.Printf("saved %d orders from coinbase with min fillled timestamp %s", len(filled), filled[0].LastFillTime.Time)
+			log.Printf("saved %d orders from coinbase with min fillled timestamp %s", len(filled), minFilled.LastFillTime.Time)
 			filled = filled[:0]
 			timerCh = nil
 
 		case <-timerCh:
 			timerCh = nil
+			minFilled := slices.MinFunc(filled, compareLastFillTime)
+			maxFilled := slices.MaxFunc(filled, compareLastFillTime)
+			log.Printf("saving %d orders after timeout with fillled timestamps between %s - %s", len(filled), minFilled.LastFillTime, maxFilled.LastFillTime)
 			if err := ex.datastore.saveOrdersHourly(localCtx, filled); err != nil {
 				log.Printf("could not save order (will retry): %v", err)
-				timerCh = time.After(time.Second)
+				timerCh = time.After(time.Minute)
 				continue
 			}
-			log.Printf("saved %d orders (due to timeout) from coinbase with min fillled timestamp %s", len(filled), filled[0].LastFillTime.Time)
+			log.Printf("saved %d orders (due to timeout) from coinbase with min fillled timestamp %s", len(filled), minFilled.LastFillTime.Time)
 			filled = filled[:0]
 		}
 	}

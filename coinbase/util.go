@@ -4,6 +4,7 @@ package coinbase
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/bvk/tradebot/coinbase/internal"
 	"github.com/bvk/tradebot/exchange"
@@ -53,10 +54,31 @@ func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.Order {
 	return order
 }
 
+func compareFilledSize(a, b *internal.Order) int {
+	return a.FilledSize.Decimal.Cmp(b.FilledSize.Decimal)
+}
+
 func compareLastFillTime(a, b *internal.Order) int {
 	return a.LastFillTime.Time.Compare(b.LastFillTime.Time)
 }
 
 func compareCreatedTime(a, b *internal.Order) int {
 	return a.CreatedTime.Time.Compare(b.CreatedTime.Time)
+}
+
+func compareOrderID(a, b *internal.Order) int {
+	return strings.Compare(a.OrderID, b.OrderID)
+}
+
+func compareInternalOrder(a, b *internal.Order) int {
+	if a.OrderID == b.OrderID {
+		if v := compareFilledSize(a, b); v != 0 {
+			return v
+		}
+		return compareLastFillTime(a, b)
+	}
+	if a.OrderID < b.OrderID {
+		return -1
+	}
+	return 1
 }
