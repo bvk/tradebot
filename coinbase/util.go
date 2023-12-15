@@ -52,3 +52,11 @@ func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.Order {
 	}
 	return order
 }
+
+func compareLastFillTime(a, b *internal.Order) int {
+	return a.LastFillTime.Time.Compare(b.LastFillTime.Time)
+}
+
+func compareCreatedTime(a, b *internal.Order) int {
+	return a.CreatedTime.Time.Compare(b.CreatedTime.Time)
+}

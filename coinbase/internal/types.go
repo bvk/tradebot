@@ -18,10 +18,11 @@ type Order struct {
 	ProductID   string `json:"product_id"`
 	ProductType string `json:"product_type"`
 
-	Side        string              `json:"side"`
-	CreatedTime exchange.RemoteTime `json:"created_time"`
-	Settled     bool                `json:"settled"`
+	Side         string              `json:"side"`
+	CreatedTime  exchange.RemoteTime `json:"created_time"`
+	LastFillTime exchange.RemoteTime `json:"last_fill_time"`
 
+	Settled        bool                 `json:"settled"`
 	FilledSize     exchange.NullDecimal `json:"filled_size"`
 	AvgFilledPrice exchange.NullDecimal `json:"average_filled_price"`
 	NumberOfFills  string               `json:"number_of_fills"`

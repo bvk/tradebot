@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 
 	"github.com/bvkgo/kv"
@@ -61,4 +63,43 @@ func SetDB[T any](ctx context.Context, db kv.Database, key string, value *T) err
 	return kv.WithReadWriter(ctx, db, func(ctx context.Context, rw kv.ReadWriter) error {
 		return Set[T](ctx, rw, key, value)
 	})
+}
+
+func Ascend[T any](ctx context.Context, r kv.Reader, begin, end string, fn func(string, *T) error) error {
+	it, err := r.Ascend(ctx, begin, end)
+	if err != nil {
+		return err
+	}
+	defer kv.Close(it)
+
+	for k, v, err := it.Fetch(ctx, false); err == nil; k, v, err = it.Fetch(ctx, true) {
+		gv := new(T)
+		if err := gob.NewDecoder(v).Decode(gv); err != nil {
+			return fmt.Errorf("could not decode value at key %q: %w", k, err)
+		}
+		if err := fn(k, gv); err != nil {
+			return err
+		}
+	}
+
+	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("could not complete ascend: %w", err)
+	}
+	return nil
+}
+
+func AscendDB[T any](ctx context.Context, db kv.Database, begin, end string, fn func(string, *T) error) error {
+	return kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
+		return Ascend[T](ctx, r, begin, end, fn)
+	})
+}
+
+func PathRange(dir string) (begin string, end string) {
+	dir = path.Clean(dir)
+	if dir == "/" {
+		return "", ""
+	}
+	begin = dir + string('/')
+	end = dir + string('/'+1)
+	return begin, end
 }
