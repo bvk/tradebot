@@ -9,6 +9,7 @@ import (
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds"
+	"github.com/bvk/tradebot/subcmds/coinbase"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvk/tradebot/subcmds/exchange"
 	"github.com/bvk/tradebot/subcmds/fix"
@@ -72,6 +73,10 @@ func main() {
 		new(exchange.Analyze),
 	}
 
+	coinbaseCmds := []cli.Command{
+		new(coinbase.Sync),
+	}
+
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
@@ -83,6 +88,7 @@ func main() {
 		cli.CommandGroup("looper", "Manage buy-sell loops", looperCmds...),
 		cli.CommandGroup("waller", "Manage trades in a price range", wallerCmds...),
 		cli.CommandGroup("exchange", "View/query exchange directly", exchangeCmds...),
+		cli.CommandGroup("coinbase", "Handles coinbase specific operations", coinbaseCmds...),
 	}
 	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
 		log.Fatal(err)

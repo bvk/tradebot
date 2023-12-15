@@ -23,6 +23,8 @@ import (
 )
 
 type Exchange struct {
+	opts Options
+
 	client *internal.Client
 
 	websocket *internal.Websocket
@@ -52,8 +54,20 @@ type Exchange struct {
 }
 
 // New creates a client for coinbase exchange.
-func New(ctx context.Context, db kv.Database, key, secret string) (_ *Exchange, status error) {
-	client, err := internal.New(key, secret, nil /* options */)
+func New(ctx context.Context, db kv.Database, key, secret string, opts *Options) (_ *Exchange, status error) {
+	if opts == nil {
+		opts = new(Options)
+	}
+	opts.setDefaults()
+
+	copts := &internal.Options{
+		RestHostname:           opts.RestHostname,
+		WebsocketHostname:      opts.WebsocketHostname,
+		HttpClientTimeout:      opts.HttpClientTimeout,
+		WebsocketRetryInterval: opts.WebsocketRetryInterval,
+		MaxTimeAdjustment:      opts.MaxTimeAdjustment,
+	}
+	client, err := internal.New(key, secret, copts)
 	if err != nil {
 		return nil, fmt.Errorf("could not create coinbase client: %w", err)
 	}
@@ -75,6 +89,7 @@ func New(ctx context.Context, db kv.Database, key, secret string) (_ *Exchange, 
 	}
 
 	exchange := &Exchange{
+		opts:          *opts,
 		client:        client,
 		datastore:     NewDatastore(db),
 		rawOrderTopic: topic.New[*internal.Order](),
@@ -87,8 +102,10 @@ func New(ctx context.Context, db kv.Database, key, secret string) (_ *Exchange, 
 
 	// User channel is subscribed for all supported products in a separate
 	// connection from product specific channels.
-	exchange.websocket = client.GetMessages("heartbeats", pids, exchange.dispatchMessage)
-	exchange.websocket.Subscribe("user", pids)
+	if !opts.subcmdMode {
+		exchange.websocket = client.GetMessages("heartbeats", pids, exchange.dispatchMessage)
+		exchange.websocket.Subscribe("user", pids)
+	}
 
 	// Find out the last saved timestamp and fetch all FILLED and CANCELLED
 	// orders from that timestamp (with some hours overlap).
@@ -99,36 +116,21 @@ func New(ctx context.Context, db kv.Database, key, secret string) (_ *Exchange, 
 			return nil, fmt.Errorf("could not find out last filled time: %w", err)
 		}
 		lastFilledTime = time.Date(2023, time.September, 24, 0, 0, 0, 0, time.UTC)
+		log.Printf("datastore has no orders data (using %s as the last filled time)", lastFilledTime)
+	} else {
+		log.Printf("datastore seems to have orders data up to %s", lastFilledTime)
 	}
 	exchange.lastFilledTime = lastFilledTime.Add(-6 * time.Hour)
 
-	now := time.Now()
-	filled, err := exchange.ListOrders(ctx, exchange.lastFilledTime, "FILLED")
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch old filled orders: %w", err)
-	}
-	for _, v := range filled {
-		if len(v.ClientOrderID) > 0 {
-			exchange.clientOrderIDMap.Store(v.ClientOrderID, v)
+	if !opts.subcmdMode {
+		if err := exchange.sync(ctx); err != nil {
+			return nil, fmt.Errorf("could not sync for lost data: %w", err)
 		}
-	}
-	log.Printf("fetched %d filled orders from %s", len(filled), exchange.lastFilledTime)
 
-	cancelled, err := exchange.ListOrders(ctx, exchange.lastFilledTime, "CANCELLED")
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch old canceled orders: %w", err)
+		client.Go(exchange.goListOpenOrders)
+		client.Go(exchange.goListFilledOrders)
+		client.Go(exchange.goListCancelledOrders)
 	}
-	for _, v := range cancelled {
-		if len(v.ClientOrderID) > 0 {
-			exchange.clientOrderIDMap.Store(v.ClientOrderID, v)
-		}
-	}
-	log.Printf("fetched %d canceled orders from %s", len(cancelled), lastFilledTime)
-
-	exchange.lastFilledTime = now
-	client.Go(exchange.goListOpenOrders)
-	client.Go(exchange.goListFilledOrders)
-	client.Go(exchange.goListCancelledOrders)
 	return exchange, nil
 }
 
@@ -137,9 +139,36 @@ func (ex *Exchange) Close() error {
 	return nil
 }
 
+func (ex *Exchange) sync(ctx context.Context) error {
+	now := time.Now()
+	filled, err := ex.ListOrders(ctx, ex.lastFilledTime, "FILLED")
+	if err != nil {
+		return fmt.Errorf("could not fetch old filled orders: %w", err)
+	}
+	for _, v := range filled {
+		if len(v.ClientOrderID) > 0 {
+			ex.clientOrderIDMap.Store(v.ClientOrderID, v)
+		}
+	}
+	log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
+
+	cancelled, err := ex.ListOrders(ctx, ex.lastFilledTime, "CANCELLED")
+	if err != nil {
+		return fmt.Errorf("could not fetch old canceled orders: %w", err)
+	}
+	for _, v := range cancelled {
+		if len(v.ClientOrderID) > 0 {
+			ex.clientOrderIDMap.Store(v.ClientOrderID, v)
+		}
+	}
+	log.Printf("fetched %d canceled orders from %s", len(cancelled), ex.lastFilledTime)
+	ex.lastFilledTime = now
+	return nil
+}
+
 func (ex *Exchange) goListOpenOrders(ctx context.Context) {
-	timeout := 5 * time.Second
 	last := ex.lastFilledTime
+	timeout := ex.opts.PollOrdersRetryInterval
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		from := ex.client.Now().Time.Add(-10 * time.Minute)
 		if last.Before(from) {
@@ -154,8 +183,8 @@ func (ex *Exchange) goListOpenOrders(ctx context.Context) {
 }
 
 func (ex *Exchange) goListCancelledOrders(ctx context.Context) {
-	timeout := 5 * time.Second
 	last := ex.lastFilledTime
+	timeout := ex.opts.PollOrdersRetryInterval
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		from := ex.client.Now().Time.Add(-10 * time.Minute)
 		if last.Before(from) {
@@ -170,8 +199,8 @@ func (ex *Exchange) goListCancelledOrders(ctx context.Context) {
 }
 
 func (ex *Exchange) goListFilledOrders(ctx context.Context) {
-	timeout := 5 * time.Second
 	last := ex.lastFilledTime
+	timeout := ex.opts.PollOrdersRetryInterval
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		from := ex.client.Now().Time.Add(-10 * time.Minute)
 		if last.Before(from) {

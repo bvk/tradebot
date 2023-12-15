@@ -336,7 +336,7 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 		for ctx.Err() == nil {
 			w.dirty.Store(true)
 			if err := dispatch(ctx); err != nil && ctx.Err() == nil {
-				ctxutil.Sleep(ctx, time.Second)
+				ctxutil.Sleep(ctx, c.opts.WebsocketRetryInterval)
 				continue
 			}
 			break
