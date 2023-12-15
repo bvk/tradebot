@@ -4,6 +4,7 @@ package subcmds
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -26,6 +27,8 @@ import (
 
 type Status struct {
 	cmdutil.DBFlags
+
+	job string
 }
 
 func (c *Status) Synopsis() string {
@@ -35,6 +38,7 @@ func (c *Status) Synopsis() string {
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
+	fset.StringVar(&c.job, "job", "", "when non-empty limits status to single job")
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -47,11 +51,26 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	var jobs []trader.Job
 	uid2nameMap := make(map[string]string)
 	load := func(ctx context.Context, r kv.Reader) error {
-		vs, err := server.LoadTraders(ctx, r)
-		if err != nil {
-			return fmt.Errorf("could not load traders: %w", err)
+		if len(c.job) > 0 {
+			uid, _, err := namer.ResolveName(ctx, r, c.job)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("could not resolve job %q: %w", c.job, err)
+				}
+				uid = c.job
+			}
+			job, err := server.Load(ctx, r, uid)
+			if err != nil {
+				return fmt.Errorf("could not load job with uid %q: %w", uid, err)
+			}
+			jobs = []trader.Job{job}
+		} else {
+			vs, err := server.LoadTraders(ctx, r)
+			if err != nil {
+				return fmt.Errorf("could not load traders: %w", err)
+			}
+			jobs = vs
 		}
-		jobs = vs
 
 		for _, j := range jobs {
 			uid := j.UID()
