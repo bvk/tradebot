@@ -32,6 +32,8 @@ func main() {
 
 	fixCmds := []cli.Command{
 		new(fix.CancelOffset),
+		new(fix.DedupLimiterIDs),
+		new(fix.ResolveOrders),
 	}
 
 	jobCmds := []cli.Command{
