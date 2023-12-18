@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/bvkgo/kv/kvmemdb"
 )
 
 var (
@@ -38,7 +40,7 @@ func TestClient(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	exch, err := New(ctx, testingKey, testingSecret)
+	exch, err := New(ctx, kvmemdb.New(), testingKey, testingSecret, SubcommandOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

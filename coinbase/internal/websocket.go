@@ -229,9 +229,9 @@ func readMessage(ctx context.Context, conn *websocket.Conn) (*Message, error) {
 		return nil, err
 	}
 
-	if strings.EqualFold(m.Channel, "user") {
-		log.Printf("%s", msg)
-	}
+	// if strings.EqualFold(m.Channel, "user") {
+	// 	log.Printf("%s", msg)
+	// }
 
 	if m.Type == "error" {
 		log.Printf("received a websocket error message: %#v", *m)

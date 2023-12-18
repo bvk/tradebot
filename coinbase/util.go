@@ -82,3 +82,7 @@ func compareInternalOrder(a, b *internal.Order) int {
 	}
 	return 1
 }
+
+func equalLastFillTime(a, b *internal.Order) bool {
+	return compareLastFillTime(a, b) == 0
+}

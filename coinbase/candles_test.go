@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/bvkgo/kv/kvmemdb"
 )
 
 func TestProductCandles(t *testing.T) {
@@ -16,7 +18,7 @@ func TestProductCandles(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ex, err := New(ctx, testingKey, testingSecret)
+	ex, err := New(ctx, kvmemdb.New(), testingKey, testingSecret, SubcommandOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bvk/tradebot/coinbase/internal"
@@ -27,6 +28,11 @@ const Keyspace = "/coinbase/"
 
 type Datastore struct {
 	db kv.Database
+
+	mu sync.Mutex
+
+	deferredToSave []*internal.Order
+	recentlySaved  []*internal.Order
 }
 
 func NewDatastore(db kv.Database) *Datastore {
@@ -104,91 +110,67 @@ func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status strin
 	return orders, nil
 }
 
-func (ex *Exchange) goSaveOrders(ctx context.Context) {
-	r, ch, err := ex.rawOrderTopic.Subscribe(0, true /* includeRecent */)
-	if err != nil {
+func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Order) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	lastSize := len(ds.deferredToSave)
+	for _, order := range orders {
+		if !slices.Contains(doneStatuses, order.Status) {
+			continue
+		}
+		if order.FilledSize.Decimal.IsZero() {
+			continue
+		}
+		if _, ok := slices.BinarySearchFunc(ds.deferredToSave, order, compareLastFillTime); ok {
+			continue
+		}
+		if _, ok := slices.BinarySearchFunc(ds.recentlySaved, order, compareLastFillTime); ok {
+			continue
+		}
+		ds.deferredToSave = append(ds.deferredToSave, order)
+		slices.SortFunc(ds.deferredToSave, compareLastFillTime)
+	}
+
+	if len(ds.deferredToSave) == lastSize {
 		return
 	}
-	defer r.Unsubscribe()
 
-	var timerCh <-chan time.Time
-	var filled []*internal.Order
-	localCtx := context.Background()
-
-	for ctx.Err() == nil {
-		select {
-		case <-ctx.Done():
-			if len(filled) > 0 {
-				if err := ex.datastore.saveOrdersHourly(localCtx, filled); err != nil {
-					log.Printf("could not save order (ignored): %v", err)
-				}
-				log.Printf("saved %d orders (due to close) from coinbase with min fillled timestamp %s", len(filled), filled[0].LastFillTime.Time)
-			}
-			continue
-
-		case order := <-ch:
-			if !slices.Contains(doneStatuses, order.Status) {
-				continue
-			}
-			if order.FilledSize.Decimal.IsZero() {
-				continue
-			}
-			if _, ok := slices.BinarySearchFunc(filled, order, compareInternalOrder); ok {
-				continue
-			}
-			filled = append(filled, order)
-			slices.SortFunc(filled, compareInternalOrder)
-
-			// Do not save orders filled in the current-hour. This will reduce the
-			// load on the database.
-			currentHour := time.Now().Truncate(time.Hour)
-			minFilled := slices.MinFunc(filled, compareLastFillTime)
-			if minFilled.LastFillTime.Time.After(currentHour) {
-				log.Printf("added order %s with size %s and fill-time %s to the batch", order.OrderID, order.FilledSize.Decimal, order.LastFillTime.Time)
-				continue
-			}
-
-			// Batch as many as possible and also start a timer.
-			maxFilled := slices.MaxFunc(filled, compareLastFillTime)
-			if n := len(filled); n < 100 {
-				log.Printf("collected %d orders with fill times between %s - %s", len(filled), minFilled.LastFillTime, maxFilled.LastFillTime)
-				if timerCh == nil {
-					timerCh = time.After(time.Minute)
-				}
-				continue
-			}
-
-			log.Printf("saving %d orders from coinbase with fillled timestamps between %s - %s", len(filled), minFilled.LastFillTime, maxFilled.LastFillTime)
-			if err := ex.datastore.saveOrdersHourly(localCtx, filled); err != nil {
-				log.Printf("could not save order (will retry): %v", err)
-				continue
-			}
-			log.Printf("saved %d orders from coinbase with min fillled timestamp %s", len(filled), minFilled.LastFillTime.Time)
-			filled = filled[:0]
-			timerCh = nil
-
-		case <-timerCh:
-			timerCh = nil
-			minFilled := slices.MinFunc(filled, compareLastFillTime)
-			maxFilled := slices.MaxFunc(filled, compareLastFillTime)
-			log.Printf("saving %d orders after timeout with fillled timestamps between %s - %s", len(filled), minFilled.LastFillTime, maxFilled.LastFillTime)
-			if err := ex.datastore.saveOrdersHourly(localCtx, filled); err != nil {
-				log.Printf("could not save order (will retry): %v", err)
-				timerCh = time.After(time.Minute)
-				continue
-			}
-			log.Printf("saved %d orders (due to timeout) from coinbase with min fillled timestamp %s", len(filled), minFilled.LastFillTime.Time)
-			filled = filled[:0]
-		}
+	minFilled := slices.MinFunc(ds.deferredToSave, compareLastFillTime)
+	readyHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
+	if minFilled.LastFillTime.Time.After(readyHour) {
+		log.Printf("deferring %d orders cause min fill-time %s is within current hour %s", len(ds.deferredToSave), minFilled.LastFillTime, readyHour)
+		return
 	}
-	return
+
+	var pending []*internal.Order
+	var beforeReadyHour []*internal.Order
+	for i, order := range ds.deferredToSave {
+		if order.LastFillTime.Time.Before(readyHour) {
+			beforeReadyHour = append(beforeReadyHour, order)
+			continue
+		}
+		pending = slices.Clone(ds.deferredToSave[i+1:])
+		break
+	}
+
+	if len(beforeReadyHour) == 0 {
+		return
+	}
+
+	log.Printf("saving %d orders and deferring %d orders cause former are filled before ready time %s", len(beforeReadyHour), len(pending), readyHour)
+	if err := ds.saveOrdersLocked(ctx, beforeReadyHour); err != nil {
+		log.Printf("could not save %d orders filled before current hour %s (will retry): %v", len(beforeReadyHour), readyHour, err)
+		return
+	}
+	ds.deferredToSave = pending
 }
 
-// saveOrdersHourly saves completed orders with non-zero filled size. Orders
+// saveOrdersLocked saves completed orders with non-zero filled size. Orders
 // are saved in one key per hour layout. For example, orders in an hour are
 // saved at "{root}/filled/product-id/2023-12-01/24" where date and hour are
 // picked from the last fill timestamp.
-func (ds *Datastore) saveOrdersHourly(ctx context.Context, orders []*internal.Order) error {
+func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Order) error {
 	// Prepare hour-key to orders mapping, while also deduping the orders.
 	kmap := make(map[string][]*internal.Order)
 	for _, v := range orders {
@@ -203,6 +185,7 @@ func (ds *Datastore) saveOrdersHourly(ctx context.Context, orders []*internal.Or
 
 		vs := kmap[key]
 		kmap[key] = append(vs, v)
+		log.Printf("saving order %s with filled size %s and last-fill time %s in key %s", v.OrderID, v.FilledSize.Decimal.StringFixed(3), v.LastFillTime, key)
 	}
 
 	for key, orders := range kmap {
@@ -234,5 +217,11 @@ func (ds *Datastore) saveOrdersHourly(ctx context.Context, orders []*internal.Or
 		}
 	}
 
+	for _, vs := range kmap {
+		ds.recentlySaved = append(ds.recentlySaved, vs...)
+	}
+	slices.SortFunc(ds.recentlySaved, compareLastFillTime)
+	slices.CompactFunc(ds.recentlySaved, equalLastFillTime)
+	// TODO: Drop very old orders.
 	return nil
 }

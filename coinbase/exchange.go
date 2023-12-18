@@ -19,7 +19,6 @@ import (
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
-	"github.com/bvkgo/topic"
 )
 
 type Exchange struct {
@@ -34,8 +33,6 @@ type Exchange struct {
 	clientOrderIDMap syncmap.Map[string, *exchange.Order]
 
 	productMap syncmap.Map[string, *Product]
-
-	rawOrderTopic *topic.Topic[*internal.Order]
 
 	datastore *Datastore
 
@@ -89,16 +86,10 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 	}
 
 	exchange := &Exchange{
-		opts:          *opts,
-		client:        client,
-		datastore:     NewDatastore(db),
-		rawOrderTopic: topic.New[*internal.Order](),
+		opts:      *opts,
+		client:    client,
+		datastore: NewDatastore(db),
 	}
-	defer func() {
-		if status != nil {
-			exchange.rawOrderTopic.Close()
-		}
-	}()
 
 	// User channel is subscribed for all supported products in a separate
 	// connection from product specific channels.
@@ -109,7 +100,6 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 
 	// Find out the last saved timestamp and fetch all FILLED and CANCELLED
 	// orders from that timestamp (with some hours overlap).
-	client.Go(exchange.goSaveOrders)
 	lastFilledTime, err := exchange.datastore.LastFilledTime(ctx)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -127,9 +117,15 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 			return nil, fmt.Errorf("could not sync for lost data: %w", err)
 		}
 
-		client.Go(exchange.goListOpenOrders)
-		client.Go(exchange.goListFilledOrders)
-		client.Go(exchange.goListCancelledOrders)
+		client.Go(func(ctx context.Context) {
+			exchange.goScanOrders(ctx, "OPEN")
+		})
+		client.Go(func(ctx context.Context) {
+			exchange.goScanOrders(ctx, "FILLED")
+		})
+		client.Go(func(ctx context.Context) {
+			exchange.goScanOrders(ctx, "CANCELLED")
+		})
 	}
 	return exchange, nil
 }
@@ -140,7 +136,6 @@ func (ex *Exchange) Close() error {
 }
 
 func (ex *Exchange) sync(ctx context.Context) error {
-	now := time.Now()
 	filled, err := ex.ListOrders(ctx, ex.lastFilledTime, "FILLED")
 	if err != nil {
 		return fmt.Errorf("could not fetch old filled orders: %w", err)
@@ -162,55 +157,34 @@ func (ex *Exchange) sync(ctx context.Context) error {
 		}
 	}
 	log.Printf("fetched %d canceled orders from %s", len(cancelled), ex.lastFilledTime)
-	ex.lastFilledTime = now
 	return nil
 }
 
-func (ex *Exchange) goListOpenOrders(ctx context.Context) {
+func (ex *Exchange) goScanOrders(ctx context.Context, status string) {
 	last := ex.lastFilledTime
 	timeout := ex.opts.PollOrdersRetryInterval
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
-		from := ex.client.Now().Time.Add(-10 * time.Minute)
+		now := ex.client.Now().Time
+		from := now.Add(-10 * time.Minute)
 		if last.Before(from) {
 			from = last
 		}
-		if _, err := ex.ListOrders(ctx, from, "OPEN"); err != nil {
-			log.Printf("could not list OPEN orders from %s: %v", from, err)
-			continue
-		}
-		last = from
-	}
-}
 
-func (ex *Exchange) goListCancelledOrders(ctx context.Context) {
-	last := ex.lastFilledTime
-	timeout := ex.opts.PollOrdersRetryInterval
-	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
-		from := ex.client.Now().Time.Add(-10 * time.Minute)
-		if last.Before(from) {
-			from = last
-		}
-		if _, err := ex.ListOrders(ctx, from, "CANCELLED"); err != nil {
-			log.Printf("could not list CANCELLED orders from %s: %v", from, err)
+		raws, err := ex.listRawOrders(ctx, from, status)
+		if err != nil {
+			log.Printf("could not list %s orders from %s (will retry): %v", status, from, err)
 			continue
 		}
-		last = from
-	}
-}
 
-func (ex *Exchange) goListFilledOrders(ctx context.Context) {
-	last := ex.lastFilledTime
-	timeout := ex.opts.PollOrdersRetryInterval
-	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
-		from := ex.client.Now().Time.Add(-10 * time.Minute)
-		if last.Before(from) {
-			from = last
+		log.Printf("fetched %d %s orders starting from %s", len(raws), status, from)
+		last = now
+
+		for _, raw := range raws {
+			v := exchangeOrderFromOrder(raw)
+			ex.dispatchOrder(raw.ProductID, v)
 		}
-		if _, err := ex.ListOrders(ctx, from, "FILLED"); err != nil {
-			log.Printf("could not list FILLED orders from %s: %v", from, err)
-			continue
-		}
-		last = from
+		// Also save the orders in the datastore.
+		ex.datastore.maybeSaveOrders(ctx, raws)
 	}
 }
 
@@ -344,7 +318,6 @@ func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status st
 		for _, order := range resp.Orders {
 			if order != nil {
 				result = append(result, order)
-				ex.rawOrderTopic.Send(order)
 			}
 		}
 	}

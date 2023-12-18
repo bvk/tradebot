@@ -50,7 +50,7 @@ func (v *Options) setDefaults() {
 		v.WebsocketRetryInterval = time.Second
 	}
 	if v.PollOrdersRetryInterval == 0 {
-		v.PollOrdersRetryInterval = time.Second
+		v.PollOrdersRetryInterval = time.Minute
 	}
 	if v.RetryCount == 0 {
 		v.RetryCount = 3
