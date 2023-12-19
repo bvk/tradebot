@@ -14,6 +14,7 @@ import (
 	"os/exec"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
@@ -36,7 +37,7 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 	if len(c.valueType) == 0 {
 		return fmt.Errorf("valueType flag is required")
 	}
-	value, err := TypeNameValue(c.valueType)
+	value, err := gobs.NewByTypename(c.valueType)
 	if err != nil {
 		return fmt.Errorf("invalid type name %q: %w", c.valueType, err)
 	}
@@ -102,7 +103,7 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("content is not modified; key is not updated")
 	}
 
-	mv, _ := TypeNameValue(c.valueType)
+	mv, _ := gobs.NewByTypename(c.valueType)
 	if err := json.Unmarshal(modified, mv); err != nil {
 		return fmt.Errorf("could not json-unmarshal modified content to object: %w", err)
 	}

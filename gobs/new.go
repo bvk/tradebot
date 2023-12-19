@@ -1,34 +1,32 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package db
+package gobs
 
 import (
 	"fmt"
-
-	"github.com/bvk/tradebot/gobs"
 )
 
-func TypeNameValue(typename string) (any, error) {
+func NewByTypename(typename string) (any, error) {
 	var v any
 	switch typename {
 	case "JobData":
-		v = new(gobs.JobData)
+		v = new(JobData)
 	case "LimiterState":
-		v = new(gobs.LimiterState)
+		v = new(LimiterState)
 	case "LooperState":
-		v = new(gobs.LooperState)
+		v = new(LooperState)
 	case "WallerState":
-		v = new(gobs.WallerState)
+		v = new(WallerState)
 	case "KeyValue":
-		v = new(gobs.KeyValue)
+		v = new(KeyValue)
 	case "NameData":
-		v = new(gobs.NameData)
+		v = new(NameData)
 	case "Candles":
-		v = new(gobs.Candles)
+		v = new(Candles)
 	case "ServerState":
-		v = new(gobs.ServerState)
+		v = new(ServerState)
 	case "CoinbaseOrders":
-		v = new(gobs.CoinbaseOrders)
+		v = new(CoinbaseOrders)
 	default:
 		return nil, fmt.Errorf("unsupported type name %q", typename)
 	}

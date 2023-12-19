@@ -15,6 +15,7 @@ import (
 	"text/template"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 )
@@ -44,7 +45,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 	}
 
 	if len(c.valueType) != 0 {
-		if _, err := TypeNameValue(c.valueType); err != nil {
+		if _, err := gobs.NewByTypename(c.valueType); err != nil {
 			return fmt.Errorf("invalid value-type %q: %w", c.valueType, err)
 		}
 	}
@@ -80,7 +81,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 				continue
 			}
 
-			value, _ := TypeNameValue(c.valueType)
+			value, _ := gobs.NewByTypename(c.valueType)
 			if err := gob.NewDecoder(v).Decode(value); err != nil {
 				return fmt.Errorf("could not gob-decode value for key %q: %w", k, err)
 			}

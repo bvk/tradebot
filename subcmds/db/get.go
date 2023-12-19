@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 )
 
@@ -51,7 +52,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	value, err := TypeNameValue(c.valueType)
+	value, err := gobs.NewByTypename(c.valueType)
 	if err != nil {
 		return fmt.Errorf("invalid value-type %q: %w", c.valueType, err)
 	}
