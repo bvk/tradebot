@@ -27,18 +27,15 @@ import (
 
 type Status struct {
 	cmdutil.DBFlags
-
-	job string
 }
 
 func (c *Status) Synopsis() string {
-	return "Status prints global summary of all trade jobs"
+	return "Status prints global summary of all or selected trade jobs"
 }
 
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
-	fset.StringVar(&c.job, "job", "", "when non-empty limits status to single job")
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -49,22 +46,29 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 	defer closer()
 
+	var uids []string
+	for _, arg := range args {
+		uid, _, err := namer.Resolve(ctx, db, arg)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("could not resolve job argument %q: %w", arg, err)
+			}
+			uid = arg
+		}
+		uids = append(uids, uid)
+	}
+
 	var jobs []trader.Job
 	uid2nameMap := make(map[string]string)
 	load := func(ctx context.Context, r kv.Reader) error {
-		if len(c.job) > 0 {
-			uid, _, err := namer.ResolveName(ctx, r, c.job)
-			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					return fmt.Errorf("could not resolve job %q: %w", c.job, err)
+		if len(uids) > 0 {
+			for _, uid := range uids {
+				job, err := server.Load(ctx, r, uid)
+				if err != nil {
+					return fmt.Errorf("could not load job with uid %q: %w", uid, err)
 				}
-				uid = c.job
+				jobs = append(jobs, job)
 			}
-			job, err := server.Load(ctx, r, uid)
-			if err != nil {
-				return fmt.Errorf("could not load job with uid %q: %w", uid, err)
-			}
-			jobs = []trader.Job{job}
 		} else {
 			vs, err := server.LoadTraders(ctx, r)
 			if err != nil {
@@ -138,22 +142,24 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		fmt.Printf("Projected investment covered at %.03f APY: %s\n", rate, projected.StringFixed(3))
 	}
 
-	fmt.Println()
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-	fmt.Fprintf(tw, "Name/UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
-	for _, s := range statuses {
-		uid := s.UID()
-		if name, ok := uid2nameMap[uid]; ok {
-			uid = name
+	if len(statuses) > 0 {
+		fmt.Println()
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+		fmt.Fprintf(tw, "Name/UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
+		for _, s := range statuses {
+			uid := s.UID()
+			if name, ok := uid2nameMap[uid]; ok {
+				uid = name
+			}
+			pid := s.ProductID()
+			fees := s.TotalFees()
+			bought := s.BoughtValue()
+			sold := s.SoldValue()
+			unsold := s.UnsoldValue()
+			profit := s.Profit()
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
 		}
-		pid := s.ProductID()
-		fees := s.TotalFees()
-		bought := s.BoughtValue()
-		sold := s.SoldValue()
-		unsold := s.UnsoldValue()
-		profit := s.Profit()
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
+		tw.Flush()
 	}
-	tw.Flush()
 	return nil
 }

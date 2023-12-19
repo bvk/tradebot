@@ -27,7 +27,11 @@ type Summary struct {
 }
 
 func (s *Summary) FeePct() decimal.Decimal {
-	return s.TotalFees.Mul(d100).Div(s.SoldValue.Add(s.BoughtValue))
+	divisor := s.SoldValue.Add(s.BoughtValue)
+	if divisor.IsZero() {
+		return decimal.Zero
+	}
+	return s.TotalFees.Mul(d100).Div(divisor)
 }
 
 func (s *Summary) Profit() decimal.Decimal {
