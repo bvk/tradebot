@@ -2,14 +2,6 @@
 
 package gobs
 
-type ServerJobState struct {
-	JobName string
-
-	CurrentState string
-
-	NeedsManualResume bool
-}
-
 type ServerExchangeState struct {
 	EnabledProductIDs []string
 
