@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"slices"
@@ -181,6 +182,16 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) er
 	if !resp.Results[0].Success {
 		return errors.New(resp.Results[0].FailureReason)
 	}
+	// Schedule a Get for the canceled order so that a notification is generated.
+	var get func(context.Context)
+	get = func(ctx context.Context) {
+		if _, err := p.exchange.GetOrder(ctx, serverOrderID); err != nil {
+			log.Printf("could not fetch canceled order %s for notification processing (rescheduled): %v", serverOrderID, err)
+			p.client.AfterDurationFunc(time.Second, get)
+			return
+		}
+	}
+	p.client.AfterDurationFunc(time.Second, get)
 	return nil
 }
 

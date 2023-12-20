@@ -268,6 +268,10 @@ func (c *Client) Go(f func(context.Context)) {
 	c.cg.Go(f)
 }
 
+func (c *Client) AfterDurationFunc(d time.Duration, f func(context.Context)) {
+	c.cg.AfterDurationFunc(d, f)
+}
+
 func (c *Client) GetOrder(ctx context.Context, orderID string) (*GetOrderResponse, error) {
 	url := &url.URL{
 		Scheme: "https",
@@ -279,6 +283,24 @@ func (c *Client) GetOrder(ctx context.Context, orderID string) (*GetOrderRespons
 		return nil, err
 	}
 	return resp, nil
+}
+
+func (c *Client) ListFills(ctx context.Context, values url.Values) (_ *ListFillsResponse, cont url.Values, _ error) {
+	url := &url.URL{
+		Scheme:   "https",
+		Host:     c.opts.RestHostname,
+		Path:     "/api/v3/brokerage/orders/historical/fills",
+		RawQuery: values.Encode(),
+	}
+	resp := new(ListFillsResponse)
+	if err := c.getJSON(ctx, url, resp); err != nil {
+		return nil, nil, err
+	}
+	if len(resp.Cursor) > 0 {
+		values.Set("cursor", resp.Cursor)
+		return resp, values, nil
+	}
+	return resp, nil, nil
 }
 
 func (c *Client) ListOrders(ctx context.Context, values url.Values) (_ *ListOrdersResponse, cont url.Values, _ error) {

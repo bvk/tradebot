@@ -189,6 +189,28 @@ type GetProductCandlesResponse struct {
 	Candles []*Candle `json:"candles"`
 }
 
+type Fill struct {
+	EntryID            string               `json:"entry_id"`
+	TradeID            string               `json:"trade_id"`
+	OrderID            string               `json:"order_id"`
+	TradeTime          exchange.RemoteTime  `json:"trade_time"`
+	TradeType          string               `json:"trade_type"`
+	Price              exchange.NullDecimal `json:"price"`
+	Size               exchange.NullDecimal `json:"size"`
+	Commission         exchange.NullDecimal `json:"commission"`
+	ProductID          string               `json:"product_id"`
+	SequenceTimestamp  exchange.RemoteTime  `json:"sequence_timestamp"`
+	LiquidityIndicator string               `json:"liquidity_indicator"`
+	SizeInQuote        bool                 `json:"size_in_quote"`
+	UserID             string               `json:"user_id"`
+	Side               string               `json:"side"`
+}
+
+type ListFillsResponse struct {
+	Fills  []*Fill `json:"fills"`
+	Cursor string  `json:"cursor"`
+}
+
 type ListOrdersResponse struct {
 	Orders   []*Order `json:"orders"`
 	Sequence string   `json:"sequence,number"`

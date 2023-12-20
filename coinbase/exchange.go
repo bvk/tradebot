@@ -118,13 +118,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 		}
 
 		client.Go(func(ctx context.Context) {
-			exchange.goScanOrders(ctx, "OPEN")
-		})
-		client.Go(func(ctx context.Context) {
-			exchange.goScanOrders(ctx, "FILLED")
-		})
-		client.Go(func(ctx context.Context) {
-			exchange.goScanOrders(ctx, "CANCELLED")
+			exchange.goScanFilledOrders(ctx)
 		})
 	}
 	return exchange, nil
@@ -160,31 +154,43 @@ func (ex *Exchange) sync(ctx context.Context) error {
 	return nil
 }
 
-func (ex *Exchange) goScanOrders(ctx context.Context, status string) {
+func (ex *Exchange) goScanFilledOrders(ctx context.Context) {
 	last := ex.lastFilledTime
 	timeout := ex.opts.PollOrdersRetryInterval
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		now := ex.client.Now().Time
-		from := now.Add(-10 * time.Minute)
-		if last.Before(from) {
-			from = last
-		}
-
-		raws, err := ex.listRawOrders(ctx, from, status)
+		fills, err := ex.listFillsFrom(ctx, last)
 		if err != nil {
-			log.Printf("could not list %s orders from %s (will retry): %v", status, from, err)
+			log.Printf("could not list fills from %s (will retry): %v", last, err)
 			continue
 		}
+		log.Printf("fetched %d fills after %s", len(fills), last)
 
-		log.Printf("fetched %d %s orders starting from %s", len(raws), status, from)
-		last = now
-
-		for _, raw := range raws {
-			v := exchangeOrderFromOrder(raw)
-			ex.dispatchOrder(raw.ProductID, v)
+		failed := false
+		var orders []*internal.Order
+		for _, fill := range fills {
+			resp, err := ex.client.GetOrder(ctx, fill.OrderID)
+			if err != nil {
+				log.Printf("could not get order %q: %v", fill.OrderID, err)
+				failed = true
+				continue
+			}
+			// Process the order for notifications and datastore.
+			v := exchangeOrderFromOrder(resp.Order)
+			ex.dispatchOrder(resp.Order.ProductID, v)
+			orders = append(orders, resp.Order)
 		}
-		// Also save the orders in the datastore.
-		ex.datastore.maybeSaveOrders(ctx, raws)
+
+		if len(orders) > 0 {
+			if err := ex.datastore.maybeSaveOrders(ctx, orders); err != nil {
+				log.Printf("could not save filled orders (will retry): %v", err)
+				continue
+			}
+		}
+
+		if !failed {
+			last = now
+		}
 	}
 }
 
@@ -299,6 +305,28 @@ func (ex *Exchange) SyncCancelled(ctx context.Context, from time.Time) error {
 		return fmt.Errorf("could not fetch orders: %w", err)
 	}
 	return context.Cause(ctx)
+}
+
+func (ex *Exchange) listFillsFrom(ctx context.Context, from time.Time) ([]*internal.Fill, error) {
+	var result []*internal.Fill
+
+	values := make(url.Values)
+	values.Add("limit", "100")
+	values.Add("start_sequence_timestamp", from.UTC().Format(time.RFC3339))
+	for i := 0; i == 0 || values != nil; i++ {
+		resp, cont, err := ex.client.ListFills(ctx, values)
+		if err != nil {
+			return nil, err
+		}
+		values = cont
+
+		for _, fill := range resp.Fills {
+			if fill != nil {
+				result = append(result, fill)
+			}
+		}
+	}
+	return result, nil
 }
 
 func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status string) ([]*internal.Order, error) {

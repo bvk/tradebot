@@ -31,8 +31,7 @@ type Datastore struct {
 
 	mu sync.Mutex
 
-	deferredToSave []*internal.Order
-	recentlySaved  []*internal.Order
+	recentlySaved []*internal.Order
 }
 
 func NewDatastore(db kv.Database) *Datastore {
@@ -110,11 +109,11 @@ func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status strin
 	return orders, nil
 }
 
-func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Order) {
+func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Order) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
-	lastSize := len(ds.deferredToSave)
+	var filled []*internal.Order
 	for _, order := range orders {
 		if !slices.Contains(doneStatuses, order.Status) {
 			continue
@@ -122,48 +121,18 @@ func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Ord
 		if order.FilledSize.Decimal.IsZero() {
 			continue
 		}
-		if _, ok := slices.BinarySearchFunc(ds.deferredToSave, order, compareLastFillTime); ok {
-			continue
-		}
 		if _, ok := slices.BinarySearchFunc(ds.recentlySaved, order, compareLastFillTime); ok {
 			continue
 		}
-		ds.deferredToSave = append(ds.deferredToSave, order)
-		slices.SortFunc(ds.deferredToSave, compareLastFillTime)
+		filled = append(filled, order)
+		slices.SortFunc(filled, compareLastFillTime)
 	}
 
-	if len(ds.deferredToSave) == lastSize {
-		return
+	if err := ds.saveOrdersLocked(ctx, filled); err != nil {
+		log.Printf("could not save %d filled orders (will retry): %v", len(filled), err)
+		return err
 	}
-
-	minFilled := slices.MinFunc(ds.deferredToSave, compareLastFillTime)
-	readyHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
-	if minFilled.LastFillTime.Time.After(readyHour) {
-		log.Printf("deferring %d orders cause min fill-time %s is within current hour %s", len(ds.deferredToSave), minFilled.LastFillTime, readyHour)
-		return
-	}
-
-	var pending []*internal.Order
-	var beforeReadyHour []*internal.Order
-	for i, order := range ds.deferredToSave {
-		if order.LastFillTime.Time.Before(readyHour) {
-			beforeReadyHour = append(beforeReadyHour, order)
-			continue
-		}
-		pending = slices.Clone(ds.deferredToSave[i+1:])
-		break
-	}
-
-	if len(beforeReadyHour) == 0 {
-		return
-	}
-
-	log.Printf("saving %d orders and deferring %d orders cause former are filled before ready time %s", len(beforeReadyHour), len(pending), readyHour)
-	if err := ds.saveOrdersLocked(ctx, beforeReadyHour); err != nil {
-		log.Printf("could not save %d orders filled before current hour %s (will retry): %v", len(beforeReadyHour), readyHour, err)
-		return
-	}
-	ds.deferredToSave = pending
+	return nil
 }
 
 // saveOrdersLocked saves completed orders with non-zero filled size. Orders
