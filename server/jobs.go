@@ -74,33 +74,20 @@ func (s *Server) doResume(ctx context.Context, req *api.JobResumeRequest) (*api.
 			return err
 		}
 
-		if job.IsDone(jd.State) {
-			return fmt.Errorf("job %q is already completed", req.UID)
+		if jd.Flags&ManualFlag != 0 {
+			jd.Flags = jd.Flags ^ ManualFlag
+			if err := s.runner.UpdateFlags(ctx, rw, req.UID, jd.Flags); err != nil {
+				log.Printf("could not clear the manual flag on job %q (ignored): %v", req.UID, err)
+				return err
+			}
 		}
 
-		trader, err := Load(ctx, rw, req.UID)
+		nstate, err := s.resume(ctx, rw, jd)
 		if err != nil {
-			return fmt.Errorf("could not load trader %q: %w", req.UID, err)
+			return fmt.Errorf("could not resume job: %w", err)
 		}
 
-		fn := s.makeJobFunc(trader)
-		nstate, err := s.runner.Resume(ctx, rw, req.UID, fn, s.closeCtx)
-		if err != nil {
-			return err
-		}
 		state = nstate
-
-		// Clear the manual flag if any.
-		jd, err = s.runner.Get(ctx, rw, req.UID)
-		if err != nil {
-			log.Printf("could not get the job %q data to clear the manual flag (ignored): %v", req.UID, err)
-			return nil
-		}
-		if err := s.runner.UpdateFlags(ctx, rw, req.UID, jd.Flags^ManualFlag); err != nil {
-			log.Printf("could not clear the manual flag on job %q (ignored): %v", req.UID, err)
-			return nil
-		}
-
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, resume); err != nil {

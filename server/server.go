@@ -223,33 +223,64 @@ func (s *Server) Start(ctx context.Context) (status error) {
 		return nil
 	}
 
-	if err := job.ScanDB(ctx, s.runner, s.db, s.resume); err != nil {
+	var uids []string
+	collect := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
+		uid := jd.UID
+		if job.IsDone(jd.State) {
+			log.Printf("job %q is already completed to %q", uid, jd.State)
+			return nil
+		}
+
+		if jd.Flags&ManualFlag != 0 {
+			log.Printf("job %q needs to be resumed manually (flags 0x%x)", uid, jd.Flags)
+			return nil
+		}
+
+		uids = append(uids, uid)
+		return nil
+	}
+
+	if err := job.ScanDB(ctx, s.runner, s.db, collect); err != nil {
 		return fmt.Errorf("could not resume all jobs: %w", err)
 	}
+
+	resume := func(ctx context.Context, rw kv.ReadWriter) error {
+		for _, uid := range uids {
+			jd, err := s.runner.Get(ctx, rw, uid)
+			if err != nil {
+				return fmt.Errorf("could not get job data for %q: %w", uid, err)
+			}
+			if _, err := s.resume(ctx, rw, jd); err != nil {
+				log.Printf("could not resume job %q (skipped): %v", uid, err)
+			}
+		}
+		return nil
+	}
+	kv.WithReadWriter(ctx, s.db, resume)
 	return nil
 }
 
-func (s *Server) resume(ctx context.Context, r kv.Reader, jdata *job.JobData) error {
-	if jdata.State == job.RUNNING || job.IsDone(jdata.State) {
-		return nil
-	}
-
+func (s *Server) resume(ctx context.Context, rw kv.ReadWriter, jdata *job.JobData) (job.State, error) {
 	uid := jdata.UID
-	if jdata.Flags != 0 { // TODO: We should introduce flags
-		log.Printf("job %q needs to be resumed manually", uid)
-		return nil
+	if job.IsDone(jdata.State) {
+		return "", fmt.Errorf("job %q is already completed (%q)", uid, jdata.State)
 	}
 
-	trader, err := Load(ctx, r, uid) // FIXME: Use jdata.Typename
+	if jdata.Flags&ManualFlag != 0 {
+		return "", fmt.Errorf("job %q needs to be resumed manually", uid)
+	}
+
+	trader, err := Load(ctx, rw, uid) // FIXME: Use jdata.Typename to load quickly.
 	if err != nil {
-		return fmt.Errorf("could not load trader job %q: %w", uid, err)
+		return "", fmt.Errorf("could not load trader job %q: %w", uid, err)
 	}
 
-	log.Printf("resuming job with id %q", uid)
-	if _, err := job.ResumeDB(ctx, s.runner, s.db, uid, s.makeJobFunc(trader), s.closeCtx); err != nil {
-		return fmt.Errorf("could not resume job %q: %w", uid, err)
+	state, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(trader), s.closeCtx)
+	if err != nil {
+		return "", fmt.Errorf("could not resume job %q: %w", uid, err)
 	}
-	return nil
+	log.Printf("resumed job with id %q", uid)
+	return state, nil
 }
 
 func (s *Server) runFixes(ctx context.Context) (status error) {
