@@ -75,20 +75,14 @@ func (p *Product) BaseMinSize() decimal.Decimal {
 	return p.productData.BaseMinSize.Decimal
 }
 
-func (p *Product) TickerCh(ctx context.Context) <-chan *exchange.Ticker {
+func (p *Product) TickerCh() (<-chan *exchange.Ticker, func()) {
 	sub, ch, _ := p.prodTickerTopic.Subscribe(1, true /* includeRecent */)
-	context.AfterFunc(ctx, func() {
-		sub.Unsubscribe()
-	})
-	return ch
+	return ch, sub.Unsubscribe
 }
 
-func (p *Product) OrderUpdatesCh(ctx context.Context) <-chan *exchange.Order {
+func (p *Product) OrderUpdatesCh() (<-chan *exchange.Order, func()) {
 	sub, ch, _ := p.prodOrderTopic.Subscribe(0, true /* includeRecent */)
-	context.AfterFunc(ctx, func() {
-		sub.Unsubscribe()
-	})
-	return ch
+	return ch, sub.Unsubscribe
 }
 
 func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.Order, error) {

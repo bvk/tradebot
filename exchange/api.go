@@ -50,12 +50,8 @@ type Product interface {
 	ExchangeName() string
 	BaseMinSize() decimal.Decimal
 
-	TickerCh(context.Context) <-chan *Ticker
-
-	// OrderUpdatesCh returns a channel that receives order notifications/updates
-	// for all order on this product. Channel is closed when the input context is
-	// canceled.
-	OrderUpdatesCh(context.Context) <-chan *Order
+	TickerCh() (ch <-chan *Ticker, stopf func())
+	OrderUpdatesCh() (ch <-chan *Order, stopf func())
 
 	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
 	LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)

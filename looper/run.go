@@ -151,9 +151,8 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 	log.Printf("%s: adding new limit-buy buy-%06d", v.uid, len(v.buys))
 
 	// Wait for the ticker to go above the buy point price.
-	tctx, tcancel := context.WithCancel(ctx)
-	defer tcancel()
-	tickerCh := rt.Product.TickerCh(tctx)
+	tickerCh, stopTickers := rt.Product.TickerCh()
+	defer stopTickers()
 
 	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
 		select {

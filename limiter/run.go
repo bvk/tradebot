@@ -62,8 +62,12 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	flushCh := time.After(time.Minute)
 
 	localCtx := context.Background()
-	tickerCh := rt.Product.TickerCh(localCtx)
-	orderUpdatesCh := rt.Product.OrderUpdatesCh(localCtx)
+
+	tickerCh, stopTickers := rt.Product.TickerCh()
+	defer stopTickers()
+
+	orderUpdatesCh, stopUpdates := rt.Product.OrderUpdatesCh()
+	defer stopUpdates()
 
 	for p := v.PendingSize(); !p.IsZero(); p = v.PendingSize() {
 		select {
