@@ -39,7 +39,7 @@ func (c *SetName) run(ctx context.Context, args []string) error {
 	rename := func(ctx context.Context, rw kv.ReadWriter) error {
 		if _, err := uuid.Parse(oldName); err == nil {
 			// Check that id doesn't resolve to a name already.
-			name, _, err := namer.ResolveID(ctx, rw, oldName)
+			name, _, _, err := namer.Resolve(ctx, rw, oldName)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					// Use set-name api to assign a name cause we don't have job-type.

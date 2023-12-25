@@ -52,7 +52,7 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	}
 	defer closer()
 
-	uid, _, err := namer.Resolve(ctx, db, jobArg)
+	_, uid, _, err := namer.ResolveDB(ctx, db, jobArg)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)
@@ -71,13 +71,13 @@ func (c *Export) run(ctx context.Context, args []string) error {
 			return fmt.Errorf("could not export job data: %w", err)
 		}
 
-		name, _, err := namer.ResolveID(ctx, r, export.UID)
+		name, _, typename, err := namer.Resolve(ctx, r, export.UID)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("could not resolve job id to name: %w", err)
 		}
 		export.Name = name
 
-		trader, err = server.Load(ctx, r, export.UID)
+		trader, err = server.Load(ctx, r, export.UID, typename)
 		if err != nil {
 			return fmt.Errorf("could not load trader: %w", err)
 		}

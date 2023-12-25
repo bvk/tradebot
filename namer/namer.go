@@ -18,43 +18,58 @@ import (
 
 var Keyspace = "/names/"
 
-func Resolve(ctx context.Context, db kv.Database, name string) (id, typename string, err error) {
-	if len(name) == 0 {
-		return "", "", fmt.Errorf("name cannot be empty")
+func checkEqual(a, b *gobs.NameData) error {
+	if a.Name != b.Name {
+		return fmt.Errorf("Name field value is not the same")
 	}
-	nkey := path.Join(Keyspace, toUUID(name))
-	data, err := kvutil.GetDB[gobs.NameData](ctx, db, nkey)
-	if err != nil {
-		return "", "", fmt.Errorf("could not fetch name-to-id data: %w", err)
+	if a.ID != b.ID {
+		return fmt.Errorf("ID field value is not the same")
 	}
-	return data.ID, data.Typename, nil
+	if a.Typename != b.Typename {
+		return fmt.Errorf("Typename field value is not the same")
+	}
+	return nil
 }
 
-func ResolveName(ctx context.Context, r kv.Reader, name string) (id, typename string, err error) {
-	if len(name) == 0 {
-		return "", "", fmt.Errorf("name cannot be empty")
+// ResolveDB is similar to Resolve, but takes a kv.Database argument.
+func ResolveDB(ctx context.Context, db kv.Database, str string) (name, id, typename string, err error) {
+	resolve := func(ctx context.Context, r kv.Reader) error {
+		name, id, typename, err = Resolve(ctx, r, str)
+		return nil
 	}
-	nkey := path.Join(Keyspace, toUUID(name))
-	data, err := kvutil.Get[gobs.NameData](ctx, r, nkey)
-	if err != nil {
-		return "", "", fmt.Errorf("could not fetch name-to-id data: %w", err)
-	}
-	return data.ID, data.Typename, nil
+	kv.WithReader(ctx, db, resolve)
+	return name, id, typename, err
 }
 
-func ResolveID(ctx context.Context, r kv.Reader, id string) (name, typename string, err error) {
-	if len(id) == 0 {
-		return "", "", fmt.Errorf("id cannot be empty")
+// Resolve converts string argument which can be name or id with the namer database.
+func Resolve(ctx context.Context, r kv.Reader, str string) (name, id, typename string, err error) {
+	if len(str) == 0 {
+		return "", "", "", fmt.Errorf("name/id string argument cannot be empty")
 	}
-	ikey := path.Join(Keyspace, toUUID(id))
-	data, err := kvutil.Get[gobs.NameData](ctx, r, ikey)
+	skey := path.Join(Keyspace, toUUID(str))
+	data, err := kvutil.Get[gobs.NameData](ctx, r, skey)
 	if err != nil {
-		return "", "", fmt.Errorf("could not fetch id-to-name data: %w", err)
+		return "", "", "", fmt.Errorf("could not fetch naming data: %w", err)
 	}
-	return data.Name, data.Typename, nil
+	// Check that other link also points to the same data.
+	other := ""
+	if data.Name == str {
+		other = data.ID
+	} else if data.ID == str {
+		other = data.Name
+	} else {
+		return "", "", "", fmt.Errorf("unexpected: name data is inconsistent for %q", str)
+	}
+	okey := path.Join(Keyspace, toUUID(other))
+	if v, err := kvutil.Get[gobs.NameData](ctx, r, okey); err != nil {
+		return "", "", "", fmt.Errorf("could not read name data for tag %q: %w", other, err)
+	} else if err := checkEqual(data, v); err != nil {
+		return "", "", "", fmt.Errorf("unexpected: name data at ID and Name is not the same: %w", err)
+	}
+	return data.Name, data.ID, data.Typename, nil
 }
 
-func SetName(ctx context.Context, rw kv.ReadWriter, id, name, typename string) error {
+func SetName(ctx context.Context, rw kv.ReadWriter, name, id, typename string) error {
 	if len(id) == 0 || len(name) == 0 {
 		return fmt.Errorf("id and name must be non-empty")
 	}
@@ -108,7 +123,7 @@ func Rename(ctx context.Context, rw kv.ReadWriter, older, newer string) error {
 }
 
 func Delete(ctx context.Context, rw kv.ReadWriter, name string) error {
-	id, _, err := ResolveName(ctx, rw, name)
+	_, id, _, err := Resolve(ctx, rw, name)
 	if err != nil {
 		return fmt.Errorf("could not resolve name %q: %w", name, err)
 	}
@@ -124,7 +139,7 @@ func Delete(ctx context.Context, rw kv.ReadWriter, name string) error {
 }
 
 func DeleteID(ctx context.Context, rw kv.ReadWriter, id string) error {
-	name, _, err := ResolveID(ctx, rw, id)
+	name, _, _, err := Resolve(ctx, rw, id)
 	if err != nil {
 		return fmt.Errorf("could not resolve id %q: %w", id, err)
 	}

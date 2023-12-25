@@ -48,7 +48,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	var uids []string
 	for _, arg := range args {
-		uid, _, err := namer.Resolve(ctx, db, arg)
+		_, uid, _, err := namer.ResolveDB(ctx, db, arg)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("could not resolve job argument %q: %w", arg, err)
@@ -63,7 +63,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	load := func(ctx context.Context, r kv.Reader) error {
 		if len(uids) > 0 {
 			for _, uid := range uids {
-				job, err := server.Load(ctx, r, uid)
+				job, err := server.Load(ctx, r, uid, "")
 				if err != nil {
 					return fmt.Errorf("could not load job with uid %q: %w", uid, err)
 				}
@@ -82,7 +82,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			uid = strings.TrimPrefix(uid, limiter.DefaultKeyspace)
 			uid = strings.TrimPrefix(uid, looper.DefaultKeyspace)
 			uid = strings.TrimPrefix(uid, waller.DefaultKeyspace)
-			if name, _, err := namer.ResolveID(ctx, r, uid); err == nil {
+			if name, _, _, err := namer.Resolve(ctx, r, uid); err == nil {
 				uid2nameMap[j.UID()] = name
 			}
 		}

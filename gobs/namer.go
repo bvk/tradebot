@@ -6,5 +6,4 @@ type NameData struct {
 	ID       string
 	Name     string
 	Typename string
-	Data     string
 }

@@ -40,7 +40,7 @@ func (c *Actions) run(ctx context.Context, args []string) error {
 	defer closer()
 
 	printer := func(ctx context.Context, r kv.Reader) error {
-		uid, _, err := namer.ResolveName(ctx, r, jobArg)
+		_, uid, typename, err := namer.Resolve(ctx, r, jobArg)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)
@@ -49,7 +49,7 @@ func (c *Actions) run(ctx context.Context, args []string) error {
 			uid = jobArg
 		}
 
-		job, err := server.Load(ctx, r, uid)
+		job, err := server.Load(ctx, r, uid, typename)
 		if err != nil {
 			return fmt.Errorf("could not load job with uid %q: %w", uid, err)
 		}

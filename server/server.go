@@ -270,7 +270,7 @@ func (s *Server) resume(ctx context.Context, rw kv.ReadWriter, jdata *job.JobDat
 		return "", fmt.Errorf("job %q needs to be resumed manually", uid)
 	}
 
-	trader, err := Load(ctx, rw, uid) // FIXME: Use jdata.Typename to load quickly.
+	trader, err := Load(ctx, rw, uid, jdata.Typename)
 	if err != nil {
 		return "", fmt.Errorf("could not load trader job %q: %w", uid, err)
 	}
@@ -289,7 +289,7 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 	}
 
 	fix := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
-		trader, err := Load(ctx, r, jd.UID) // FIXME: Use jd.Typename
+		trader, err := Load(ctx, r, jd.UID, jd.Typename)
 		if err != nil {
 			return fmt.Errorf("could not load trader %q: %w", jd.UID, err)
 		}

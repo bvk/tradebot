@@ -1,4 +1,4 @@
-// Copyrightn (c) 2023 BVK Chaitanya
+// Copyright (c) 2023 BVK Chaitanya
 
 package server
 
@@ -121,7 +121,7 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 
 	resp := new(api.JobListResponse)
 	collect := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
-		name, _, err := namer.ResolveID(ctx, snap, jd.UID)
+		name, _, _, err := namer.Resolve(ctx, snap, jd.UID)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("could not resolve job id %q: %w", jd.UID, err)
@@ -157,7 +157,7 @@ func (s *Server) doSetJobName(ctx context.Context, req *api.SetJobNameRequest) (
 		if err != nil {
 			return fmt.Errorf("could not load job %q: %w", req.UID, err)
 		}
-		if err := namer.SetName(ctx, rw, jd.UID, req.JobName, jd.Typename); err != nil {
+		if err := namer.SetName(ctx, rw, req.JobName, jd.UID, jd.Typename); err != nil {
 			return fmt.Errorf("could not assign name: %w", err)
 		}
 		return nil

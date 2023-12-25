@@ -61,7 +61,7 @@ func (c *Import) run(ctx context.Context, args []string) error {
 	// Verify that name, job id and all other keys doesn't exist in the target db.
 	verifier := func(ctx context.Context, r kv.Reader) error {
 		if len(export.Name) > 0 {
-			if _, _, err := namer.ResolveName(ctx, r, export.Name); err == nil {
+			if _, _, _, err := namer.Resolve(ctx, r, export.Name); err == nil {
 				return fmt.Errorf("target already has job named %q: %w", export.Name, os.ErrExist)
 			}
 		}
@@ -101,7 +101,7 @@ func (c *Import) run(ctx context.Context, args []string) error {
 			}
 		}
 		if len(export.Name) > 0 {
-			if err := namer.SetName(ctx, rw, export.UID, export.Name, export.Typename); err != nil {
+			if err := namer.SetName(ctx, rw, export.Name, export.UID, export.Typename); err != nil {
 				return fmt.Errorf("could not set name: %w", err)
 			}
 		}

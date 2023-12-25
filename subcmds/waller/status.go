@@ -41,7 +41,7 @@ func (c *Status) Run(ctx context.Context, args []string) error {
 
 	var status *waller.Status
 	getter := func(ctx context.Context, r kv.Reader) error {
-		uid, typename, err := namer.ResolveName(ctx, r, args[0])
+		_, uid, typename, err := namer.Resolve(ctx, r, args[0])
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("could not resolve job argument %q: %w", args[0], err)

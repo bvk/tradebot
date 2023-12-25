@@ -32,7 +32,7 @@ func (c *Cancel) run(ctx context.Context, args []string) error {
 	}
 	defer closer()
 
-	uid, _, err := namer.Resolve(ctx, db, jobArg)
+	_, uid, _, err := namer.ResolveDB(ctx, db, jobArg)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)

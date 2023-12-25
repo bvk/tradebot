@@ -42,7 +42,7 @@ func (c *CancelOffset) Run(ctx context.Context, args []string) error {
 	defer closer()
 
 	fixer := func(ctx context.Context, rw kv.ReadWriter) error {
-		uid, typename, err := namer.ResolveName(ctx, rw, jobArg)
+		_, uid, typename, err := namer.Resolve(ctx, rw, jobArg)
 		if err != nil {
 			return fmt.Errorf("could not resolve job argument %q: %w", jobArg, err)
 		}
