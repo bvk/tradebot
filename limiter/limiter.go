@@ -38,11 +38,6 @@ type Limiter struct {
 
 	idgen *idgen.Generator
 
-	// clientServerMap holds a mapping from client-order-id to
-	// exchange-order-id. We keep this metadata to verify the correctness if
-	// required.
-	clientServerMap map[string]exchange.OrderID
-
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
@@ -54,13 +49,12 @@ var _ trader.Trader = &Limiter{}
 // limit-price.
 func New(uid, exchangeName, productID string, point *point.Point) (*Limiter, error) {
 	v := &Limiter{
-		productID:       productID,
-		exchangeName:    exchangeName,
-		uid:             uid,
-		point:           *point,
-		idgen:           idgen.New(uid, 0),
-		orderMap:        make(map[exchange.OrderID]*exchange.Order),
-		clientServerMap: make(map[string]exchange.OrderID),
+		productID:    productID,
+		exchangeName: exchangeName,
+		uid:          uid,
+		point:        *point,
+		idgen:        idgen.New(uid, 0),
+		orderMap:     make(map[exchange.OrderID]*exchange.Order),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -227,12 +221,8 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 				Price:  v.point.Price,
 				Cancel: v.point.Cancel,
 			},
-			ClientServerIDMap: make(map[string]string),
-			ServerIDOrderMap:  make(map[string]*gobs.Order),
+			ServerIDOrderMap: make(map[string]*gobs.Order),
 		},
-	}
-	for k, v := range v.clientServerMap {
-		gv.V2.ClientServerIDMap[k] = string(v)
 	}
 	for k, v := range v.orderMap {
 		order := &gobs.Order{
@@ -304,11 +294,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			Cancel: gv.V2.TradePoint.Cancel,
 		},
 
-		orderMap:        make(map[exchange.OrderID]*exchange.Order),
-		clientServerMap: make(map[string]exchange.OrderID),
-	}
-	for kk, vv := range gv.V2.ClientServerIDMap {
-		v.clientServerMap[kk] = exchange.OrderID(vv)
+		orderMap: make(map[exchange.OrderID]*exchange.Order),
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
 		order := &exchange.Order{

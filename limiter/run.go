@@ -210,7 +210,6 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		ClientOrderID: clientOrderID.String(),
 		Side:          v.point.Side(),
 	}
-	v.clientServerMap[clientOrderID.String()] = orderID
 
 	log.Printf("%s:%s: created a new limit order %s with client-order-id %s (%d) in %s", v.uid, v.point, orderID, clientOrderID, offset, latency)
 	return orderID, nil
