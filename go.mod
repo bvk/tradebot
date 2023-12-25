@@ -5,7 +5,7 @@ go 1.21.0
 require (
 	github.com/bvkgo/kv v0.0.0-20231109000250-749bef1474a8
 	github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d
-	github.com/bvkgo/topic v1.0.1-0.20231130001231-000588f23d94
+	github.com/bvkgo/topic v1.0.1-0.20231225172130-d8945de4fa3c
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/google/uuid v1.4.0
 	github.com/gorilla/websocket v1.4.0
