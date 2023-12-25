@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loader func(context.Context, string, kv.Reader) (T, error)) ([]trader.Job, error) {
+func load[T trader.Trader](ctx context.Context, r kv.Reader, keyspace string, loader func(context.Context, string, kv.Reader) (T, error)) ([]trader.Trader, error) {
 	begin := path.Join(keyspace, MinUUID)
 	end := path.Join(keyspace, MaxUUID)
 
@@ -29,7 +29,7 @@ func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loade
 	}
 	defer kv.Close(it)
 
-	var jobs []trader.Job
+	var jobs []trader.Trader
 	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
 		uid := strings.TrimPrefix(k, keyspace)
 		if _, err := uuid.Parse(uid); err != nil {
@@ -49,8 +49,8 @@ func load[T trader.Job](ctx context.Context, r kv.Reader, keyspace string, loade
 	return jobs, nil
 }
 
-func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Job, error) {
-	var traders []trader.Job
+func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Trader, error) {
+	var traders []trader.Trader
 
 	limiters, err := load(ctx, r, limiter.DefaultKeyspace, limiter.Load)
 	if err != nil {
@@ -73,7 +73,7 @@ func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Job, error) {
 	return traders, nil
 }
 
-func Load(ctx context.Context, r kv.Reader, uid, typename string) (trader.Job, error) {
+func Load(ctx context.Context, r kv.Reader, uid, typename string) (trader.Trader, error) {
 	if typename == "" {
 		if _, _, typ, err := namer.Resolve(ctx, r, uid); err == nil {
 			typename = typ
@@ -107,7 +107,7 @@ func Load(ctx context.Context, r kv.Reader, uid, typename string) (trader.Job, e
 	return nil, fmt.Errorf("unsupported trader type %q", typename)
 }
 
-func loadFromDB(ctx context.Context, db kv.Database, uid, typename string) (job trader.Job, err error) {
+func loadFromDB(ctx context.Context, db kv.Database, uid, typename string) (job trader.Trader, err error) {
 	kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
 		job, err = Load(ctx, r, uid, typename)
 		return err

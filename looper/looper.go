@@ -41,7 +41,7 @@ type Looper struct {
 	sells []*limiter.Limiter
 }
 
-var _ trader.Job = &Looper{}
+var _ trader.Trader = &Looper{}
 
 func New(uid, exchangeName, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{

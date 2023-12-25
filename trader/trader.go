@@ -9,7 +9,7 @@ import (
 	"github.com/bvkgo/kv"
 )
 
-type Job interface {
+type Trader interface {
 	UID() string
 	ProductID() string
 	ExchangeName() string

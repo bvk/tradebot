@@ -64,7 +64,7 @@ func (c *Export) run(ctx context.Context, args []string) error {
 		UID: uid,
 	}
 
-	var trader trader.Job
+	var trader trader.Trader
 	loader := func(ctx context.Context, r kv.Reader) error {
 		runner := job.NewRunner()
 		if err := runner.Export(ctx, r, export); err != nil {

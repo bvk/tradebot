@@ -46,7 +46,7 @@ type Limiter struct {
 	orderMap map[exchange.OrderID]*exchange.Order
 }
 
-var _ trader.Job = &Limiter{}
+var _ trader.Trader = &Limiter{}
 
 // New creates a new BUY or SELL limit order at the given price point. Limit
 // orders at the exchange are canceled and recreated automatically as the

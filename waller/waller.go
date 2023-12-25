@@ -33,7 +33,7 @@ type Waller struct {
 	loopers []*looper.Looper
 }
 
-var _ trader.Job = &Waller{}
+var _ trader.Trader = &Waller{}
 
 func New(uid, exchangeName, productID string, pairs []*point.Pair) (*Waller, error) {
 	w := &Waller{

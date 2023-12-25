@@ -58,7 +58,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		uids = append(uids, uid)
 	}
 
-	var jobs []trader.Job
+	var jobs []trader.Trader
 	uid2nameMap := make(map[string]string)
 	load := func(ctx context.Context, r kv.Reader) error {
 		if len(uids) > 0 {
@@ -93,7 +93,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 
 	// Remove limiter jobs cause they are one-side trades.
-	jobs = slices.DeleteFunc(jobs, func(j trader.Job) bool {
+	jobs = slices.DeleteFunc(jobs, func(j trader.Trader) bool {
 		_, ok := j.(*limiter.Limiter)
 		return ok
 	})

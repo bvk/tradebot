@@ -82,7 +82,7 @@ func (s *Status) FeePct() decimal.Decimal {
 	return s.totalFees.Mul(d100).Div(s.soldValue.Add(s.boughtValue))
 }
 
-func GetStatus(job Job) *Status {
+func GetStatus(job Trader) *Status {
 	actions := job.Actions()
 	if len(actions) == 0 {
 		return nil

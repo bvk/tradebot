@@ -21,7 +21,7 @@ const (
 	ManualFlag uint64 = 0x1 << 0
 )
 
-func (s *Server) makeJobFunc(v trader.Job) job.Func {
+func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 	return func(ctx context.Context) error {
 		uid := v.UID()
 
