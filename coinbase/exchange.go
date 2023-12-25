@@ -139,7 +139,10 @@ func (ex *Exchange) sync(ctx context.Context) error {
 			ex.clientOrderIDMap.Store(v.ClientOrderID, v)
 		}
 	}
-	log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
+
+	if len(filled) > 0 {
+		log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
+	}
 
 	cancelled, err := ex.ListOrders(ctx, ex.lastFilledTime, "CANCELLED")
 	if err != nil {
