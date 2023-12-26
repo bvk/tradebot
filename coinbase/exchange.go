@@ -140,9 +140,7 @@ func (ex *Exchange) sync(ctx context.Context) error {
 		}
 	}
 
-	if len(filled) > 0 {
-		log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
-	}
+	log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
 
 	cancelled, err := ex.ListOrders(ctx, ex.lastFilledTime, "CANCELLED")
 	if err != nil {
@@ -167,7 +165,9 @@ func (ex *Exchange) goScanFilledOrders(ctx context.Context) {
 			log.Printf("could not list fills from %s (will retry): %v", last, err)
 			continue
 		}
-		log.Printf("fetched %d fills after %s", len(fills), last)
+		if len(fills) > 0 {
+			log.Printf("fetched %d fills after %s", len(fills), last)
+		}
 
 		failed := false
 		var orders []*internal.Order
