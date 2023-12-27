@@ -146,7 +146,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if len(statuses) > 0 {
 		fmt.Println()
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-		fmt.Fprintf(tw, "Name/UID\tProduct\tNumSells\tProfit\tFees\tBought\tSold\tUnsold\t\n")
+		fmt.Fprintf(tw, "Name/UID\tProduct\tBudget\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
 		for _, s := range statuses {
 			uid := s.UID()
 			if name, ok := uid2nameMap[uid]; ok {
@@ -158,7 +158,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			sold := s.Sold()
 			unsold := s.UnsoldValue
 			profit := s.Profit()
-			fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, s.NumSells, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, s.Budget.StringFixed(3), s.NumBuys, s.NumSells, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
 		}
 		tw.Flush()
 	}
