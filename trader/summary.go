@@ -9,21 +9,28 @@ import (
 )
 
 type Summary struct {
-	NumDays int
+	MinCreateTime time.Time
 
-	SoldValue     decimal.Decimal
-	BoughtValue   decimal.Decimal
-	UnsoldValue   decimal.Decimal
+	NumSells int
+	NumBuys  int
+
+	Budget decimal.Decimal
+
+	SoldFees  decimal.Decimal
+	SoldSize  decimal.Decimal
+	SoldValue decimal.Decimal
+
+	BoughtFees  decimal.Decimal
+	BoughtSize  decimal.Decimal
+	BoughtValue decimal.Decimal
+
+	UnsoldFees  decimal.Decimal
+	UnsoldSize  decimal.Decimal
+	UnsoldValue decimal.Decimal
+
+	OversoldFees  decimal.Decimal
+	OversoldSize  decimal.Decimal
 	OversoldValue decimal.Decimal
-
-	SoldSize     decimal.Decimal
-	BoughtSize   decimal.Decimal
-	UnsoldSize   decimal.Decimal
-	OversoldSize decimal.Decimal
-
-	TotalFees    decimal.Decimal
-	UnsoldFees   decimal.Decimal
-	OversoldFees decimal.Decimal
 }
 
 func (s *Summary) FeePct() decimal.Decimal {
@@ -31,44 +38,71 @@ func (s *Summary) FeePct() decimal.Decimal {
 	if divisor.IsZero() {
 		return decimal.Zero
 	}
-	return s.TotalFees.Mul(d100).Div(divisor)
+	totalFees := s.SoldFees.Add(s.BoughtFees)
+	return totalFees.Mul(d100).Div(divisor)
+}
+
+func (s *Summary) Sold() decimal.Decimal {
+	return s.SoldValue.Sub(s.OversoldValue)
+}
+
+func (s *Summary) Bought() decimal.Decimal {
+	return s.BoughtValue.Sub(s.UnsoldValue)
+}
+
+func (s *Summary) Fees() decimal.Decimal {
+	sfees := s.SoldFees.Sub(s.OversoldFees)
+	bfees := s.BoughtFees.Sub(s.UnsoldFees)
+	return sfees.Add(bfees)
 }
 
 func (s *Summary) Profit() decimal.Decimal {
-	unsold := s.UnsoldValue.Add(s.UnsoldFees)
-	oversold := s.OversoldValue.Add(s.OversoldFees)
-	profit := s.SoldValue.Sub(s.BoughtValue).Sub(s.TotalFees)
-	return profit.Add(unsold).Sub(oversold)
+	svalue := s.SoldValue.Sub(s.OversoldValue)
+	bvalue := s.BoughtValue.Sub(s.UnsoldValue)
+	sfees := s.SoldFees.Sub(s.OversoldFees)
+	bfees := s.BoughtFees.Sub(s.UnsoldFees)
+	profit := svalue.Sub(bvalue).Sub(bfees).Sub(sfees)
+	return profit
+}
+
+func (s *Summary) NumDays() int {
+	return int(time.Now().Sub(s.MinCreateTime) / (24 * time.Hour))
 }
 
 func (s *Summary) ProfitPerDay() decimal.Decimal {
-	return s.Profit().Div(decimal.NewFromInt(int64(s.NumDays)))
+	return s.Profit().Div(decimal.NewFromInt(int64(s.NumDays())))
 }
 
 func Summarize(statuses []*Status) *Summary {
 	sum := new(Summary)
 
-	var startTime time.Time
+	var minCreateTime time.Time
 	for _, s := range statuses {
-		sum.SoldValue = sum.SoldValue.Add(s.soldValue)
-		sum.BoughtValue = sum.BoughtValue.Add(s.boughtValue)
-		sum.UnsoldValue = sum.UnsoldValue.Add(s.unsoldValue)
-		sum.OversoldValue = sum.OversoldValue.Add(s.oversoldValue)
+		sum.NumBuys += s.NumBuys
+		sum.NumSells += s.NumSells
+		sum.Budget = sum.Budget.Add(s.Budget)
 
-		sum.SoldSize = sum.SoldSize.Add(s.soldSize)
-		sum.BoughtSize = sum.BoughtSize.Add(s.boughtSize)
-		sum.UnsoldSize = sum.UnsoldSize.Add(s.unsoldSize)
-		sum.OversoldSize = sum.OversoldSize.Add(s.oversoldSize)
+		sum.SoldFees = sum.SoldFees.Add(s.SoldFees)
+		sum.SoldSize = sum.SoldSize.Add(s.SoldSize)
+		sum.SoldValue = sum.SoldValue.Add(s.SoldValue)
 
-		sum.TotalFees = sum.TotalFees.Add(s.totalFees)
-		sum.UnsoldFees = sum.UnsoldFees.Add(s.unsoldFees)
-		sum.OversoldFees = sum.OversoldFees.Add(s.oversoldFees)
+		sum.BoughtFees = sum.BoughtFees.Add(s.BoughtFees)
+		sum.BoughtSize = sum.BoughtSize.Add(s.BoughtSize)
+		sum.BoughtValue = sum.BoughtValue.Add(s.BoughtValue)
 
-		if startTime.IsZero() || s.StartTime().Before(startTime) {
-			startTime = s.StartTime()
+		sum.UnsoldFees = sum.UnsoldFees.Add(s.UnsoldFees)
+		sum.UnsoldSize = sum.UnsoldSize.Add(s.UnsoldSize)
+		sum.UnsoldValue = sum.UnsoldValue.Add(s.UnsoldValue)
+
+		sum.OversoldFees = sum.OversoldFees.Add(s.OversoldFees)
+		sum.OversoldSize = sum.OversoldSize.Add(s.OversoldSize)
+		sum.OversoldValue = sum.OversoldValue.Add(s.OversoldValue)
+
+		if minCreateTime.IsZero() || s.MinCreateTime.Before(minCreateTime) {
+			minCreateTime = s.MinCreateTime
 		}
 	}
 
-	sum.NumDays = int(time.Now().Sub(startTime) / (24 * time.Hour))
+	sum.MinCreateTime = minCreateTime
 	return sum
 }

@@ -88,6 +88,10 @@ func (v *Limiter) ExchangeName() string {
 	return v.exchangeName
 }
 
+func (v *Limiter) BudgetAt(feePct float64) decimal.Decimal {
+	return v.point.Value().Add(v.point.FeeAt(feePct))
+}
+
 func (v *Limiter) IsBuy() bool {
 	return v.point.Side() == "BUY"
 }

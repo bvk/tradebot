@@ -94,15 +94,21 @@ func (v *Looper) ExchangeName() string {
 	return v.exchangeName
 }
 
+func (v *Looper) BudgetAt(feePct float64) decimal.Decimal {
+	return v.buyPoint.Value().Add(v.buyPoint.FeeAt(feePct))
+}
+
 func (v *Looper) Actions() []*gobs.Action {
 	var actions []*gobs.Action
 	for _, b := range v.buys {
-		if as := b.Actions(); as != nil {
+		if as := b.Actions(); len(as) > 0 {
+			as[0].PairingKey = v.uid
 			actions = append(actions, as[0])
 		}
 	}
 	for _, s := range v.sells {
-		if as := s.Actions(); as != nil {
+		if as := s.Actions(); len(as) > 0 {
+			as[0].PairingKey = v.uid
 			actions = append(actions, as[0])
 		}
 	}

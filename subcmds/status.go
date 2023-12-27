@@ -46,24 +46,19 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 	defer closer()
 
-	var uids []string
-	for _, arg := range args {
-		_, uid, _, err := namer.ResolveDB(ctx, db, arg)
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("could not resolve job argument %q: %w", arg, err)
-			}
-			uid = arg
-		}
-		uids = append(uids, uid)
-	}
-
 	var jobs []trader.Trader
 	uid2nameMap := make(map[string]string)
 	load := func(ctx context.Context, r kv.Reader) error {
-		if len(uids) > 0 {
-			for _, uid := range uids {
-				job, err := server.Load(ctx, r, uid, "")
+		if len(args) > 0 {
+			for _, arg := range args {
+				_, uid, typename, err := namer.Resolve(ctx, r, arg)
+				if err != nil {
+					if !errors.Is(err, os.ErrNotExist) {
+						return fmt.Errorf("could not resolve job type %q: %w", arg, err)
+					}
+					uid = arg
+				}
+				job, err := server.Load(ctx, r, uid, typename)
 				if err != nil {
 					return fmt.Errorf("could not load job with uid %q: %w", uid, err)
 				}
@@ -108,19 +103,25 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		}
 	}
 
+	sum := trader.Summarize(statuses)
+	// js, _ := json.MarshalIndent(sum, "", "  ")
+	// fmt.Printf("%s\n", js)
+
 	var (
 		d30  = decimal.NewFromInt(30)
 		d100 = decimal.NewFromInt(100)
 		d365 = decimal.NewFromInt(365)
 	)
 
-	sum := trader.Summarize(statuses)
-	fmt.Printf("Num Days: %d\n", sum.NumDays)
+	fmt.Printf("Num Days: %d\n", sum.NumDays())
+	fmt.Printf("Num Buys: %d\n", sum.NumBuys)
+	fmt.Printf("Num Sells: %d\n", sum.NumSells)
 	fmt.Println()
-	fmt.Printf("Fees: %s\n", sum.TotalFees.StringFixed(3))
-	fmt.Printf("Sold: %s\n", sum.SoldValue.StringFixed(3))
-	fmt.Printf("Bought: %s\n", sum.BoughtValue.StringFixed(3))
-	fmt.Printf("Unsold: %s\n", sum.UnsoldValue.StringFixed(3))
+	fmt.Printf("Fees: %s\n", sum.Fees().StringFixed(3))
+	fmt.Printf("Sold: %s\n", sum.Sold().StringFixed(3))
+	fmt.Printf("Bought: %s\n", sum.Bought().StringFixed(3))
+	fmt.Printf("Lockin: %s\n", sum.UnsoldValue.StringFixed(3))
+	fmt.Printf("Budget: %s\n", sum.Budget.StringFixed(3))
 
 	fmt.Println()
 	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
@@ -145,19 +146,19 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if len(statuses) > 0 {
 		fmt.Println()
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-		fmt.Fprintf(tw, "Name/UID\tProduct\tProfit\tFees\tBought\tSold\tUnsold\t\n")
+		fmt.Fprintf(tw, "Name/UID\tProduct\tNumSells\tProfit\tFees\tBought\tSold\tUnsold\t\n")
 		for _, s := range statuses {
 			uid := s.UID()
 			if name, ok := uid2nameMap[uid]; ok {
 				uid = name
 			}
-			pid := s.ProductID()
-			fees := s.TotalFees()
-			bought := s.BoughtValue()
-			sold := s.SoldValue()
-			unsold := s.UnsoldValue()
+			pid := s.ProductID
+			fees := s.Fees()
+			bought := s.Bought()
+			sold := s.Sold()
+			unsold := s.UnsoldValue
 			profit := s.Profit()
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, s.NumSells, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3))
 		}
 		tw.Flush()
 	}

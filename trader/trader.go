@@ -7,6 +7,7 @@ import (
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvkgo/kv"
+	"github.com/shopspring/decimal"
 )
 
 type Trader interface {
@@ -23,4 +24,8 @@ type Trader interface {
 	// Typically, orders for buy actions are followed by their corresponding sell
 	// action orders. However, an unsold buy may not have a matching a sell.
 	Actions() []*gobs.Action
+
+	// BudgetAt returns the total amount of value required to execute at the
+	// given fee percentage.
+	BudgetAt(feePct float64) decimal.Decimal
 }

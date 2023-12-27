@@ -38,3 +38,21 @@ func avgPrice(vs []*gobs.Order) decimal.Decimal {
 	}
 	return sum.Div(decimal.NewFromInt(int64(len(vs))))
 }
+
+func maxPrice(max decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
+	for _, v := range vs {
+		if v.FilledPrice.GreaterThan(max) {
+			max = v.FilledPrice
+		}
+	}
+	return max
+}
+
+func minPrice(min decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
+	for _, v := range vs {
+		if v.FilledPrice.LessThan(min) {
+			min = v.FilledPrice
+		}
+	}
+	return min
+}
