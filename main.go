@@ -75,6 +75,7 @@ func main() {
 
 	coinbaseCmds := []cli.Command{
 		new(coinbase.Sync),
+		new(coinbase.List),
 	}
 
 	cmds := []cli.Command{

@@ -163,6 +163,52 @@ func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles 
 	return nil
 }
 
+func (ds *Datastore) ScanCandles(ctx context.Context, productID string, begin, end time.Time, fn func(*gobs.Candle) error) error {
+	minKey := path.Join(Keyspace, "candles", "0000-00-00/00")
+	if !begin.IsZero() {
+		minKey = path.Join(Keyspace, "candles", begin.Truncate(time.Hour).Format("2006-01-02/15"))
+	}
+	maxKey := path.Join(Keyspace, "candles", "9999-99-99/99")
+	if !end.IsZero() {
+		maxKey = path.Join(Keyspace, "candles", end.Truncate(time.Hour).Format("2006-01-02/15"))
+	}
+	scanner := func(ctx context.Context, r kv.Reader, k string, v *gobs.CoinbaseCandles) error {
+		candles, ok := v.ProductCandlesMap[productID]
+		if !ok {
+			return nil
+		}
+
+		for _, c := range candles {
+			if !begin.IsZero() && c.UnixTime < begin.Unix() {
+				continue
+			}
+			if !end.IsZero() && c.UnixTime >= end.Unix() {
+				break
+			}
+
+			v := new(internal.Candle)
+			if err := json.Unmarshal([]byte(c.Candle), v); err != nil {
+				return fmt.Errorf("could not json-unmarshal candle data: %w", err)
+			}
+			gv := &gobs.Candle{
+				StartTime: gobs.RemoteTime{Time: time.Unix(c.UnixTime, 0)},
+				Duration:  time.Minute,
+				Low:       v.Low.Decimal,
+				High:      v.High.Decimal,
+				Open:      v.Open.Decimal,
+				Close:     v.Close.Decimal,
+				Volume:    v.Volume.Decimal,
+			}
+
+			if err := fn(gv); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return kvutil.AscendDB[gobs.CoinbaseCandles](ctx, ds.db, minKey, maxKey, scanner)
+}
+
 func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Order) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
