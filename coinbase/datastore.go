@@ -180,7 +180,6 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 				continue
 			}
 		}
-		value.RawOrderMap = nil
 		if err := kvutil.SetDB(ctx, ds.db, key, value); err != nil {
 			return fmt.Errorf("could not update coinbase orders at %q: %w", key, err)
 		}
