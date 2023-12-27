@@ -63,7 +63,6 @@ func main() {
 		new(waller.Add),
 		new(waller.List),
 		new(waller.Get),
-		new(waller.Status),
 		new(waller.Query),
 		new(waller.Upgrade),
 	}
