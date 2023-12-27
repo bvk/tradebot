@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/bvk/tradebot/api"
@@ -50,30 +49,4 @@ func (s *Server) doGetProduct(ctx context.Context, req *api.ExchangeGetProductRe
 		return &api.ExchangeGetProductResponse{Error: err.Error()}, nil
 	}
 	return &api.ExchangeGetProductResponse{Product: product}, nil
-}
-
-func (s *Server) doGetCandles(ctx context.Context, req *api.ExchangeGetCandlesRequest) (*api.ExchangeGetCandlesResponse, error) {
-	ex, ok := s.exchangeMap[strings.ToLower(req.ExchangeName)]
-	if !ok {
-		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
-	}
-	candles, err := ex.GetCandles(ctx, req.ProductID, req.StartTime)
-	if err != nil {
-		resp := &api.ExchangeGetCandlesResponse{
-			Error: err.Error(),
-		}
-		return resp, nil
-	}
-	sort.Slice(candles, func(i, j int) bool {
-		return candles[i].StartTime.Time.Before(candles[j].StartTime.Time)
-	})
-	resp := &api.ExchangeGetCandlesResponse{
-		Candles: candles,
-	}
-	if len(candles) > 1 {
-		resp.Continue = req
-		last := candles[len(candles)-1]
-		resp.Continue.StartTime = last.StartTime.Time.Add(last.Duration)
-	}
-	return resp, nil
 }

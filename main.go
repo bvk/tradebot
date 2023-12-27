@@ -71,8 +71,6 @@ func main() {
 	exchangeCmds := []cli.Command{
 		new(exchange.GetOrder),
 		new(exchange.GetProduct),
-		new(exchange.GetCandles),
-		new(exchange.Analyze),
 	}
 
 	coinbaseCmds := []cli.Command{

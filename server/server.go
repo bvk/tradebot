@@ -37,8 +37,7 @@ const (
 	MinUUID = "00000000-0000-0000-0000-000000000000"
 	MaxUUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
-	NamesKeyspace   = "/names/"
-	CandlesKeyspace = "/candles/"
+	NamesKeyspace = "/names/"
 
 	serverStateKey = "/server/state"
 )
@@ -154,7 +153,6 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 
 	t.handlerMap[api.ExchangeGetOrderPath] = httpPostJSONHandler(t.doExchangeGetOrder)
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
-	t.handlerMap[api.ExchangeGetCandlesPath] = httpPostJSONHandler(t.doGetCandles)
 
 	return t, nil
 }
