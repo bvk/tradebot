@@ -27,11 +27,14 @@ type Sync struct {
 	fromDate string
 
 	dataType string
+
+	productID string
 }
 
 func (c *Sync) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("sync", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
+	fset.StringVar(&c.productID, "product-id", "", "product id")
 	fset.StringVar(&c.fromDate, "from-date", "", "date of the day in YYYY-MM-DD format")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataType, "data-type", "", "one of filled|canceled|candles")
@@ -87,7 +90,11 @@ func (c *Sync) run(ctx context.Context, args []string) error {
 	case "canceled", "cancelled":
 		return exchange.SyncCancelled(ctx, from.UTC())
 	case "candles":
-		return errors.New("TODO")
+		if c.productID == "" {
+			return fmt.Errorf("product id cannot be empty for syncing candles")
+		}
+		end := time.Now().Truncate(time.Minute)
+		return exchange.SyncCandles(ctx, c.productID, from.UTC(), end)
 	default:
 		return fmt.Errorf("unsupported coinbase data type %q", c.dataType)
 	}

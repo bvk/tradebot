@@ -4,6 +4,7 @@ package coinbase
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -107,6 +108,59 @@ func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status strin
 		orders = append(orders, v)
 	}
 	return orders, nil
+}
+
+func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles []*internal.Candle) error {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	cmp := func(a, b *gobs.CoinbaseCandle) int {
+		return cmp.Compare(a.UnixTime, b.UnixTime)
+	}
+	equal := func(a, b *gobs.CoinbaseCandle) bool {
+		return a.UnixTime == b.UnixTime
+	}
+
+	kmap := make(map[string][]*internal.Candle)
+	for _, v := range candles {
+		ts := time.Unix(v.Start, 0)
+		key := path.Join(Keyspace, "candles", ts.Format("2006-01-02/15"))
+		vs := kmap[key]
+		kmap[key] = append(vs, v)
+	}
+
+	saver := func(ctx context.Context, rw kv.ReadWriter) error {
+		for key, candles := range kmap {
+			value, err := kvutil.Get[gobs.CoinbaseCandles](ctx, rw, key)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("could not load coinbase candles at %q: %w", key, err)
+				}
+				value = &gobs.CoinbaseCandles{
+					ProductCandlesMap: make(map[string][]*gobs.CoinbaseCandle),
+				}
+			}
+			pcandles := value.ProductCandlesMap[productID]
+			for _, c := range candles {
+				js, err := json.Marshal(c)
+				if err != nil {
+					return fmt.Errorf("could not json-marshal candle: %w", err)
+				}
+				pcandles = append(pcandles, &gobs.CoinbaseCandle{UnixTime: c.Start, Candle: json.RawMessage(js)})
+			}
+			slices.SortFunc(pcandles, cmp)
+			pcandles = slices.CompactFunc(pcandles, equal)
+			value.ProductCandlesMap[productID] = pcandles
+			if err := kvutil.Set(ctx, rw, key, value); err != nil {
+				return fmt.Errorf("could not save candles at key %q: %w", key, err)
+			}
+		}
+		return nil
+	}
+	if err := kv.WithReadWriter(ctx, ds.db, saver); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Order) error {

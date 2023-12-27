@@ -384,6 +384,61 @@ func (ex *Exchange) GetProduct(ctx context.Context, productID string) (*gobs.Pro
 	return product, nil
 }
 
+// SyncCandles fetches `ONE_MINUTE` candles from coinbase between the `begin`
+// and `end` timestamps for a single product and saves them to the datastore.
+func (ex *Exchange) SyncCandles(ctx context.Context, productID string, begin, end time.Time) error {
+	cmp := func(a, b *internal.Candle) int {
+		if a.Start == b.Start {
+			return 0
+		}
+		if a.Start < b.Start {
+			return -1
+		}
+		return 1
+	}
+
+	last := begin.UTC()
+	for last.Before(end) {
+		candles, err := ex.getRawCandles(ctx, productID, last)
+		if err != nil {
+			return fmt.Errorf("could not fetch candles from coinbase: %w", err)
+		}
+
+		ncandles := len(candles)
+		if ncandles == 0 {
+			break
+		}
+
+		slices.SortFunc(candles, cmp)
+		last = time.Unix(candles[ncandles-1].Start, 0).Add(time.Second).UTC()
+		if err := ex.datastore.saveCandles(ctx, productID, candles); err != nil {
+			return fmt.Errorf("could not save candles to datastore: %w", err)
+		}
+	}
+	return nil
+}
+
+// getRawCandles fetches `ONE_MINUTE` candles from coinbase starting at `from`
+// timestamp. Returns maximum of 300 candles.
+func (ex *Exchange) getRawCandles(ctx context.Context, productID string, from time.Time) ([]*internal.Candle, error) {
+	// Coinbase is not returning the candle with start time exactly equal to the
+	// req.StartTime, so we adjust startTime by a second.
+	from = from.Add(-time.Second)
+	end := from.Add(300 * time.Minute)
+
+	values := make(url.Values)
+	values.Set("start", fmt.Sprintf("%d", from.Unix()))
+	values.Set("end", fmt.Sprintf("%d", end.Unix()))
+	values.Set("granularity", "ONE_MINUTE")
+
+	resp, err := ex.client.GetProductCandles(ctx, productID, values)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Candles, nil
+}
+
 func (ex *Exchange) GetCandles(ctx context.Context, productID string, from time.Time) ([]*gobs.Candle, error) {
 	// Coinbase is not returning the candle with start time exactly equal to the
 	// req.StartTime, so we adjust startTime by a second.
