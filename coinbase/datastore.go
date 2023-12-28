@@ -293,7 +293,6 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 					return fmt.Errorf("could not load coinbase orders at %q: %w", key, err)
 				}
 				value = &gobs.CoinbaseOrders{
-					OrderMap:           make(map[string]json.RawMessage),
 					ProductOrderIDsMap: make(map[string][]string),
 				}
 			}
@@ -309,8 +308,6 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 				ids := append(value.ProductOrderIDsMap[v.ProductID], v.OrderID)
 				sort.Strings(ids)
 				value.ProductOrderIDsMap[v.ProductID] = slices.Compact(ids)
-
-				value.OrderMap = nil // Deprecated field.
 			}
 			if err := kvutil.Set(ctx, rw, key, value); err != nil {
 				return fmt.Errorf("could not update coinbase orders at %q: %w", key, err)
