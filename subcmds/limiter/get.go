@@ -5,12 +5,17 @@ package limiter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
+	"github.com/bvk/tradebot/limiter"
+	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 )
@@ -21,13 +26,23 @@ type Get struct {
 
 func (c *Get) Run(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("this command takes one (key) argument")
+		return fmt.Errorf("this command takes one limiter argument")
 	}
+	arg := args[0]
 
 	getter := func(ctx context.Context, r kv.Reader) error {
-		gv, err := kvutil.Get[gobs.LimiterState](ctx, r, args[0])
+		_, uid, _, err := namer.Resolve(ctx, r, arg)
 		if err != nil {
-			return err
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("could not resolve limiter argument %q: %w", arg, err)
+			}
+			uid = arg
+		}
+
+		key := path.Join(limiter.DefaultKeyspace, uid)
+		gv, err := kvutil.Get[gobs.LimiterState](ctx, r, key)
+		if err != nil {
+			return fmt.Errorf("could not load limiter state from key %q: %w", key, err)
 		}
 
 		d, _ := json.MarshalIndent(gv, "", "  ")
@@ -54,5 +69,5 @@ func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *Get) Synopsis() string {
-	return "Prints a single limit buy/sell job info from a key"
+	return "Prints a limiter state"
 }
