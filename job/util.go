@@ -5,8 +5,10 @@ package job
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvkgo/kv"
 )
 
@@ -75,4 +77,24 @@ func (r *Runner) Export(ctx context.Context, reader kv.Reader, export *gobs.JobE
 	export.Typename = jd.Typename
 	export.JobState = string(jd.State)
 	return nil
+}
+
+func Status(ctx context.Context, r kv.Reader, uid string) (State, error) {
+	key := path.Join(Keyspace, uid)
+	gob, err := kvutil.Get[gobs.JobData](ctx, r, key)
+	if err != nil {
+		return "", fmt.Errorf("could not read job data from db: %w", err)
+	}
+	if gob.State == "" {
+		return PAUSED, nil
+	}
+	return State(gob.State), nil
+}
+
+func StatusDB(ctx context.Context, db kv.Database, uid string) (state State, err error) {
+	kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
+		state, err = Status(ctx, r, uid)
+		return nil
+	})
+	return state, err
 }

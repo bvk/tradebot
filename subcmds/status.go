@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/namer"
@@ -48,6 +49,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	var jobs []trader.Trader
 	uid2nameMap := make(map[string]string)
+	uid2statusMap := make(map[string]string)
 	load := func(ctx context.Context, r kv.Reader) error {
 		if len(args) > 0 {
 			for _, arg := range args {
@@ -77,9 +79,16 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			uid = strings.TrimPrefix(uid, limiter.DefaultKeyspace)
 			uid = strings.TrimPrefix(uid, looper.DefaultKeyspace)
 			uid = strings.TrimPrefix(uid, waller.DefaultKeyspace)
-			if name, _, _, err := namer.Resolve(ctx, r, uid); err == nil {
-				uid2nameMap[j.UID()] = name
+			name := uid
+			if v, _, _, err := namer.Resolve(ctx, r, uid); err == nil {
+				name = v
 			}
+			uid2nameMap[j.UID()] = name
+			status := "UNKNOWN"
+			if v, err := job.StatusDB(ctx, db, j.UID()); err == nil {
+				status = string(v)
+			}
+			uid2statusMap[uid] = status
 		}
 		return nil
 	}
@@ -146,15 +155,20 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 
 	if len(statuses) > 0 {
+		order := []string{"RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELED"}
+		sort.Slice(statuses, func(i, j int) bool {
+			a, b := statuses[i].UID(), statuses[j].UID()
+			return slices.Index(order, uid2statusMap[a]) < slices.Index(order, uid2statusMap[b])
+		})
+
 		fmt.Println()
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-		fmt.Fprintf(tw, "Name/UID\tProduct\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
+		fmt.Fprintf(tw, "Name/UID\tStatus\tProduct\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
 		for _, s := range statuses {
 			uid := s.UID()
-			if name, ok := uid2nameMap[uid]; ok {
-				uid = name
-			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, s.ProductID, s.Budget.StringFixed(3), s.ReturnRate().StringFixed(3), s.AnnualReturnRate().StringFixed(3), s.NumDays(), s.NumBuys, s.NumSells, s.Profit().StringFixed(3), s.Fees().StringFixed(3), s.Bought().StringFixed(3), s.Sold().StringFixed(3), s.UnsoldValue.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
+			name := uid2nameMap[uid]
+			status := uid2statusMap[uid]
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, status, s.ProductID, s.Budget.StringFixed(3), s.ReturnRate().StringFixed(3), s.AnnualReturnRate().StringFixed(3), s.NumDays(), s.NumBuys, s.NumSells, s.Profit().StringFixed(3), s.Fees().StringFixed(3), s.Bought().StringFixed(3), s.Sold().StringFixed(3), s.UnsoldValue.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
 		}
 		tw.Flush()
 	}
