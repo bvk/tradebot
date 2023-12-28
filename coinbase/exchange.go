@@ -296,18 +296,30 @@ func (ex *Exchange) GetOrder(ctx context.Context, orderID exchange.OrderID) (*ex
 
 func (ex *Exchange) SyncFilled(ctx context.Context, from time.Time) error {
 	from = from.Truncate(time.Hour)
-	if _, err := ex.listRawOrders(ctx, from, "FILLED"); err != nil {
+	orders, err := ex.listRawOrders(ctx, from, "FILLED")
+	if err != nil {
 		return fmt.Errorf("could not fetch orders: %w", err)
 	}
-	return context.Cause(ctx)
+	if len(orders) > 0 {
+		if err := ex.datastore.maybeSaveOrders(ctx, orders); err != nil {
+			return fmt.Errorf("could not save orders: %w", err)
+		}
+	}
+	return nil
 }
 
 func (ex *Exchange) SyncCancelled(ctx context.Context, from time.Time) error {
 	from = from.Truncate(time.Hour)
-	if _, err := ex.listRawOrders(ctx, from, "CANCELLED"); err != nil {
+	orders, err := ex.listRawOrders(ctx, from, "CANCELLED")
+	if err != nil {
 		return fmt.Errorf("could not fetch orders: %w", err)
 	}
-	return context.Cause(ctx)
+	if len(orders) > 0 {
+		if err := ex.datastore.maybeSaveOrders(ctx, orders); err != nil {
+			return fmt.Errorf("could not save orders: %w", err)
+		}
+	}
+	return nil
 }
 
 func (ex *Exchange) listFillsFrom(ctx context.Context, from time.Time) ([]*internal.Fill, error) {
