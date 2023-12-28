@@ -278,9 +278,7 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 		}
 
 		filledAt := v.LastFillTime.Time.UTC()
-		k1 := fmt.Sprintf("%4d-%02d-%02d", filledAt.Year(), filledAt.Month(), filledAt.Day())
-		k2 := fmt.Sprintf("%02d", filledAt.Hour())
-		key := path.Join(Keyspace, "filled", k1, k2)
+		key := path.Join(Keyspace, "filled", filledAt.Format("2006-01-02/15"))
 
 		vs := kmap[key]
 		kmap[key] = append(vs, v)
