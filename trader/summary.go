@@ -70,7 +70,11 @@ func (s *Summary) NumDays() int {
 }
 
 func (s *Summary) ProfitPerDay() decimal.Decimal {
-	return s.Profit().Div(decimal.NewFromInt(int64(s.NumDays())))
+	ndays := s.NumDays()
+	if ndays == 0 {
+		return s.Profit()
+	}
+	return s.Profit().Div(decimal.NewFromInt(int64(ndays)))
 }
 
 func (s *Summary) ReturnRate() decimal.Decimal {
