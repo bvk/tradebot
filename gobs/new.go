@@ -29,6 +29,8 @@ func NewByTypename(typename string) (any, error) {
 		v = new(CoinbaseOrders)
 	case "CoinbaseCandles":
 		v = new(CoinbaseCandles)
+	case "CoinbaseOrder":
+		v = new(CoinbaseOrder)
 	default:
 		return nil, fmt.Errorf("unsupported type name %q", typename)
 	}

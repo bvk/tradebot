@@ -13,10 +13,10 @@ import (
 	"path"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/idgen"
 	"github.com/bvk/tradebot/kvutil"
@@ -58,16 +58,17 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 	datastore := coinbase.NewDatastore(db)
 
 	// Scan all orders in the datastore.
-	cid2sidMap := make(map[string]exchange.OrderID)
-	sid2orderMap := make(map[exchange.OrderID]*exchange.Order)
-	scanner := func(pid string, order *exchange.Order) error {
-		sid2orderMap[order.OrderID] = order
+	cid2sidMap := make(map[string]string)
+	sid2orderMap := make(map[string]*gobs.Order)
+	scanner := func(order *gobs.Order) error {
+		sid2orderMap[order.ServerOrderID] = order
 		if len(order.ClientOrderID) > 0 {
-			cid2sidMap[order.ClientOrderID] = order.OrderID
+			cid2sidMap[order.ClientOrderID] = order.ServerOrderID
 		}
 		return nil
 	}
-	if err := datastore.ScanFilled(ctx, c.product, scanner); err != nil {
+	var zero time.Time
+	if err := datastore.ScanFilled(ctx, c.product, zero, zero, scanner); err != nil {
 		return err
 	}
 
@@ -88,7 +89,7 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 
 	// Match the client ids to job uids.
 	unmatchedSid2OrderMap := maps.Clone(sid2orderMap)
-	uid2ordersMap := make(map[string][]*exchange.Order)
+	uid2ordersMap := make(map[string][]*gobs.Order)
 	for uid, offset := range uidOffsetMap {
 		if offset > 10000 {
 			log.Printf("scanning %d client order ids of job %s", offset+100, uid)
@@ -114,7 +115,7 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 				return fmt.Errorf("could not load limiter state at %q: %w", uid, err)
 			}
 			for _, order := range orders {
-				if _, ok := state.V2.ServerIDOrderMap[string(order.OrderID)]; !ok {
+				if _, ok := state.V2.ServerIDOrderMap[order.ServerOrderID]; !ok {
 					log.Printf("%s: has no order %s", uid, order)
 				}
 			}
@@ -138,24 +139,12 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 			}
 			modified := false
 			for _, order := range orders {
-				sid := string(order.OrderID)
+				sid := order.ServerOrderID
 				if _, ok := state.V2.ServerIDOrderMap[sid]; ok {
 					continue
 				}
 				modified = true
-				gorder := &gobs.Order{
-					ServerOrderID: sid,
-					ClientOrderID: order.ClientOrderID,
-					CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
-					Side:          order.Side,
-					Status:        order.Status,
-					FilledFee:     order.Fee,
-					FilledSize:    order.FilledSize,
-					FilledPrice:   order.FilledPrice,
-					Done:          order.Done,
-					DoneReason:    order.DoneReason,
-				}
-				state.V2.ServerIDOrderMap[sid] = gorder
+				state.V2.ServerIDOrderMap[sid] = order
 			}
 			if modified {
 				if err := kvutil.Set(ctx, rw, key, state); err != nil {

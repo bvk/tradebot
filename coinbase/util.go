@@ -8,6 +8,7 @@ import (
 
 	"github.com/bvk/tradebot/coinbase/internal"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 )
 
 var doneStatuses []string = []string{
@@ -16,6 +17,24 @@ var doneStatuses []string = []string{
 
 var readyStatuses []string = []string{
 	"OPEN", "FILLED", "CANCELLED", "EXPIRED", "FAILED",
+}
+
+func gobOrderFromOrder(v *internal.Order) *gobs.Order {
+	order := &gobs.Order{
+		ServerOrderID: v.OrderID,
+		ClientOrderID: v.ClientOrderID,
+		CreateTime:    gobs.RemoteTime{Time: v.CreatedTime.Time},
+		Side:          v.Side,
+		FilledFee:     v.TotalFees.Decimal,
+		FilledSize:    v.FilledSize.Decimal,
+		FilledPrice:   v.AvgFilledPrice.Decimal,
+		Status:        v.Status,
+		Done:          slices.Contains(doneStatuses, v.Status),
+	}
+	if order.Done && order.Status != "FILLED" {
+		order.DoneReason = order.Status
+	}
+	return order
 }
 
 func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {

@@ -3,7 +3,6 @@
 package coinbase
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -14,6 +13,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -41,24 +41,48 @@ func NewDatastore(db kv.Database) *Datastore {
 	}
 }
 
-func (ds *Datastore) ScanFilled(ctx context.Context, product string, fn func(string, *exchange.Order) error) error {
-	begin, end := kvutil.PathRange(path.Join(Keyspace, "filled"))
-	wrapper := func(ctx context.Context, r kv.Reader, key string, value *gobs.CoinbaseOrders) error {
-		for id, str := range value.OrderMap {
-			order := new(internal.Order)
-			if err := json.NewDecoder(bytes.NewReader([]byte(str))).Decode(order); err != nil {
-				return fmt.Errorf("could not json-decode order %s at key %q: %w", id, key, err)
-			}
-			if len(product) > 0 && order.ProductID != product {
+// ScanFilled runs the callback with selected orders from the datastore.
+//
+// Orders can be selected for specific product id using a non-empty `productID`
+// otherwise orders for all products are selected.
+//
+// Also, orders can be selected with specific last filled timestamp between
+// `begin` and `end` timestamps. When `begin` or `end` timestamps are zero they
+// refer to beginning of all timestamps and ending of all timestamps.
+func (ds *Datastore) ScanFilled(ctx context.Context, productID string, begin, end time.Time, fn func(*gobs.Order) error) error {
+	minKey := path.Join(Keyspace, "filled", "0000-00-00/00")
+	if !begin.IsZero() {
+		minKey = path.Join(Keyspace, "filled", begin.Format("2006-01-02/15"))
+	}
+	maxKey := path.Join(Keyspace, "filled", "9999-99-99/99")
+	if !end.IsZero() {
+		maxKey = path.Join(Keyspace, "filled", end.Format("2006-01-02/15"))
+	}
+
+	wrapper := func(ctx context.Context, r kv.Reader, k string, v *gobs.CoinbaseOrders) error {
+		for pid, ids := range v.ProductOrderIDsMap {
+			if len(productID) > 0 && pid != productID {
 				continue
 			}
-			if err := fn(order.ProductID, exchangeOrderFromOrder(order)); err != nil {
-				return err
+			for _, id := range ids {
+				order, err := ds.loadOrderLocked(ctx, r, id)
+				if err != nil {
+					return fmt.Errorf("could not load order: %w", err)
+				}
+				if !begin.IsZero() && order.LastFillTime.Time.Before(begin) {
+					continue
+				}
+				if !end.IsZero() && end.Before(order.LastFillTime.Time) {
+					continue
+				}
+				if err := fn(gobOrderFromOrder(order)); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	}
-	return kvutil.AscendDB(ctx, ds.db, begin, end, wrapper)
+	return kvutil.AscendDB(ctx, ds.db, minKey, maxKey, wrapper)
 }
 
 func (ds *Datastore) LastFilledTime(ctx context.Context) (time.Time, error) {
@@ -163,7 +187,12 @@ func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles 
 	return nil
 }
 
+// ScanCandles
 func (ds *Datastore) ScanCandles(ctx context.Context, productID string, begin, end time.Time, fn func(*gobs.Candle) error) error {
+	if len(productID) == 0 {
+		return fmt.Errorf("product id cannot be empty")
+	}
+
 	minKey := path.Join(Keyspace, "candles", "0000-00-00/00")
 	if !begin.IsZero() {
 		minKey = path.Join(Keyspace, "candles", begin.Truncate(time.Hour).Format("2006-01-02/15"))
@@ -172,6 +201,7 @@ func (ds *Datastore) ScanCandles(ctx context.Context, productID string, begin, e
 	if !end.IsZero() {
 		maxKey = path.Join(Keyspace, "candles", end.Truncate(time.Hour).Format("2006-01-02/15"))
 	}
+
 	scanner := func(ctx context.Context, r kv.Reader, k string, v *gobs.CoinbaseCandles) error {
 		candles, ok := v.ProductCandlesMap[productID]
 		if !ok {
@@ -257,32 +287,41 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 		log.Printf("saving order %s with filled size %s and last-fill time %s in key %s", v.OrderID, v.FilledSize.Decimal.StringFixed(3), v.LastFillTime, key)
 	}
 
-	for key, orders := range kmap {
-		value, err := kvutil.GetDB[gobs.CoinbaseOrders](ctx, ds.db, key)
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("could not load coinbase orders at %q: %w", key, err)
-			}
-			value = &gobs.CoinbaseOrders{
-				OrderMap: make(map[string]json.RawMessage),
-			}
-		}
-		for _, v := range orders {
-			if _, ok := value.OrderMap[v.OrderID]; !ok {
-				js, err := json.Marshal(v)
-				if err != nil {
-					return fmt.Errorf("could not json-marshal order: %w", err)
+	saver := func(ctx context.Context, rw kv.ReadWriter) error {
+		for key, orders := range kmap {
+			value, err := kvutil.Get[gobs.CoinbaseOrders](ctx, rw, key)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("could not load coinbase orders at %q: %w", key, err)
 				}
-				if value.OrderMap == nil {
-					value.OrderMap = make(map[string]json.RawMessage)
+				value = &gobs.CoinbaseOrders{
+					OrderMap:           make(map[string]json.RawMessage),
+					ProductOrderIDsMap: make(map[string][]string),
 				}
-				value.OrderMap[v.OrderID] = json.RawMessage(js)
-				continue
+			}
+
+			for _, v := range orders {
+				if err := ds.saveOrderLocked(ctx, rw, v); err != nil {
+					return err
+				}
+
+				if value.ProductOrderIDsMap == nil {
+					value.ProductOrderIDsMap = make(map[string][]string)
+				}
+				ids := append(value.ProductOrderIDsMap[v.ProductID], v.OrderID)
+				sort.Strings(ids)
+				value.ProductOrderIDsMap[v.ProductID] = slices.Compact(ids)
+
+				value.OrderMap = nil // Deprecated field.
+			}
+			if err := kvutil.Set(ctx, rw, key, value); err != nil {
+				return fmt.Errorf("could not update coinbase orders at %q: %w", key, err)
 			}
 		}
-		if err := kvutil.SetDB(ctx, ds.db, key, value); err != nil {
-			return fmt.Errorf("could not update coinbase orders at %q: %w", key, err)
-		}
+		return nil
+	}
+	if err := kv.WithReadWriter(ctx, ds.db, saver); err != nil {
+		return err
 	}
 
 	for _, vs := range kmap {
@@ -290,6 +329,34 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 	}
 	slices.SortFunc(ds.recentlySaved, compareLastFillTime)
 	slices.CompactFunc(ds.recentlySaved, equalLastFillTime)
-	// TODO: Drop very old orders.
 	return nil
+}
+
+func (ds *Datastore) saveOrderLocked(ctx context.Context, rw kv.ReadWriter, v *internal.Order) error {
+	key := path.Join(Keyspace, "orders", v.OrderID)
+	js, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("could not json-marshal coinbase order: %w", err)
+	}
+	value := &gobs.CoinbaseOrder{
+		OrderID: v.OrderID,
+		Order:   json.RawMessage(js),
+	}
+	if err := kvutil.Set(ctx, rw, key, value); err != nil {
+		return fmt.Errorf("could not save coinbase order at key %q: %w", key, err)
+	}
+	return nil
+}
+
+func (ds *Datastore) loadOrderLocked(ctx context.Context, r kv.Reader, orderID string) (*internal.Order, error) {
+	key := path.Join(Keyspace, "orders", orderID)
+	v, err := kvutil.Get[gobs.CoinbaseOrder](ctx, r, key)
+	if err != nil {
+		return nil, fmt.Errorf("could not load coinbase order: %w", err)
+	}
+	order := new(internal.Order)
+	if err := json.Unmarshal([]byte(v.Order), order); err != nil {
+		return nil, fmt.Errorf("could not json-marshal coinbase order: %w", err)
+	}
+	return order, nil
 }
