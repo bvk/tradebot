@@ -9,7 +9,7 @@ type CoinbaseOrder struct {
 	Order   json.RawMessage
 }
 
-type CoinbaseOrders struct {
+type CoinbaseOrderIDs struct {
 	// ProductOrderIDsMap is a mapping from product id to list of order-ids that
 	// have completed with a non-zero filled-size.
 	ProductOrderIDsMap map[string][]string

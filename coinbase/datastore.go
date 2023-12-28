@@ -59,7 +59,7 @@ func (ds *Datastore) ScanFilled(ctx context.Context, productID string, begin, en
 		maxKey = path.Join(Keyspace, "filled", end.Format("2006-01-02/15"))
 	}
 
-	wrapper := func(ctx context.Context, r kv.Reader, k string, v *gobs.CoinbaseOrders) error {
+	wrapper := func(ctx context.Context, r kv.Reader, k string, v *gobs.CoinbaseOrderIDs) error {
 		for pid, ids := range v.ProductOrderIDsMap {
 			if len(productID) > 0 && pid != productID {
 				continue
@@ -287,12 +287,12 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 
 	saver := func(ctx context.Context, rw kv.ReadWriter) error {
 		for key, orders := range kmap {
-			value, err := kvutil.Get[gobs.CoinbaseOrders](ctx, rw, key)
+			value, err := kvutil.Get[gobs.CoinbaseOrderIDs](ctx, rw, key)
 			if err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
 					return fmt.Errorf("could not load coinbase orders at %q: %w", key, err)
 				}
-				value = &gobs.CoinbaseOrders{
+				value = &gobs.CoinbaseOrderIDs{
 					ProductOrderIDsMap: make(map[string][]string),
 				}
 			}

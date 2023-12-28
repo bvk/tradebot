@@ -25,8 +25,8 @@ func NewByTypename(typename string) (any, error) {
 		v = new(Candles)
 	case "ServerState":
 		v = new(ServerState)
-	case "CoinbaseOrders":
-		v = new(CoinbaseOrders)
+	case "CoinbaseOrderIDs":
+		v = new(CoinbaseOrderIDs)
 	case "CoinbaseCandles":
 		v = new(CoinbaseCandles)
 	case "CoinbaseOrder":
