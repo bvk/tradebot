@@ -73,6 +73,15 @@ func (s *Summary) ProfitPerDay() decimal.Decimal {
 	return s.Profit().Div(decimal.NewFromInt(int64(s.NumDays())))
 }
 
+func (s *Summary) ReturnRate() decimal.Decimal {
+	return s.Profit().Mul(decimal.NewFromInt(100)).Div(s.Budget)
+}
+
+func (s *Summary) AnnualReturnRate() decimal.Decimal {
+	perYear := s.ProfitPerDay().Mul(decimal.NewFromInt(365))
+	return perYear.Mul(decimal.NewFromInt(100)).Div(s.Budget)
+}
+
 func Summarize(statuses []*Status) *Summary {
 	sum := new(Summary)
 

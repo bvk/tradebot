@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"slices"
-	"time"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
@@ -17,32 +16,11 @@ var (
 )
 
 type Status struct {
+	Summary
+
 	uid          string
 	ProductID    string
 	exchangeName string
-
-	MinCreateTime time.Time
-
-	NumBuys  int
-	NumSells int
-
-	Budget decimal.Decimal
-
-	SoldFees  decimal.Decimal
-	SoldSize  decimal.Decimal
-	SoldValue decimal.Decimal
-
-	BoughtFees  decimal.Decimal
-	BoughtSize  decimal.Decimal
-	BoughtValue decimal.Decimal
-
-	UnsoldFees  decimal.Decimal
-	UnsoldSize  decimal.Decimal
-	UnsoldValue decimal.Decimal
-
-	OversoldFees  decimal.Decimal
-	OversoldSize  decimal.Decimal
-	OversoldValue decimal.Decimal
 }
 
 func (s *Status) UID() string {
@@ -53,41 +31,47 @@ func (s *Status) String() string {
 	return fmt.Sprintf("uid %s product %s bvalue %s s %s usize %s", s.uid, s.ProductID, s.BoughtSize, s.SoldSize, s.UnsoldSize)
 }
 
-func (s *Status) TotalFees() decimal.Decimal {
-	return s.SoldFees.Add(s.BoughtFees)
-}
+// func (s *Status) NumDays() int {
+// 	return int(time.Now().Sub(s.MinCreateTime) / (24 * time.Hour))
+// }
 
-func (s *Status) Sold() decimal.Decimal {
-	return s.SoldValue.Sub(s.OversoldValue)
-}
+// func (s *Status) ARR() decimal.Decimal {
+// 	perDay := s.Profit().Div(decimal.NewFromInt(int64(s.NumDays())))
+// 	perYear := perDay.Mul(decimal.NewFromInt(365))
+// 	return perYear.Mul(decimal.NewFromInt(100)).Div(s.Budget)
+// }
 
-func (s *Status) Bought() decimal.Decimal {
-	return s.BoughtValue.Sub(s.UnsoldValue)
-}
+// func (s *Status) Sold() decimal.Decimal {
+// 	return s.SoldValue.Sub(s.OversoldValue)
+// }
 
-func (s *Status) Fees() decimal.Decimal {
-	sfees := s.SoldFees.Sub(s.OversoldFees)
-	bfees := s.BoughtFees.Sub(s.UnsoldFees)
-	return sfees.Add(bfees)
-}
+// func (s *Status) Bought() decimal.Decimal {
+// 	return s.BoughtValue.Sub(s.UnsoldValue)
+// }
 
-func (s *Status) Profit() decimal.Decimal {
-	svalue := s.SoldValue.Sub(s.OversoldValue)
-	bvalue := s.BoughtValue.Sub(s.UnsoldValue)
-	sfees := s.SoldFees.Sub(s.OversoldFees)
-	bfees := s.BoughtFees.Sub(s.UnsoldFees)
-	profit := svalue.Sub(bvalue).Sub(bfees).Sub(sfees)
-	return profit
-}
+// func (s *Status) Fees() decimal.Decimal {
+// 	sfees := s.SoldFees.Sub(s.OversoldFees)
+// 	bfees := s.BoughtFees.Sub(s.UnsoldFees)
+// 	return sfees.Add(bfees)
+// }
 
-func (s *Status) FeePct() decimal.Decimal {
-	divisor := s.SoldValue.Add(s.BoughtValue)
-	if divisor.IsZero() {
-		return decimal.Zero
-	}
-	totalFees := s.SoldFees.Add(s.BoughtFees)
-	return totalFees.Mul(d100).Div(divisor)
-}
+// func (s *Status) Profit() decimal.Decimal {
+// 	svalue := s.SoldValue.Sub(s.OversoldValue)
+// 	bvalue := s.BoughtValue.Sub(s.UnsoldValue)
+// 	sfees := s.SoldFees.Sub(s.OversoldFees)
+// 	bfees := s.BoughtFees.Sub(s.UnsoldFees)
+// 	profit := svalue.Sub(bvalue).Sub(bfees).Sub(sfees)
+// 	return profit
+// }
+
+// func (s *Status) FeePct() decimal.Decimal {
+// 	divisor := s.SoldValue.Add(s.BoughtValue)
+// 	if divisor.IsZero() {
+// 		return decimal.Zero
+// 	}
+// 	totalFees := s.SoldFees.Add(s.BoughtFees)
+// 	return totalFees.Mul(d100).Div(divisor)
+// }
 
 func GetStatus(job Trader) *Status {
 	actions := job.Actions()
@@ -227,26 +211,28 @@ func GetStatus(job Trader) *Status {
 		ProductID:    job.ProductID(),
 		exchangeName: job.ExchangeName(),
 
-		NumBuys:  nbuys,
-		NumSells: nsells,
+		Summary: Summary{
+			NumBuys:  nbuys,
+			NumSells: nsells,
 
-		SoldFees:  sellFeesTotal,
-		SoldSize:  sellSizeTotal,
-		SoldValue: sellValueTotal,
+			SoldFees:  sellFeesTotal,
+			SoldSize:  sellSizeTotal,
+			SoldValue: sellValueTotal,
 
-		BoughtFees:  buyFeesTotal,
-		BoughtSize:  buySizeTotal,
-		BoughtValue: buyValueTotal,
+			BoughtFees:  buyFeesTotal,
+			BoughtSize:  buySizeTotal,
+			BoughtValue: buyValueTotal,
 
-		UnsoldFees:  unsoldFeesTotal,
-		UnsoldSize:  unsoldSizeTotal,
-		UnsoldValue: unsoldValueTotal,
+			UnsoldFees:  unsoldFeesTotal,
+			UnsoldSize:  unsoldSizeTotal,
+			UnsoldValue: unsoldValueTotal,
 
-		OversoldFees:  oversoldFeesTotal,
-		OversoldSize:  oversoldSizeTotal,
-		OversoldValue: oversoldValueTotal,
+			OversoldFees:  oversoldFeesTotal,
+			OversoldSize:  oversoldSizeTotal,
+			OversoldValue: oversoldValueTotal,
 
-		MinCreateTime: first.Orders[0].CreateTime.Time,
+			MinCreateTime: first.Orders[0].CreateTime.Time,
+		},
 	}
 	feePct, _ := s.FeePct().Float64()
 	s.Budget = job.BudgetAt(feePct)

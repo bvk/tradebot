@@ -121,15 +121,17 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	fmt.Printf("Sold: %s\n", sum.Sold().StringFixed(3))
 	fmt.Printf("Bought: %s\n", sum.Bought().StringFixed(3))
 	fmt.Printf("Lockin: %s\n", sum.UnsoldValue.StringFixed(3))
-	fmt.Printf("Budget: %s\n", sum.Budget.StringFixed(3))
-
-	fmt.Println()
-	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
 	fmt.Printf("Effective Fee Pct: %s%%\n", sum.FeePct().StringFixed(3))
 
 	fmt.Println()
-	fmt.Printf("Profit per month: %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
-	fmt.Printf("Profit per year: %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
+	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
+	fmt.Printf("Budget: %s\n", sum.Budget.StringFixed(3))
+	fmt.Printf("Return Rate: %s%%\n", sum.ReturnRate().StringFixed(3))
+	fmt.Printf("Annual Return Rate: %s%%\n", sum.AnnualReturnRate().StringFixed(3))
+
+	fmt.Println()
+	fmt.Printf("Profit per month (projected): %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
+	fmt.Printf("Profit per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
 
 	fmt.Println()
 	rates := []float64{2.625, 5, 8, 10, 15, 20}
@@ -146,19 +148,13 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if len(statuses) > 0 {
 		fmt.Println()
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-		fmt.Fprintf(tw, "Name/UID\tProduct\tBudget\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
+		fmt.Fprintf(tw, "Name/UID\tProduct\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
 		for _, s := range statuses {
 			uid := s.UID()
 			if name, ok := uid2nameMap[uid]; ok {
 				uid = name
 			}
-			pid := s.ProductID
-			fees := s.Fees()
-			bought := s.Bought()
-			sold := s.Sold()
-			unsold := s.UnsoldValue
-			profit := s.Profit()
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, pid, s.Budget.StringFixed(3), s.NumBuys, s.NumSells, profit.StringFixed(3), fees.StringFixed(3), bought.StringFixed(3), sold.StringFixed(3), unsold.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", uid, s.ProductID, s.Budget.StringFixed(3), s.ReturnRate().StringFixed(3), s.AnnualReturnRate().StringFixed(3), s.NumDays(), s.NumBuys, s.NumSells, s.Profit().StringFixed(3), s.Fees().StringFixed(3), s.Bought().StringFixed(3), s.Sold().StringFixed(3), s.UnsoldValue.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
 		}
 		tw.Flush()
 	}
