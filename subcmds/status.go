@@ -157,8 +157,12 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if len(statuses) > 0 {
 		order := []string{"RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELED"}
 		sort.Slice(statuses, func(i, j int) bool {
-			a, b := statuses[i].UID(), statuses[j].UID()
-			return slices.Index(order, uid2statusMap[a]) < slices.Index(order, uid2statusMap[b])
+			a, b := statuses[i], statuses[j]
+			astatus, bstatus := uid2statusMap[a.UID()], uid2statusMap[b.UID()]
+			if astatus == bstatus {
+				return a.ProductID < b.ProductID
+			}
+			return slices.Index(order, astatus) < slices.Index(order, bstatus)
 		})
 
 		fmt.Println()
