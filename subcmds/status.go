@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
@@ -46,6 +47,21 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		return err
 	}
 	defer closer()
+
+	datastore := coinbase.NewDatastore(db)
+	accounts, err := datastore.LoadAccounts(ctx)
+	if err != nil {
+		return fmt.Errorf("could not load coinbase account balances: %w", err)
+	}
+	var assets []string
+	holdMap := make(map[string]decimal.Decimal)
+	availMap := make(map[string]decimal.Decimal)
+	for _, a := range accounts {
+		holdMap[a.CurrencyID] = a.Hold
+		availMap[a.CurrencyID] = a.Available
+		assets = append(assets, a.CurrencyID)
+	}
+	sort.Strings(assets)
 
 	var jobs []trader.Trader
 	uid2nameMap := make(map[string]string)
@@ -152,6 +168,25 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	for _, rate := range rates {
 		projected := sum.ProfitPerDay().Mul(d365).Div(decimal.NewFromFloat(rate).Div(d100))
 		fmt.Printf("Projected investment covered at %.03f APY: %s\n", rate, projected.StringFixed(3))
+	}
+
+	if len(availMap) > 0 {
+		fmt.Println()
+		fmtstr := "%s\t"
+		ids := []any{""}
+		avails := []any{"Available"}
+		holds := []any{"Hold"}
+		for _, a := range assets {
+			fmtstr += "%s\t"
+			ids = append(ids, a)
+			avails = append(avails, availMap[a].StringFixed(3))
+			holds = append(holds, holdMap[a].StringFixed(3))
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+		fmt.Fprintf(tw, fmtstr+"\n", ids...)
+		fmt.Fprintf(tw, fmtstr+"\n", holds...)
+		fmt.Fprintf(tw, fmtstr+"\n", avails...)
+		tw.Flush()
 	}
 
 	if len(statuses) > 0 {
