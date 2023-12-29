@@ -65,3 +65,13 @@ type Product struct {
 	QuoteMaxSize       decimal.Decimal
 	QuoteIncrement     decimal.Decimal
 }
+
+type Account struct {
+	CurrencyID string
+	Available  decimal.Decimal
+	Hold       decimal.Decimal
+}
+
+type Accounts struct {
+	Accounts []*Account
+}

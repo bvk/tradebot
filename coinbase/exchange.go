@@ -194,6 +194,16 @@ func (ex *Exchange) goScanFilledOrders(ctx context.Context) {
 		if !failed {
 			last = now
 		}
+
+		// Also update account balances.
+		accounts, err := ex.listRawAccounts(ctx)
+		if err != nil {
+			log.Printf("could not fetch account balances (will retry): %v", err)
+			continue
+		}
+		if err := ex.datastore.saveAccounts(ctx, accounts); err != nil {
+			log.Printf("could not save account balances (will retry): %v", err)
+		}
 	}
 }
 
@@ -366,6 +376,36 @@ func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status st
 	}
 
 	return result, nil
+}
+
+func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status string) ([]*exchange.Order, error) {
+	var orders []*exchange.Order
+	rorders, err := ex.listRawOrders(ctx, from, status)
+	if err != nil {
+		return nil, fmt.Errorf("could not list raw orders: %w", err)
+	}
+	for _, order := range rorders {
+		v := exchangeOrderFromOrder(order)
+		ex.dispatchOrder(order.ProductID, v)
+		orders = append(orders, v)
+	}
+	return orders, nil
+}
+
+func (ex *Exchange) listRawAccounts(ctx context.Context) ([]*internal.Account, error) {
+	var accounts []*internal.Account
+
+	values := make(url.Values)
+	for i := 0; i == 0 || values != nil; i++ {
+		resp, cont, err := ex.client.ListAccounts(ctx, values)
+		if err != nil {
+			return nil, err
+		}
+		values = cont
+		accounts = append(accounts, resp.Accounts...)
+	}
+
+	return accounts, nil
 }
 
 func (ex *Exchange) GetProduct(ctx context.Context, productID string) (*gobs.Product, error) {

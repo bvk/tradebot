@@ -2,7 +2,10 @@
 
 package gobs
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type CoinbaseOrder struct {
 	OrderID string
@@ -22,4 +25,14 @@ type CoinbaseCandle struct {
 
 type CoinbaseCandles struct {
 	ProductCandlesMap map[string][]*CoinbaseCandle
+}
+
+type CoinbaseAccount struct {
+	CurrencyID string
+	Account    json.RawMessage
+}
+
+type CoinbaseAccounts struct {
+	Timestamp time.Time
+	Accounts  []*CoinbaseAccount
 }

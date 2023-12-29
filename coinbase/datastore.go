@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/coinbase/internal"
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvkgo/kv"
@@ -118,20 +117,6 @@ func (ds *Datastore) LastFilledTime(ctx context.Context) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("could not scan timestamp fields from %q: %w", str, err)
 	}
 	return time.Date(y, time.Month(m), d, h, 0, 0, 0, time.UTC), nil
-}
-
-func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status string) ([]*exchange.Order, error) {
-	var orders []*exchange.Order
-	rorders, err := ex.listRawOrders(ctx, from, status)
-	if err != nil {
-		return nil, fmt.Errorf("could not list raw orders: %w", err)
-	}
-	for _, order := range rorders {
-		v := exchangeOrderFromOrder(order)
-		ex.dispatchOrder(order.ProductID, v)
-		orders = append(orders, v)
-	}
-	return orders, nil
 }
 
 func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles []*internal.Candle) error {
@@ -354,4 +339,63 @@ func (ds *Datastore) loadOrderLocked(ctx context.Context, r kv.Reader, orderID s
 		return nil, fmt.Errorf("could not json-marshal coinbase order: %w", err)
 	}
 	return order, nil
+}
+
+func (ds *Datastore) saveAccounts(ctx context.Context, as []*internal.Account) error {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	return kv.WithReadWriter(ctx, ds.db, func(ctx context.Context, rw kv.ReadWriter) error {
+		return ds.saveAccountsLocked(ctx, rw, as)
+	})
+}
+
+func (ds *Datastore) saveAccountsLocked(ctx context.Context, rw kv.ReadWriter, as []*internal.Account) error {
+	sort.Slice(as, func(i, j int) bool {
+		return as[i].Currency < as[j].Currency
+	})
+
+	key := path.Join(Keyspace, "accounts")
+	value := &gobs.CoinbaseAccounts{
+		Timestamp: time.Now(),
+	}
+	for _, a := range as {
+		js, err := json.Marshal(a)
+		if err != nil {
+			return fmt.Errorf("could not json-marshal coinbase accounts: %w", err)
+		}
+		value.Accounts = append(value.Accounts, &gobs.CoinbaseAccount{
+			CurrencyID: a.Currency,
+			Account:    json.RawMessage(js),
+		})
+	}
+	if err := kvutil.Set(ctx, rw, key, value); err != nil {
+		return fmt.Errorf("could not update accounts data at key %q: %w", key, err)
+	}
+	return nil
+}
+
+func (ds *Datastore) LoadAccounts(ctx context.Context) ([]*gobs.Account, error) {
+	key := path.Join(Keyspace, "accounts")
+	value, err := kvutil.GetDB[gobs.CoinbaseAccounts](ctx, ds.db, key)
+	if err != nil {
+		return nil, fmt.Errorf("could not load coinbase accounts data: %w", err)
+	}
+	var accounts []*gobs.Account
+	for _, a := range value.Accounts {
+		v := new(internal.Account)
+		if err := json.Unmarshal([]byte(a.Account), v); err != nil {
+			return nil, fmt.Errorf("could not json-unmarshal account data: %w", err)
+		}
+		if v.AvailableBalance.Value.Decimal.IsZero() && v.Hold.Value.Decimal.IsZero() {
+			continue
+		}
+		ga := &gobs.Account{
+			CurrencyID: a.CurrencyID,
+			Available:  v.AvailableBalance.Value.Decimal,
+			Hold:       v.Hold.Value.Decimal,
+		}
+		accounts = append(accounts, ga)
+	}
+	return accounts, nil
 }
