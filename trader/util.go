@@ -56,3 +56,20 @@ func minPrice(min decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
 	}
 	return min
 }
+
+func unsoldActions(buys, sells []*gobs.Action) []*gobs.Action {
+	var bsize, ssize decimal.Decimal
+	for _, s := range sells {
+		ssize = ssize.Add(filledSize(s.Orders))
+	}
+	var unsold []*gobs.Action
+	for i, b := range buys {
+		if bsize.LessThan(ssize) {
+			bsize = bsize.Add(filledSize(b.Orders))
+			continue
+		}
+		unsold = buys[i:]
+		break
+	}
+	return unsold
+}
