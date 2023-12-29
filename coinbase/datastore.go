@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path"
@@ -87,26 +86,9 @@ func (ds *Datastore) ScanFilled(ctx context.Context, productID string, begin, en
 func (ds *Datastore) LastFilledTime(ctx context.Context) (time.Time, error) {
 	minKey := path.Join(Keyspace, "filled", "0000-00-00/00")
 	maxKey := path.Join(Keyspace, "filled", "9999-99-99/99")
-	key := ""
-	ErrStop := errors.New("STOP")
-	keyBefore := func(ctx context.Context, r kv.Reader) error {
-		it, err := r.Descend(ctx, minKey, maxKey)
-		if err != nil {
-			return fmt.Errorf("could not create descending iterator: %w", err)
-		}
-		defer kv.Close(it)
-
-		k, _, err := it.Fetch(ctx, false)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return fmt.Errorf("could not fetch from descending iterator: %w", err)
-		}
-		key = k
-		return ErrStop
-	}
-	if err := kv.WithReader(ctx, ds.db, keyBefore); err != nil {
-		if !errors.Is(err, ErrStop) {
-			return time.Time{}, fmt.Errorf("could not determine the largest key: %w", err)
-		}
+	key, _, err := kvutil.LastDB[gobs.CoinbaseOrderIDs](ctx, ds.db, minKey, maxKey)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("could not fetch last filled key: %w", err)
 	}
 	if len(key) == 0 {
 		return time.Time{}, os.ErrNotExist

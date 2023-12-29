@@ -105,3 +105,61 @@ func PathRange(dir string) (begin string, end string) {
 	end = dir + string('/'+1)
 	return begin, end
 }
+
+// First returns the first key and value in the given range. Returns empty
+// string and nil if the range is empty. Returns a non-empty key and nil value
+// with a non-nil error if value could not be gob-decoded into given type.
+func First[T any](ctx context.Context, r kv.Reader, begin, end string) (string, *T, error) {
+	it, err := r.Ascend(ctx, begin, end)
+	if err != nil {
+		return "", nil, err
+	}
+	defer kv.Close(it)
+
+	k, v, err := it.Fetch(ctx, false)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", nil, fmt.Errorf("could not complete ascend: %w", err)
+	}
+
+	gv := new(T)
+	if err := gob.NewDecoder(v).Decode(gv); err != nil {
+		return k, nil, fmt.Errorf("could not decode value at key %q: %w", k, err)
+	}
+	return k, gv, nil
+}
+
+func FirstDB[T any](ctx context.Context, db kv.Database, begin, end string) (key string, value *T, err error) {
+	kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
+		key, value, err = First[T](ctx, r, begin, end)
+		return nil
+	})
+	return key, value, err
+}
+
+// Last is similar to First, but returns the last key and value from the given range.
+func Last[T any](ctx context.Context, r kv.Reader, begin, end string) (string, *T, error) {
+	it, err := r.Descend(ctx, begin, end)
+	if err != nil {
+		return "", nil, err
+	}
+	defer kv.Close(it)
+
+	k, v, err := it.Fetch(ctx, false)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", nil, fmt.Errorf("could not complete ascend: %w", err)
+	}
+
+	gv := new(T)
+	if err := gob.NewDecoder(v).Decode(gv); err != nil {
+		return k, nil, fmt.Errorf("could not decode value at key %q: %w", k, err)
+	}
+	return k, gv, nil
+}
+
+func LastDB[T any](ctx context.Context, db kv.Database, begin, end string) (key string, value *T, err error) {
+	kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
+		key, value, err = Last[T](ctx, r, begin, end)
+		return nil
+	})
+	return key, value, err
+}
