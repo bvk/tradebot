@@ -249,7 +249,7 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 
 		vs := kmap[key]
 		kmap[key] = append(vs, v)
-		log.Printf("saving order %s with filled size %s and last-fill time %s in key %s", v.OrderID, v.FilledSize.Decimal.StringFixed(3), v.LastFillTime, key)
+		log.Printf("saving %s order %s in %s with filled size %s, price %s and last-fill time %s in key %s", v.Side, v.OrderID, v.ProductID, v.FilledSize.Decimal, v.AvgFilledPrice.Decimal, v.LastFillTime, key)
 	}
 
 	saver := func(ctx context.Context, rw kv.ReadWriter) error {
