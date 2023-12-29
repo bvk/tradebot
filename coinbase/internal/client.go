@@ -285,6 +285,37 @@ func (c *Client) GetOrder(ctx context.Context, orderID string) (*GetOrderRespons
 	return resp, nil
 }
 
+func (c *Client) GetAccount(ctx context.Context, uuid string) (*GetAccountResponse, error) {
+	url := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/api/v3/brokerage/accounts/" + uuid,
+	}
+	resp := new(GetAccountResponse)
+	if err := c.getJSON(ctx, url, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) ListAccounts(ctx context.Context, values url.Values) (_ *ListAccountsResponse, cont url.Values, _ error) {
+	url := &url.URL{
+		Scheme:   "https",
+		Host:     c.opts.RestHostname,
+		Path:     "/api/v3/brokerage/accounts",
+		RawQuery: values.Encode(),
+	}
+	resp := new(ListAccountsResponse)
+	if err := c.getJSON(ctx, url, resp); err != nil {
+		return nil, nil, err
+	}
+	if len(resp.Cursor) > 0 {
+		values.Set("cursor", resp.Cursor)
+		return resp, values, nil
+	}
+	return resp, nil, nil
+}
+
 func (c *Client) ListFills(ctx context.Context, values url.Values) (_ *ListFillsResponse, cont url.Values, _ error) {
 	url := &url.URL{
 		Scheme:   "https",

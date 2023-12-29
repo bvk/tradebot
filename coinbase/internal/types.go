@@ -4,6 +4,36 @@ package internal
 
 import "github.com/bvk/tradebot/exchange"
 
+type Balance struct {
+	Value    exchange.NullDecimal `json:"value"`
+	Currency string               `json:"currency"`
+}
+
+type Account struct {
+	UUID             string              `json:"uuid"`
+	Name             string              `json:"name"`
+	Currency         string              `json:"currency"`
+	AvailableBalance Balance             `json:"available_balance"`
+	Default          bool                `json:"default"`
+	Active           bool                `json:"active"`
+	CreatedAt        exchange.RemoteTime `json:"created_at"`
+	UpdatedAt        exchange.RemoteTime `json:"updated_at"`
+	DeletedAt        exchange.RemoteTime `json:"deleted_at"`
+	Type             string              `json:"type"`
+	Ready            bool                `json:"ready"`
+	Hold             Balance             `json:"hold"`
+}
+
+type GetAccountResponse struct {
+	Account Account `json:"account"`
+}
+
+type ListAccountsResponse struct {
+	Accounts []*Account `json:"accounts"`
+	Cursor   string     `json:"cursor"`
+	HasNext  bool       `json:"has_next"`
+}
+
 type Order struct {
 	UserID string `json:"user_id"`
 

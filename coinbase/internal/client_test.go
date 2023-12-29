@@ -3,6 +3,7 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -55,4 +56,12 @@ func TestClient(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
+
+	ctx := context.Background()
+	if as, _, err := c.ListAccounts(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else {
+		js, _ := json.MarshalIndent(as, "", "  ")
+		t.Logf("%s", js)
+	}
 }
