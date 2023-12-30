@@ -33,6 +33,12 @@ type Options struct {
 	// Max limit for time difference between local time and the server times.
 	MaxTimeAdjustment time.Duration
 
+	// Timeout interval between successive fetching candles data.
+	FetchCandlesInterval time.Duration
+
+	// List of product ids to fetch and save data in the data store.
+	WatchProductIDs []string
+
 	subcmdMode bool
 }
 
@@ -60,6 +66,14 @@ func (v *Options) setDefaults() {
 	}
 	if v.MaxTimeAdjustment == 0 {
 		v.MaxTimeAdjustment = time.Minute
+	}
+	if v.FetchCandlesInterval == 0 {
+		v.FetchCandlesInterval = time.Minute
+	}
+	if len(v.WatchProductIDs) == 0 {
+		v.WatchProductIDs = []string{
+			"BTC-USD", "BCH-USD", "ETH-USD", "AVAX-USD",
+		}
 	}
 }
 

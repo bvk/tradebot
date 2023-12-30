@@ -21,6 +21,7 @@ import (
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvkgo/kv"
+	"github.com/shopspring/decimal"
 )
 
 const Keyspace = "/coinbase/"
@@ -81,6 +82,24 @@ func (ds *Datastore) ScanFilled(ctx context.Context, productID string, begin, en
 		return nil
 	}
 	return kvutil.AscendDB(ctx, ds.db, minKey, maxKey, wrapper)
+}
+
+func (ds *Datastore) lastCandlesTime(ctx context.Context) (time.Time, error) {
+	minKey := path.Join(Keyspace, "candles", "0000-00-00/00")
+	maxKey := path.Join(Keyspace, "candles", "9999-99-99/99")
+	key, _, err := kvutil.LastDB[gobs.CoinbaseCandles](ctx, ds.db, minKey, maxKey)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("could not fetch last candles key: %w", err)
+	}
+	if len(key) == 0 {
+		return time.Time{}, os.ErrNotExist
+	}
+	str := strings.TrimPrefix(key, path.Join(Keyspace, "candles"))
+	var y, m, d, h int
+	if _, err := fmt.Sscanf(str, "/%04d-%02d-%02d/%02d", &y, &m, &d, &h); err != nil {
+		return time.Time{}, fmt.Errorf("could not scan timestamp fields from %q: %w", str, err)
+	}
+	return time.Date(y, time.Month(m), d, h, 0, 0, 0, time.UTC), nil
 }
 
 func (ds *Datastore) LastFilledTime(ctx context.Context) (time.Time, error) {
@@ -373,6 +392,7 @@ func (ds *Datastore) LoadAccounts(ctx context.Context) ([]*gobs.Account, error) 
 			continue
 		}
 		ga := &gobs.Account{
+			Timestamp:  value.Timestamp,
 			CurrencyID: a.CurrencyID,
 			Available:  v.AvailableBalance.Value.Decimal,
 			Hold:       v.Hold.Value.Decimal,
@@ -380,4 +400,45 @@ func (ds *Datastore) LoadAccounts(ctx context.Context) ([]*gobs.Account, error) 
 		accounts = append(accounts, ga)
 	}
 	return accounts, nil
+}
+
+func (ds *Datastore) PriceMapAt(ctx context.Context, at time.Time) (pmap map[string]decimal.Decimal, err error) {
+	kv.WithReader(ctx, ds.db, func(ctx context.Context, r kv.Reader) error {
+		pmap, err = ds.pricesAtLocked(ctx, r, at)
+		return nil
+	})
+	return pmap, err
+}
+
+func (ds *Datastore) pricesAtLocked(ctx context.Context, r kv.Reader, at time.Time) (map[string]decimal.Decimal, error) {
+	endAt := at.Add(time.Minute).Truncate(time.Minute)
+	begin := path.Join(Keyspace, "candles", "0000-00-00/00")
+	end := path.Join(Keyspace, "candles", endAt.Format("2006-01-02/15"))
+	key, value, err := kvutil.Last[gobs.CoinbaseCandles](ctx, r, begin, end)
+	if err != nil {
+		return nil, err
+	}
+	if value == nil || len(value.ProductCandlesMap) == 0 {
+		return nil, fmt.Errorf("could not find any candles data before key %q: %w", end, os.ErrNotExist)
+	}
+	unixAt := at.Unix()
+	pmap := make(map[string]decimal.Decimal)
+	for p, cs := range value.ProductCandlesMap {
+		if len(cs) == 0 {
+			continue
+		}
+		rawCandle := cs[0].Candle
+		for _, c := range cs {
+			if unixAt < c.UnixTime {
+				rawCandle = c.Candle
+				break
+			}
+		}
+		candle := new(internal.Candle)
+		if err := json.Unmarshal([]byte(rawCandle), candle); err != nil {
+			return nil, fmt.Errorf("could not json-unmarshal %q candle at key %q: %w", p, key, err)
+		}
+		pmap[p] = candle.Close.Decimal
+	}
+	return pmap, nil
 }

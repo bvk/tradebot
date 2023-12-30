@@ -2,7 +2,11 @@
 
 package internal
 
-import "github.com/bvk/tradebot/exchange"
+import (
+	"encoding/json"
+
+	"github.com/bvk/tradebot/exchange"
+)
 
 type Balance struct {
 	Value    exchange.NullDecimal `json:"value"`
@@ -148,20 +152,36 @@ type CreateOrderErrorResponse struct {
 }
 
 type Product struct {
-	ProductID  string `json:"product_id"`
-	Status     string `json:"status"`
-	IsDisabled bool   `json:"is_disabled"`
+	ProductID string `json:"product_id"`
+	Status    string `json:"status"`
 
-	Price     exchange.NullDecimal `json:"price"`
-	BaseName  string               `json:"base_name"`
-	QuoteName string               `json:"quote_name"`
-	BaseIncr  exchange.NullDecimal `json:"base_increment"`
-	QuoteIncr exchange.NullDecimal `json:"quote_increment"`
+	Price exchange.NullDecimal `json:"price"`
 
-	QuoteMinSize exchange.NullDecimal `json:"quote_min_size"`
-	QuoteMaxSize exchange.NullDecimal `json:"quote_max_size"`
-	BaseMinSize  exchange.NullDecimal `json:"base_min_size"`
-	BaseMaxSize  exchange.NullDecimal `json:"base_max_size"`
+	BaseName          string               `json:"base_name"`
+	BaseIncr          exchange.NullDecimal `json:"base_increment"`
+	BaseMinSize       exchange.NullDecimal `json:"base_min_size"`
+	BaseMaxSize       exchange.NullDecimal `json:"base_max_size"`
+	BaseDisplaySymbol string               `json:"base_display_symbol"`
+	BaseCurrencyID    string               `json:"base_currency_id"`
+
+	QuoteName          string               `json:"quote_name"`
+	QuoteIncr          exchange.NullDecimal `json:"quote_increment"`
+	QuoteMinSize       exchange.NullDecimal `json:"quote_min_size"`
+	QuoteMaxSize       exchange.NullDecimal `json:"quote_max_size"`
+	QuoteDisplaySymbol string               `json:"quote_display_symbol"`
+	QuoteCurrencyID    string               `json:"quote_currency_id"`
+
+	Watched                  bool            `json:"watched"`
+	IsDisabled               bool            `json:"is_disabled"`
+	New                      bool            `json:"new"`
+	CancelOnly               bool            `json:"cancel_only"`
+	LimitOnly                bool            `json:"limit_only"`
+	PostOnly                 bool            `json:"post_only"`
+	TradingDisabled          bool            `json:"trading_disabled"`
+	AuctionMode              bool            `json:"auction_mode"`
+	ProductType              string          `json:"product_type"`
+	FcmTradingSessionDetails json.RawMessage `json:"fcm_trading_session_details"`
+	MidMarketPrice           string          `json:"mid_market_price"`
 }
 
 type ListProductsResponse struct {
@@ -193,17 +213,17 @@ type GetProductResponse struct {
 	QuoteCurrencyID    string               `json:"quote_currency_id"`
 	QuoteDisplaySymbol string               `json:"quote_display_symbol"`
 
-	Watched                  bool   `json:"watched"`
-	IsDisabled               bool   `json:"is_disabled"`
-	New                      bool   `json:"new"`
-	CancelOnly               bool   `json:"cancel_only"`
-	LimitOnly                bool   `json:"limit_only"`
-	PostOnly                 bool   `json:"post_only"`
-	TradingDisabled          bool   `json:"trading_disabled"`
-	AuctionMode              bool   `json:"auction_mode"`
-	ProductType              string `json:"product_type"`
-	FcmTradingSessionDetails string `json:"fcm_trading_session_details"`
-	MidMarketPrice           string `json:"mid_market_price"`
+	Watched                  bool            `json:"watched"`
+	IsDisabled               bool            `json:"is_disabled"`
+	New                      bool            `json:"new"`
+	CancelOnly               bool            `json:"cancel_only"`
+	LimitOnly                bool            `json:"limit_only"`
+	PostOnly                 bool            `json:"post_only"`
+	TradingDisabled          bool            `json:"trading_disabled"`
+	AuctionMode              bool            `json:"auction_mode"`
+	ProductType              string          `json:"product_type"`
+	FcmTradingSessionDetails json.RawMessage `json:"fcm_trading_session_details"`
+	MidMarketPrice           string          `json:"mid_market_price"`
 }
 
 type Candle struct {

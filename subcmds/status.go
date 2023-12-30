@@ -7,11 +7,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
@@ -53,6 +55,11 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("could not load coinbase account balances: %w", err)
 	}
+	priceMap, err := datastore.PriceMapAt(ctx, time.Now())
+	if err != nil || len(priceMap) == 0 {
+		log.Printf("could not load price information (ignored): %v", err)
+	}
+
 	var assets []string
 	holdMap := make(map[string]decimal.Decimal)
 	availMap := make(map[string]decimal.Decimal)
@@ -172,20 +179,30 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	if len(availMap) > 0 {
 		fmt.Println()
-		fmtstr := "%s\t"
 		ids := []any{""}
 		avails := []any{"Available"}
 		holds := []any{"Hold"}
+		prices := []any{"Price"}
+		totals := []any{"Total"}
 		for _, a := range assets {
-			fmtstr += "%s\t"
 			ids = append(ids, a)
-			avails = append(avails, availMap[a].StringFixed(3))
-			holds = append(holds, holdMap[a].StringFixed(3))
+			if p, ok := priceMap[a+"-USD"]; ok {
+				prices = append(prices, p.StringFixed(3))
+			} else {
+				prices = append(prices, "-")
+			}
+			hold, avail := holdMap[a], availMap[a]
+			holds = append(holds, hold.StringFixed(3))
+			avails = append(avails, avail.StringFixed(3))
+			totals = append(totals, hold.Add(avail).StringFixed(3))
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+		fmtstr := strings.Repeat("%s\t", len(assets)+1)
 		fmt.Fprintf(tw, fmtstr+"\n", ids...)
+		fmt.Fprintf(tw, fmtstr+"\n", prices...)
 		fmt.Fprintf(tw, fmtstr+"\n", holds...)
 		fmt.Fprintf(tw, fmtstr+"\n", avails...)
+		fmt.Fprintf(tw, fmtstr+"\n", totals...)
 		tw.Flush()
 	}
 

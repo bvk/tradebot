@@ -58,6 +58,13 @@ func TestClient(t *testing.T) {
 	}()
 
 	ctx := context.Background()
+	if ps, err := c.ListProducts(ctx, "SPOT"); err != nil {
+		t.Fatal(err)
+	} else {
+		js, _ := json.MarshalIndent(ps, "", "  ")
+		t.Logf("%s", js)
+	}
+
 	if as, _, err := c.ListAccounts(ctx, nil); err != nil {
 		t.Fatal(err)
 	} else {

@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/coinbase/internal"
@@ -80,7 +79,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 	}
 	pids := make([]string, 0, len(ps.Products))
 	for _, p := range ps.Products {
-		if strings.HasSuffix(p.ProductID, "-USD") {
+		if p.QuoteDisplaySymbol == "USD" {
 			pids = append(pids, p.ProductID)
 		}
 	}
@@ -117,8 +116,10 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 			return nil, fmt.Errorf("could not sync for lost data: %w", err)
 		}
 
+		client.Go(exchange.goFetchCandles)
+
 		client.Go(func(ctx context.Context) {
-			exchange.goScanFilledOrders(ctx)
+			exchange.goRunBackgroundTasks(ctx)
 		})
 	}
 	return exchange, nil
@@ -155,7 +156,37 @@ func (ex *Exchange) sync(ctx context.Context) error {
 	return nil
 }
 
-func (ex *Exchange) goScanFilledOrders(ctx context.Context) {
+func (ex *Exchange) goFetchCandles(ctx context.Context) {
+	var last time.Time
+	timeout := ex.opts.FetchCandlesInterval
+	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
+		if last.IsZero() {
+			v, err := ex.datastore.lastCandlesTime(ctx)
+			if err != nil {
+				log.Printf("could not determine last fetched candles time (will retry): %w", err)
+				continue
+			}
+			last = v
+		}
+
+		now := ex.client.Now().Time
+
+		failed := false
+		for _, pid := range ex.opts.WatchProductIDs {
+			if err := ex.SyncCandles(ctx, pid, last, now); err != nil {
+				log.Printf("could not fetch candles (will retry): %v", err)
+				failed = true
+				break
+			}
+		}
+
+		if !failed {
+			last = now
+		}
+	}
+}
+
+func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 	last := ex.lastFilledTime
 	timeout := ex.opts.PollOrdersRetryInterval
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
@@ -195,14 +226,13 @@ func (ex *Exchange) goScanFilledOrders(ctx context.Context) {
 			last = now
 		}
 
-		// Also update account balances.
-		accounts, err := ex.listRawAccounts(ctx)
-		if err != nil {
+		// Update account balances.
+		if accounts, err := ex.listRawAccounts(ctx); err != nil {
 			log.Printf("could not fetch account balances (will retry): %v", err)
-			continue
-		}
-		if err := ex.datastore.saveAccounts(ctx, accounts); err != nil {
-			log.Printf("could not save account balances (will retry): %v", err)
+		} else {
+			if err := ex.datastore.saveAccounts(ctx, accounts); err != nil {
+				log.Printf("could not save account balances (will retry): %v", err)
+			}
 		}
 	}
 }
