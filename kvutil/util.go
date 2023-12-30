@@ -117,8 +117,11 @@ func First[T any](ctx context.Context, r kv.Reader, begin, end string) (string, 
 	defer kv.Close(it)
 
 	k, v, err := it.Fetch(ctx, false)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", nil, fmt.Errorf("could not complete ascend: %w", err)
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return "", nil, fmt.Errorf("could not complete ascend: %w", err)
+		}
+		return "", nil, nil
 	}
 
 	gv := new(T)
@@ -145,8 +148,11 @@ func Last[T any](ctx context.Context, r kv.Reader, begin, end string) (string, *
 	defer kv.Close(it)
 
 	k, v, err := it.Fetch(ctx, false)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", nil, fmt.Errorf("could not complete ascend: %w", err)
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return "", nil, fmt.Errorf("could not complete ascend: %w", err)
+		}
+		return "", nil, nil
 	}
 
 	gv := new(T)
