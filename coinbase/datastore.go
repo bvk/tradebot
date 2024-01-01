@@ -89,10 +89,12 @@ func (ds *Datastore) lastCandlesTime(ctx context.Context) (time.Time, error) {
 	maxKey := path.Join(Keyspace, "candles", "9999-99-99/99")
 	key, _, err := kvutil.LastDB[gobs.CoinbaseCandles](ctx, ds.db, minKey, maxKey)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("could not fetch last candles key: %w", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			return time.Time{}, fmt.Errorf("could not fetch last candles key: %w", err)
+		}
 	}
 	if len(key) == 0 {
-		return time.Time{}, os.ErrNotExist
+		return time.Date(2023, 9, 24, 0, 0, 0, 0, time.UTC), nil
 	}
 	str := strings.TrimPrefix(key, path.Join(Keyspace, "candles"))
 	var y, m, d, h int
@@ -107,7 +109,9 @@ func (ds *Datastore) LastFilledTime(ctx context.Context) (time.Time, error) {
 	maxKey := path.Join(Keyspace, "filled", "9999-99-99/99")
 	key, _, err := kvutil.LastDB[gobs.CoinbaseOrderIDs](ctx, ds.db, minKey, maxKey)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("could not fetch last filled key: %w", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			return time.Time{}, fmt.Errorf("could not fetch last filled key: %w", err)
+		}
 	}
 	if len(key) == 0 {
 		return time.Time{}, os.ErrNotExist

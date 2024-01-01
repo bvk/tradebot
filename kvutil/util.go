@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"strings"
 
@@ -106,8 +107,8 @@ func PathRange(dir string) (begin string, end string) {
 	return begin, end
 }
 
-// First returns the first key and value in the given range. Returns empty
-// string and nil if the range is empty. Returns a non-empty key and nil value
+// First returns the first key and value in the given range. Returns
+// os.ErrNotExist if the range is empty. Returns a non-empty key and nil value
 // with a non-nil error if value could not be gob-decoded into given type.
 func First[T any](ctx context.Context, r kv.Reader, begin, end string) (string, *T, error) {
 	it, err := r.Ascend(ctx, begin, end)
@@ -121,7 +122,7 @@ func First[T any](ctx context.Context, r kv.Reader, begin, end string) (string, 
 		if !errors.Is(err, io.EOF) {
 			return "", nil, fmt.Errorf("could not complete ascend: %w", err)
 		}
-		return "", nil, nil
+		return "", nil, os.ErrNotExist
 	}
 
 	gv := new(T)
@@ -152,7 +153,7 @@ func Last[T any](ctx context.Context, r kv.Reader, begin, end string) (string, *
 		if !errors.Is(err, io.EOF) {
 			return "", nil, fmt.Errorf("could not complete ascend: %w", err)
 		}
-		return "", nil, nil
+		return "", nil, os.ErrNotExist
 	}
 
 	gv := new(T)
