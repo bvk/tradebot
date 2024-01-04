@@ -148,6 +148,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	fmt.Printf("Num Days: %d\n", sum.NumDays())
 	fmt.Printf("Num Buys: %d\n", sum.NumBuys)
 	fmt.Printf("Num Sells: %d\n", sum.NumSells)
+
 	fmt.Println()
 	fmt.Printf("Fees: %s\n", sum.Fees().StringFixed(3))
 	fmt.Printf("Sold: %s\n", sum.Sold().StringFixed(3))
@@ -157,24 +158,40 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	fmt.Println()
 	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
+	fmt.Printf("Per month (projected): %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
+	fmt.Printf("Per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
+
+	fmt.Println()
 	fmt.Printf("Budget: %s\n", sum.Budget.StringFixed(3))
 	fmt.Printf("Return Rate: %s%%\n", sum.ReturnRate().StringFixed(3))
 	fmt.Printf("Annual Return Rate: %s%%\n", sum.AnnualReturnRate().StringFixed(3))
 
-	fmt.Println()
-	fmt.Printf("Profit per month (projected): %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
-	fmt.Printf("Profit per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
-
-	fmt.Println()
-	rates := []float64{2.625, 5, 8, 10, 15, 20}
-	for _, rate := range rates {
-		covered := sum.Profit().Div(decimal.NewFromFloat(rate).Div(d100))
-		fmt.Printf("Investment already covered at %.03f APY: %s\n", rate, covered.StringFixed(3))
+	emptystrings := func(n int) (vs []any) {
+		for i := 0; i < n; i++ {
+			vs = append(vs, "")
+		}
+		return vs
 	}
-	fmt.Println()
-	for _, rate := range rates {
-		projected := sum.ProfitPerDay().Mul(d365).Div(decimal.NewFromFloat(rate).Div(d100))
-		fmt.Printf("Projected investment covered at %.03f APY: %s\n", rate, projected.StringFixed(3))
+
+	if p := sum.Profit(); p.IsPositive() {
+		fmt.Println()
+		rates := []float64{2.625, 5, 8, 10, 15, 20}
+		fmtstr := strings.Repeat("%s\t", len(rates)+1)
+		aprs := []any{"APR"}
+		covered := []any{"Covered"}
+		projected := []any{"Projected"}
+		for _, rate := range rates {
+			c := sum.Profit().Div(decimal.NewFromFloat(rate).Div(d100))
+			p := sum.ProfitPerDay().Mul(d365).Div(decimal.NewFromFloat(rate).Div(d100))
+			aprs = append(aprs, fmt.Sprintf("%.03f%%", rate))
+			covered = append(covered, c.StringFixed(3))
+			projected = append(projected, p.StringFixed(3))
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+		fmt.Fprintf(tw, fmtstr+"\n", aprs...)
+		fmt.Fprintf(tw, fmtstr+"\n", covered...)
+		fmt.Fprintf(tw, fmtstr+"\n", projected...)
+		tw.Flush()
 	}
 
 	if len(availMap) > 0 {
@@ -189,7 +206,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			if p, ok := priceMap[a+"-USD"]; ok {
 				prices = append(prices, p.StringFixed(3))
 			} else {
-				prices = append(prices, "-")
+				prices = append(prices, "")
 			}
 			hold, avail := holdMap[a], availMap[a]
 			holds = append(holds, hold.StringFixed(3))
@@ -199,10 +216,11 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 		fmtstr := strings.Repeat("%s\t", len(assets)+1)
 		fmt.Fprintf(tw, fmtstr+"\n", ids...)
-		fmt.Fprintf(tw, fmtstr+"\n", prices...)
 		fmt.Fprintf(tw, fmtstr+"\n", holds...)
 		fmt.Fprintf(tw, fmtstr+"\n", avails...)
 		fmt.Fprintf(tw, fmtstr+"\n", totals...)
+		fmt.Fprintf(tw, fmtstr+"\n", emptystrings(len(assets)+1)...)
+		fmt.Fprintf(tw, fmtstr+"\n", prices...)
 		tw.Flush()
 	}
 
