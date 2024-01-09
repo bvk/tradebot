@@ -163,10 +163,11 @@ func (ex *Exchange) goFetchCandles(ctx context.Context) {
 		if last.IsZero() {
 			v, err := ex.datastore.lastCandlesTime(ctx)
 			if err != nil {
-				log.Printf("could not determine last fetched candles time (will retry): %w", err)
+				log.Printf("could not determine last fetched candles time (will retry): %v", err)
 				continue
 			}
 			last = v
+			log.Printf("candles data seems to be available in the datastore upto time %s", last)
 		}
 
 		now := ex.client.Now().Time
