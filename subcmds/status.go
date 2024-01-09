@@ -158,6 +158,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	fmt.Println()
 	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
+	fmt.Printf("Per day (average): %s\n", sum.ProfitPerDay().StringFixed(3))
 	fmt.Printf("Per month (projected): %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
 	fmt.Printf("Per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
 
@@ -177,7 +178,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		fmt.Println()
 		rates := []float64{2.625, 5, 8, 10, 15, 20}
 		fmtstr := strings.Repeat("%s\t", len(rates)+1)
-		aprs := []any{"APR"}
+		aprs := []any{"ARR"}
 		covered := []any{"Covered"}
 		projected := []any{"Projected"}
 		for _, rate := range rates {
