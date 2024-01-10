@@ -9,4 +9,7 @@ type Options struct {
 
 	// NoResume when true, will NOT resume the trade jobs automatically.
 	NoResume bool
+
+	// NoFetchCandles when true, will disable periodic fetch of product candles data.
+	NoFetchCandles bool
 }

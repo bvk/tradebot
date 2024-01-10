@@ -86,7 +86,11 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 
 	var coinbaseClient *coinbase.Exchange
 	if secrets.Coinbase != nil {
-		client, err := coinbase.New(ctx, db, secrets.Coinbase.Key, secrets.Coinbase.Secret, nil)
+		cbopts := new(coinbase.Options)
+		if opts.NoFetchCandles {
+			cbopts.FetchCandlesInterval = -1
+		}
+		client, err := coinbase.New(ctx, db, secrets.Coinbase.Key, secrets.Coinbase.Secret, cbopts)
 		if err != nil {
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}

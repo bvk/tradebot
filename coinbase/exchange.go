@@ -157,8 +157,12 @@ func (ex *Exchange) sync(ctx context.Context) error {
 }
 
 func (ex *Exchange) goFetchCandles(ctx context.Context) {
-	var last time.Time
 	timeout := ex.opts.FetchCandlesInterval
+	if timeout < 0 {
+		return
+	}
+
+	var last time.Time
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		if last.IsZero() {
 			v, err := ex.datastore.lastCandlesTime(ctx)

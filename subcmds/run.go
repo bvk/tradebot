@@ -38,11 +38,26 @@ type Run struct {
 	restart         bool
 	shutdownTimeout time.Duration
 
-	noResume bool
-	noPprof  bool
+	noPprof        bool
+	noResume       bool
+	noFetchCandles bool
 
 	secretsPath string
 	dataDir     string
+}
+
+func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
+	fset := flag.NewFlagSet("run", flag.ContinueOnError)
+	c.ServerFlags.SetFlags(fset)
+	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
+	fset.BoolVar(&c.restart, "restart", false, "when true, kills any old instance")
+	fset.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "max timeout for shutdown when restarting")
+	fset.BoolVar(&c.noPprof, "no-pprof", false, "when true net/http/pprof handler is not registered")
+	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
+	fset.BoolVar(&c.noFetchCandles, "no-fetch-candles", false, "when true, candle data is not saved in the datastore")
+	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
+	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
+	return fset, cli.CmdFunc(c.run)
 }
 
 func (c *Run) Synopsis() string {
@@ -72,19 +87,6 @@ Users should consult the exchange specific documentation to learn how to create
 the API keys.
 
 `
-}
-
-func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("run", flag.ContinueOnError)
-	c.ServerFlags.SetFlags(fset)
-	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
-	fset.BoolVar(&c.restart, "restart", false, "when true, kills any old instance")
-	fset.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "max timeout for shutdown when restarting")
-	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
-	fset.BoolVar(&c.noPprof, "no-pprof", false, "when true net/http/pprof handler is not registered")
-	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
-	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
-	return fset, cli.CmdFunc(c.run)
 }
 
 func (c *Run) run(ctx context.Context, args []string) error {
@@ -223,7 +225,8 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 	// Start other services.
 	topts := &server.Options{
-		NoResume: c.noResume,
+		NoResume:       c.noResume,
+		NoFetchCandles: c.noFetchCandles,
 	}
 	trader, err := server.New(secrets, db, topts)
 	if err != nil {
