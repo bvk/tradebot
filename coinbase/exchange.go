@@ -117,6 +117,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 			return nil, fmt.Errorf("could not sync for lost data: %w", err)
 		}
 
+		client.Go(exchange.goFetchProducts)
 		client.Go(exchange.goFetchCandles)
 
 		client.Go(func(ctx context.Context) {
@@ -155,6 +156,21 @@ func (ex *Exchange) sync(ctx context.Context) error {
 	}
 	log.Printf("fetched %d canceled orders from %s", len(cancelled), ex.lastFilledTime)
 	return nil
+}
+
+func (ex *Exchange) goFetchProducts(ctx context.Context) {
+	timeout := ex.opts.FetchProductsInterval
+	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
+		resp, err := ex.client.ListProducts(ctx, "SPOT")
+		if err != nil {
+			log.Printf("could not list spot products (will retry): %v", err)
+			continue
+		}
+		if err := ex.datastore.saveProducts(ctx, resp.Products); err != nil {
+			log.Printf("could not update products list (will retry): %v", err)
+			continue
+		}
+	}
 }
 
 func (ex *Exchange) goFetchCandles(ctx context.Context) {

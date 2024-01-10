@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
@@ -55,8 +54,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("could not load coinbase account balances: %w", err)
 	}
-	priceMap, err := datastore.PriceMapAt(ctx, time.Now())
-	if err != nil || len(priceMap) == 0 {
+	priceMap, err := datastore.ProductsPriceMap(ctx)
+	if err != nil {
 		log.Printf("could not load price information (ignored): %v", err)
 	}
 

@@ -5,6 +5,8 @@ package gobs
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 type CoinbaseOrder struct {
@@ -35,4 +37,15 @@ type CoinbaseAccount struct {
 type CoinbaseAccounts struct {
 	Timestamp time.Time
 	Accounts  []*CoinbaseAccount
+}
+
+type CoinbaseProduct struct {
+	ProductID string
+	Price     decimal.Decimal
+	Product   json.RawMessage
+}
+
+type CoinbaseProducts struct {
+	Timestamp time.Time
+	Products  []*CoinbaseProduct
 }

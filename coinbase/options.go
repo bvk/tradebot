@@ -39,6 +39,9 @@ type Options struct {
 	// Timeout interval between successive fetching candles data.
 	FetchCandlesInterval time.Duration
 
+	// Timeout interval to fetch and save products list in the datastore.
+	FetchProductsInterval time.Duration
+
 	// List of product ids to fetch and save data in the data store.
 	WatchProductIDs []string
 
@@ -71,7 +74,10 @@ func (v *Options) setDefaults() {
 		v.MaxTimeAdjustment = time.Minute
 	}
 	if v.FetchCandlesInterval == 0 {
-		v.FetchCandlesInterval = time.Minute
+		v.FetchCandlesInterval = 60 * time.Minute
+	}
+	if v.FetchProductsInterval == 0 {
+		v.FetchProductsInterval = time.Minute
 	}
 	if len(v.WatchProductIDs) == 0 {
 		v.WatchProductIDs = []string{

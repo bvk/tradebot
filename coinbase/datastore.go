@@ -346,6 +346,62 @@ func (ds *Datastore) loadOrderLocked(ctx context.Context, r kv.Reader, orderID s
 	return order, nil
 }
 
+func (ds *Datastore) saveProducts(ctx context.Context, ps []*internal.Product) error {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	return kv.WithReadWriter(ctx, ds.db, func(ctx context.Context, rw kv.ReadWriter) error {
+		return ds.saveProductsLocked(ctx, rw, ps)
+	})
+}
+
+func (ds *Datastore) saveProductsLocked(ctx context.Context, rw kv.ReadWriter, ps []*internal.Product) error {
+	sort.Slice(ps, func(i, j int) bool {
+		return ps[i].ProductID < ps[j].ProductID
+	})
+
+	key := path.Join(Keyspace, "products")
+	value := &gobs.CoinbaseProducts{
+		Timestamp: time.Now(),
+	}
+	for _, p := range ps {
+		js, err := json.Marshal(p)
+		if err != nil {
+			return fmt.Errorf("could not json-marshal coinbase product: %w", err)
+		}
+		value.Products = append(value.Products, &gobs.CoinbaseProduct{
+			ProductID: p.ProductID,
+			Price:     p.Price.Decimal,
+			Product:   json.RawMessage(js),
+		})
+	}
+	if err := kvutil.Set(ctx, rw, key, value); err != nil {
+		return fmt.Errorf("could not update products data at key %q: %w", key, err)
+	}
+	return nil
+}
+
+func (ds *Datastore) ProductsPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
+	pmap := make(map[string]decimal.Decimal)
+
+	collector := func(ctx context.Context, r kv.Reader) error {
+		key := path.Join(Keyspace, "products")
+		value, err := kvutil.Get[gobs.CoinbaseProducts](ctx, r, key)
+		if err != nil {
+			return fmt.Errorf("could not load coinbase products information: %w", err)
+		}
+		for _, p := range value.Products {
+			pmap[p.ProductID] = p.Price
+		}
+		return nil
+	}
+
+	if err := kv.WithReader(ctx, ds.db, collector); err != nil {
+		return nil, err
+	}
+	return pmap, nil
+}
+
 func (ds *Datastore) saveAccounts(ctx context.Context, as []*internal.Account) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
