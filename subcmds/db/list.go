@@ -28,6 +28,23 @@ type List struct {
 	valueType string
 
 	printTemplate string
+
+	inOrder, descend bool
+}
+
+func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
+	fset := flag.NewFlagSet("list", flag.ContinueOnError)
+	c.DBFlags.SetFlags(fset)
+	fset.StringVar(&c.keyRe, "key-regexp", "", "regular expression to pick keys")
+	fset.StringVar(&c.valueType, "value-type", "", "gob type name for the values")
+	fset.StringVar(&c.printTemplate, "print-template", "", "text/template to print the value")
+	fset.BoolVar(&c.inOrder, "in-order", false, "when true, prints in ascending order")
+	fset.BoolVar(&c.descend, "descend", false, "when true, prints in descending order")
+	return fset, cli.CmdFunc(c.Run)
+}
+
+func (c *List) Synopsis() string {
+	return "Prints keys and values in the database"
 }
 
 func (c *List) Run(ctx context.Context, args []string) error {
@@ -60,7 +77,15 @@ func (c *List) Run(ctx context.Context, args []string) error {
 	}
 
 	list := func(ctx context.Context, r kv.Reader) error {
-		it, err := r.Scan(ctx)
+		var it kv.Iterator
+		var err error
+		if !c.inOrder && !c.descend {
+			it, err = r.Scan(ctx)
+		} else if c.descend {
+			it, err = r.Descend(ctx, "", "")
+		} else {
+			it, err = r.Ascend(ctx, "", "")
+		}
 		if err != nil {
 			return err
 		}
@@ -115,17 +140,4 @@ func (c *List) Run(ctx context.Context, args []string) error {
 		return err
 	}
 	return nil
-}
-
-func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("list", flag.ContinueOnError)
-	c.DBFlags.SetFlags(fset)
-	fset.StringVar(&c.keyRe, "key-regexp", "", "regular expression to pick keys")
-	fset.StringVar(&c.valueType, "value-type", "", "gob type name for the values")
-	fset.StringVar(&c.printTemplate, "print-template", "", "text/template to print the value")
-	return fset, cli.CmdFunc(c.Run)
-}
-
-func (c *List) Synopsis() string {
-	return "Prints keys and values in the database"
 }
