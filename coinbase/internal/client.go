@@ -44,13 +44,13 @@ type Client struct {
 }
 
 // New creates a client for coinbase exchange.
-func New(key, secret string, opts *Options) (*Client, error) {
+func New(ctx context.Context, key, secret string, opts *Options) (*Client, error) {
 	if opts == nil {
 		opts = new(Options)
 	}
 	opts.setDefaults()
 
-	adjustment, err := findTimeAdjustment(context.Background())
+	adjustment, err := findTimeAdjustment(ctx, opts.MaxFetchTimeLatency)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func findTimeAdjustment(ctx context.Context) (time.Duration, error) {
+func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Duration, error) {
 	type ServerTime struct {
 		ISO string `json:"iso"`
 	}
@@ -96,7 +96,8 @@ func findTimeAdjustment(ctx context.Context) (time.Duration, error) {
 		stop := time.Now()
 
 		latency := stop.Sub(start)
-		if latency > 100*time.Millisecond {
+		if latency > maxLatency {
+			log.Printf("warning: get coinbase server time took %s > %s (too long; will retry)", latency, maxLatency)
 			continue // retry
 		}
 

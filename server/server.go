@@ -67,7 +67,7 @@ type Server struct {
 	pushoverClient *pushover.Client
 }
 
-func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
+func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer func() {
 		if status != nil {
@@ -86,11 +86,13 @@ func New(secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status err
 
 	var coinbaseClient *coinbase.Exchange
 	if secrets.Coinbase != nil {
-		cbopts := new(coinbase.Options)
+		cbopts := &coinbase.Options{
+			MaxFetchTimeLatency: opts.MaxFetchTimeLatency,
+		}
 		if opts.NoFetchCandles {
 			cbopts.FetchCandlesInterval = -1
 		}
-		client, err := coinbase.New(ctx, db, secrets.Coinbase.Key, secrets.Coinbase.Secret, cbopts)
+		client, err := coinbase.New(newctx, db, secrets.Coinbase.Key, secrets.Coinbase.Secret, cbopts)
 		if err != nil {
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}

@@ -116,7 +116,7 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 			}
 			for _, order := range orders {
 				if _, ok := state.V2.ServerIDOrderMap[order.ServerOrderID]; !ok {
-					log.Printf("%s: has no order %s", uid, order)
+					log.Printf("%s: has no order %v", uid, order)
 				}
 			}
 		}

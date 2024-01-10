@@ -47,7 +47,7 @@ func TestClient(t *testing.T) {
 	topic := topic.New[*Message]()
 	defer topic.Close()
 
-	c, err := New(testingKey, testingSecret, testingOptions)
+	c, err := New(context.Background(), testingKey, testingSecret, testingOptions)
 	if err != nil {
 		t.Fatal(err)
 	}

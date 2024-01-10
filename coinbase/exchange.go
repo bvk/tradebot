@@ -62,8 +62,9 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 		HttpClientTimeout:      opts.HttpClientTimeout,
 		WebsocketRetryInterval: opts.WebsocketRetryInterval,
 		MaxTimeAdjustment:      opts.MaxTimeAdjustment,
+		MaxFetchTimeLatency:    opts.MaxFetchTimeLatency,
 	}
-	client, err := internal.New(key, secret, copts)
+	client, err := internal.New(ctx, key, secret, copts)
 	if err != nil {
 		return nil, fmt.Errorf("could not create coinbase client: %w", err)
 	}

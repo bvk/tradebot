@@ -33,6 +33,9 @@ type Options struct {
 	// Max limit for time difference between local time and the server times.
 	MaxTimeAdjustment time.Duration
 
+	// Max time latency for fetching the server time from coinbase.
+	MaxFetchTimeLatency time.Duration
+
 	// Timeout interval between successive fetching candles data.
 	FetchCandlesInterval time.Duration
 
