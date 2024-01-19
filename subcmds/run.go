@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/syslog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -22,6 +23,7 @@ import (
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
+	"github.com/bvk/tradebot/logdir"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv/kvhttp"
@@ -156,12 +158,25 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		return false, nil
 	}
 
+	logger, err := logdir.New(dataDir, "tradebot")
+	if err != nil {
+		return fmt.Errorf("could not create logger: %w", err)
+	}
+
+	outputs := []io.Writer{logger, os.Stderr}
 	if c.background {
 		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
 			return err
 		}
+
+		syslogger, err := syslog.New(syslog.LOG_INFO, "tradebot")
+		if err != nil {
+			return fmt.Errorf("could not create syslog: %w", err)
+		}
+		outputs = []io.Writer{logger, syslogger}
 	}
 
+	log.SetOutput(io.MultiWriter(outputs...))
 	log.SetFlags(log.Flags() | log.Lmicroseconds)
 	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
 

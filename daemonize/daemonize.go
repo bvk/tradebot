@@ -5,8 +5,8 @@ package daemonize
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
-	"log/syslog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -33,7 +33,7 @@ type HealthChecker = func(ctx context.Context, child *os.Process) (retry bool, e
 // child and turn itself into the background.
 //
 // Standard input and outputs of the background process are replaced with
-// `/dev/null`. Standard library's log output is redirected to use the syslog
+// `/dev/null`. Standard library's log output is redirected to `io.Discard`
 // backend. Current working directory of the background process is changed to
 // the root directory. Background process's environment restricted to just
 // PATH, HOME and the user supplied "envkey" variables.
@@ -122,12 +122,7 @@ func daemonizeChild(envkey string) error {
 		return fmt.Errorf("could not set session id: %w", err)
 	}
 
-	syslogger, err := syslog.New(syslog.LOG_INFO, "tradebot")
-	if err != nil {
-		return fmt.Errorf("could not create syslog: %w", err)
-	}
-	log.SetFlags(0)
-	log.SetOutput(syslogger)
+	log.SetOutput(io.Discard)
 	return nil
 }
 

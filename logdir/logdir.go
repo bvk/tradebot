@@ -40,7 +40,7 @@ type Backend struct {
 	dirname, logname string
 }
 
-func New(dirname, logname string, limitInMB int) (*Backend, error) {
+func New(dirname, logname string) (*Backend, error) {
 	fp, size, err := openFile(dirname, logname, FileNameReuseInterval)
 	if err != nil {
 		return nil, fmt.Errorf("could not open log file: %w", err)
