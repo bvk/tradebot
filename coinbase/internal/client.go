@@ -17,6 +17,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"path"
+	"sync/atomic"
 	"time"
 
 	"github.com/bvk/tradebot/ctxutil"
@@ -40,7 +41,7 @@ type Client struct {
 	// server time, in which case, this value must be subtracted from the local
 	// time before the local time can be used as a timestamp in the signature
 	// calculations.
-	timeAdjustment time.Duration
+	timeAdjustment atomic.Int64
 }
 
 // New creates a client for coinbase exchange.
@@ -72,10 +73,11 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 			Jar:     jar,
 			Timeout: opts.HttpClientTimeout,
 		},
-		limiter:        rate.NewLimiter(25, 1),
-		timeAdjustment: adjustment,
+		limiter: rate.NewLimiter(25, 1),
 	}
 
+	c.timeAdjustment.Store(int64(adjustment))
+	c.cg.Go(c.goFindTimeAdjustment)
 	return c, nil
 }
 
@@ -85,12 +87,21 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) goFindTimeAdjustment(ctx context.Context) {
+	for ctxutil.Sleep(ctx, c.opts.SyncTimeInterval); ctx.Err() == nil; ctxutil.Sleep(ctx, c.opts.SyncTimeInterval) {
+		if diff, err := findTimeAdjustment(ctx, c.opts.MaxFetchTimeLatency); err == nil {
+			log.Printf("local time needs to be adjusted by -%s to match the coinbase server time", diff)
+			c.timeAdjustment.Store(int64(diff))
+		}
+	}
+}
+
 func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Duration, error) {
 	type ServerTime struct {
 		ISO string `json:"iso"`
 	}
 
-	for ; ctx.Err() == nil; time.Sleep(time.Second) {
+	for ; ctx.Err() == nil; ctxutil.Sleep(ctx, time.Second) {
 		start := time.Now()
 		resp, err := http.Get("https://api.exchange.coinbase.com/time")
 		stop := time.Now()
@@ -116,8 +127,10 @@ func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Dur
 			return 0, fmt.Errorf("could not parse server timestamp: %w", err)
 		}
 
-		ltime := start.Add(latency / 2)
+		ltime := start.Add(latency / 2).UTC()
 		adjust := ltime.Sub(stime)
+		// log.Println("localtime", ltime, "servertime", stime, "latency", latency, "diff", adjust)
+
 		if adjust < 0 {
 			return 0, nil
 		}
@@ -128,7 +141,7 @@ func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Dur
 }
 
 func (c *Client) Now() exchange.RemoteTime {
-	return exchange.RemoteTime{Time: time.Now().Add(-c.timeAdjustment)}
+	return exchange.RemoteTime{Time: time.Now().Add(time.Duration(-c.timeAdjustment.Load()))}
 }
 
 func (c *Client) sign(message string) string {

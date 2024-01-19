@@ -25,6 +25,10 @@ type Options struct {
 
 	// Max time latency for fetching the server time from coinbase.
 	MaxFetchTimeLatency time.Duration
+
+	// Periodic timeout interval to recalculate time difference between local
+	// time and the exchange time.
+	SyncTimeInterval time.Duration
 }
 
 func (v *Options) setDefaults() {
@@ -45,5 +49,8 @@ func (v *Options) setDefaults() {
 	}
 	if v.MaxFetchTimeLatency == 0 {
 		v.MaxFetchTimeLatency = 100 * time.Millisecond
+	}
+	if v.SyncTimeInterval == 0 {
+		v.SyncTimeInterval = 30 * time.Minute
 	}
 }
