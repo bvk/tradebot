@@ -175,6 +175,27 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	if p := sum.Profit(); p.IsPositive() {
 		fmt.Println()
+		amounts := []float64{50000, 100000, 200000, 250000, 500000}
+		fmtstr := strings.Repeat("%s\t", len(amounts)+1)
+		amts := []any{"Amounts"}
+		covered := []any{"Covered"}
+		projected := []any{"Projected"}
+		for _, amount := range amounts {
+			c := sum.Profit().Mul(d100).Div(decimal.NewFromFloat(amount))
+			p := sum.ProfitPerDay().Mul(d365).Mul(d100).Div(decimal.NewFromFloat(amount))
+			amts = append(amts, fmt.Sprintf("%.02f", amount))
+			covered = append(covered, fmt.Sprintf("%s%%", c.StringFixed(3)))
+			projected = append(projected, fmt.Sprintf("%s%%", p.StringFixed(3)))
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+		fmt.Fprintf(tw, fmtstr+"\n", amts...)
+		fmt.Fprintf(tw, fmtstr+"\n", covered...)
+		fmt.Fprintf(tw, fmtstr+"\n", projected...)
+		tw.Flush()
+	}
+
+	if p := sum.Profit(); p.IsPositive() {
+		fmt.Println()
 		rates := []float64{2.625, 5, 8, 10, 15, 20}
 		fmtstr := strings.Repeat("%s\t", len(rates)+1)
 		aprs := []any{"ARR"}
