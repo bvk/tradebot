@@ -30,6 +30,8 @@ import (
 
 type Status struct {
 	cmdutil.DBFlags
+
+	budget float64
 }
 
 func (c *Status) Synopsis() string {
@@ -39,6 +41,7 @@ func (c *Status) Synopsis() string {
 func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
+	fset.Float64Var(&c.budget, "budget", 0, "Includes this budget in the return rate table")
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -175,7 +178,11 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	if p := sum.Profit(); p.IsPositive() {
 		fmt.Println()
-		amounts := []float64{50000, 100000, 200000, 250000, 500000}
+		unsold, _ := sum.UnsoldValue.Float64()
+		amounts := []float64{unsold, 50000, 100000, 200000, 250000, 500000}
+		if c.budget != 0 {
+			amounts = append([]float64{c.budget}, amounts...)
+		}
 		fmtstr := strings.Repeat("%s\t", len(amounts)+1)
 		amts := []any{"Amounts"}
 		covered := []any{"Covered"}
