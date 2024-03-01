@@ -45,10 +45,11 @@ var _ trader.Trader = &Looper{}
 
 func New(uid, exchangeName, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
-		productID: productID,
-		uid:       uid,
-		buyPoint:  *buy,
-		sellPoint: *sell,
+		productID:    productID,
+		exchangeName: exchangeName,
+		uid:          uid,
+		buyPoint:     *buy,
+		sellPoint:    *sell,
 	}
 	if err := v.check(); err != nil {
 		return nil, err
