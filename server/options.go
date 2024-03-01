@@ -17,4 +17,16 @@ type Options struct {
 
 	// Max time latency for fetching the server time from coinbase.
 	MaxFetchTimeLatency time.Duration
+
+	// Max timeout for http requests.
+	MaxHttpClientTimeout time.Duration
+}
+
+func (v *Options) setDefaults() {
+	if v.MaxFetchTimeLatency == 0 {
+		v.MaxFetchTimeLatency = time.Second
+	}
+	if v.MaxHttpClientTimeout == 0 {
+		v.MaxHttpClientTimeout = 10 * time.Second
+	}
 }

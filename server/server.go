@@ -68,6 +68,11 @@ type Server struct {
 }
 
 func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
+	if opts == nil {
+		opts = new(Options)
+	}
+	opts.setDefaults()
+
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer func() {
 		if status != nil {
@@ -88,6 +93,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	if secrets.Coinbase != nil {
 		cbopts := &coinbase.Options{
 			MaxFetchTimeLatency: opts.MaxFetchTimeLatency,
+			HttpClientTimeout:   opts.MaxHttpClientTimeout,
 		}
 		if opts.NoFetchCandles {
 			cbopts.FetchCandlesInterval = -1

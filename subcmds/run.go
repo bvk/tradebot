@@ -40,10 +40,11 @@ type Run struct {
 	restart         bool
 	shutdownTimeout time.Duration
 
-	noPprof             bool
-	noResume            bool
-	noFetchCandles      bool
-	maxFetchTimeLatency time.Duration
+	noPprof              bool
+	noResume             bool
+	noFetchCandles       bool
+	maxFetchTimeLatency  time.Duration
+	maxHttpClientTimeout time.Duration
 
 	secretsPath string
 	dataDir     string
@@ -59,6 +60,7 @@ func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
 	fset.BoolVar(&c.noFetchCandles, "no-fetch-candles", false, "when true, candle data is not saved in the datastore")
 	fset.DurationVar(&c.maxFetchTimeLatency, "max-fetch-time-latency", 0, "max latency for fetch-time operation in finding time difference")
+	fset.DurationVar(&c.maxHttpClientTimeout, "max-http-client-timeout", 10*time.Second, "default max timeout for http requests")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
 	return fset, cli.CmdFunc(c.run)
@@ -242,9 +244,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 	// Start other services.
 	topts := &server.Options{
-		NoResume:            c.noResume,
-		NoFetchCandles:      c.noFetchCandles,
-		MaxFetchTimeLatency: c.maxFetchTimeLatency,
+		NoResume:             c.noResume,
+		NoFetchCandles:       c.noFetchCandles,
+		MaxFetchTimeLatency:  c.maxFetchTimeLatency,
+		MaxHttpClientTimeout: c.maxHttpClientTimeout,
 	}
 	trader, err := server.New(ctx, secrets, db, topts)
 	if err != nil {
