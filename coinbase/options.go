@@ -5,7 +5,7 @@ package coinbase
 import "time"
 
 var (
-	RestHostname      = "coinbase.com"
+	RestHostname      = "api.coinbase.com"
 	WebsocketHostname = "advanced-trade-ws.coinbase.com"
 )
 
