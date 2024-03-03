@@ -201,27 +201,6 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		tw.Flush()
 	}
 
-	if p := sum.Profit(); p.IsPositive() {
-		fmt.Println()
-		rates := []float64{2.625, 5, 8, 10, 15, 20}
-		fmtstr := strings.Repeat("%s\t", len(rates)+1)
-		aprs := []any{"ARR"}
-		covered := []any{"Covered"}
-		projected := []any{"Projected"}
-		for _, rate := range rates {
-			c := sum.Profit().Div(decimal.NewFromFloat(rate).Div(d100))
-			p := sum.ProfitPerDay().Mul(d365).Div(decimal.NewFromFloat(rate).Div(d100))
-			aprs = append(aprs, fmt.Sprintf("%.03f%%", rate))
-			covered = append(covered, c.StringFixed(3))
-			projected = append(projected, p.StringFixed(3))
-		}
-		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-		fmt.Fprintf(tw, fmtstr+"\n", aprs...)
-		fmt.Fprintf(tw, fmtstr+"\n", covered...)
-		fmt.Fprintf(tw, fmtstr+"\n", projected...)
-		tw.Flush()
-	}
-
 	if len(availMap) > 0 {
 		fmt.Println()
 		ids := []any{""}
@@ -258,7 +237,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			a, b := statuses[i], statuses[j]
 			astatus, bstatus := uid2statusMap[a.UID()], uid2statusMap[b.UID()]
 			if astatus == bstatus {
-				return a.ProductID < b.ProductID
+				return uid2nameMap[a.UID()] < uid2nameMap[b.UID()]
 			}
 			return slices.Index(order, astatus) < slices.Index(order, bstatus)
 		})
