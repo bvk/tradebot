@@ -66,6 +66,9 @@ func (s *Summary) Profit() decimal.Decimal {
 }
 
 func (s *Summary) NumDays() int {
+	if s.MinCreateTime.IsZero() {
+		return 0
+	}
 	return int(time.Now().Sub(s.MinCreateTime) / (24 * time.Hour))
 }
 
@@ -78,10 +81,16 @@ func (s *Summary) ProfitPerDay() decimal.Decimal {
 }
 
 func (s *Summary) ReturnRate() decimal.Decimal {
+	if s.Budget.IsZero() {
+		return decimal.Zero
+	}
 	return s.Profit().Mul(decimal.NewFromInt(100)).Div(s.Budget)
 }
 
 func (s *Summary) AnnualReturnRate() decimal.Decimal {
+	if s.Budget.IsZero() {
+		return decimal.Zero
+	}
 	perYear := s.ProfitPerDay().Mul(decimal.NewFromInt(365))
 	return perYear.Mul(decimal.NewFromInt(100)).Div(s.Budget)
 }

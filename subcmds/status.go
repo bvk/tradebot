@@ -55,11 +55,16 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	datastore := coinbase.NewDatastore(db)
 	accounts, err := datastore.LoadAccounts(ctx)
 	if err != nil {
-		return fmt.Errorf("could not load coinbase account balances: %w", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("could not load coinbase account balances: %w", err)
+		}
 	}
 	priceMap, err := datastore.ProductsPriceMap(ctx)
 	if err != nil {
-		log.Printf("could not load price information (ignored): %v", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("could not load price information (ignored): %v", err)
+		}
+		priceMap = make(map[string]decimal.Decimal)
 	}
 
 	var assets []string
