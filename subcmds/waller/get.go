@@ -20,6 +20,8 @@ import (
 
 type Get struct {
 	cmdutil.DBFlags
+
+	skipZeroBuys bool
 }
 
 func (c *Get) Run(ctx context.Context, args []string) error {
@@ -96,6 +98,9 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	fmt.Fprintf(tw, "Pair\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
 	for _, p := range wall.Pairs() {
 		s := wall.PairStatus(p)
+		if c.skipZeroBuys && s.NumBuys == 0 {
+			continue
+		}
 		id := fmt.Sprintf("%s-%s", p.Buy.Price.StringFixed(2), p.Sell.Price.StringFixed(2))
 		fmt.Fprintf(tw, "%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
 			id,
@@ -120,6 +125,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
+	fset.BoolVar(&c.skipZeroBuys, "skip-zero-buys", true, "when true, doesn't print inactive pairs")
 	return fset, cli.CmdFunc(c.Run)
 }
 
