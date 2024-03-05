@@ -4,17 +4,15 @@ package waller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"path"
+	"text/tabwriter"
 
 	"github.com/bvk/tradebot/cli"
-	"github.com/bvk/tradebot/gobs"
-	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/namer"
+	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -30,6 +28,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	}
 	arg := args[0]
 
+	var wall *waller.Waller
 	getter := func(ctx context.Context, r kv.Reader) error {
 		_, uid, _, err := namer.Resolve(ctx, r, arg)
 		if err != nil {
@@ -39,14 +38,11 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 			uid = arg
 		}
 
-		key := path.Join(waller.DefaultKeyspace, uid)
-		gv, err := kvutil.Get[gobs.WallerState](ctx, r, key)
+		job, err := server.Load(ctx, r, uid, "waller")
 		if err != nil {
-			return fmt.Errorf("could not load waller state from key %q: %w", key, err)
+			return fmt.Errorf("could not load waller from db: %w", err)
 		}
-
-		d, _ := json.MarshalIndent(gv, "", "  ")
-		fmt.Printf("%s\n", d)
+		wall = job.(*waller.Waller)
 		return nil
 	}
 
@@ -59,6 +55,34 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	if err := kv.WithReader(ctx, db, getter); err != nil {
 		return err
 	}
+
+	if wall == nil {
+		return fmt.Errorf("could not load waller (unexpected)")
+	}
+
+	// Print the waller state in a human readable format.
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+	fmt.Fprintf(tw, "Pair\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
+	for _, p := range wall.Pairs() {
+		s := wall.PairStatus(p)
+		id := fmt.Sprintf("%s-%s", p.Buy.Price.StringFixed(2), p.Sell.Price.StringFixed(2))
+		fmt.Fprintf(tw, "%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
+			id,
+			s.Budget.StringFixed(3),
+			s.ReturnRate().StringFixed(3),
+			s.AnnualReturnRate().StringFixed(3),
+			s.NumDays(),
+			s.NumBuys,
+			s.NumSells,
+			s.Profit().StringFixed(3),
+			s.Fees().StringFixed(3),
+			s.Bought().StringFixed(3),
+			s.Sold().StringFixed(3),
+			s.UnsoldValue.StringFixed(3),
+			s.SoldSize.Sub(s.OversoldSize).StringFixed(3),
+			s.UnsoldSize.StringFixed(3))
+	}
+	tw.Flush()
 	return nil
 }
 

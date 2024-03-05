@@ -240,9 +240,9 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		order := []string{"RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELED"}
 		sort.Slice(statuses, func(i, j int) bool {
 			a, b := statuses[i], statuses[j]
-			astatus, bstatus := uid2statusMap[a.UID()], uid2statusMap[b.UID()]
+			astatus, bstatus := uid2statusMap[a.UID], uid2statusMap[b.UID]
 			if astatus == bstatus {
-				return uid2nameMap[a.UID()] < uid2nameMap[b.UID()]
+				return uid2nameMap[a.UID] < uid2nameMap[b.UID]
 			}
 			return slices.Index(order, astatus) < slices.Index(order, bstatus)
 		})
@@ -251,9 +251,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 		fmt.Fprintf(tw, "Name/UID\tStatus\tProduct\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
 		for _, s := range statuses {
-			uid := s.UID()
-			name := uid2nameMap[uid]
-			status := uid2statusMap[uid]
+			name := uid2nameMap[s.UID]
+			status := uid2statusMap[s.UID]
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, status, s.ProductID, s.Budget.StringFixed(3), s.ReturnRate().StringFixed(3), s.AnnualReturnRate().StringFixed(3), s.NumDays(), s.NumBuys, s.NumSells, s.Profit().StringFixed(3), s.Fees().StringFixed(3), s.Bought().StringFixed(3), s.Sold().StringFixed(3), s.UnsoldValue.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
 		}
 		tw.Flush()

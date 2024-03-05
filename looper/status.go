@@ -1,54 +1,93 @@
-// Copyright (c) 2023 BVK Chaitanya
+// Copyright (c) 2024 BVK Chaitanya
 
-package trader
+package looper
 
 import (
-	"fmt"
 	"log"
 	"slices"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/trader"
 	"github.com/shopspring/decimal"
 )
 
-var (
-	d100 = decimal.NewFromInt(100)
-)
-
-type Status struct {
-	*Summary
-
-	UID          string
-	ProductID    string
-	ExchangeName string
+func filledSize(vs []*gobs.Order) decimal.Decimal {
+	var sum decimal.Decimal
+	for _, v := range vs {
+		sum = sum.Add(v.FilledSize)
+	}
+	return sum
 }
 
-func (s *Status) String() string {
-	return fmt.Sprintf("uid %s product %s bvalue %s s %s usize %s", s.UID, s.ProductID, s.BoughtSize, s.SoldSize, s.UnsoldSize)
+func filledValue(vs []*gobs.Order) decimal.Decimal {
+	var sum decimal.Decimal
+	for _, v := range vs {
+		sum = sum.Add(v.FilledSize.Mul(v.FilledPrice))
+	}
+	return sum
 }
 
-func GetStatus(job Trader) *Status {
-	actions := job.Actions()
+func filledFee(vs []*gobs.Order) decimal.Decimal {
+	var sum decimal.Decimal
+	for _, v := range vs {
+		sum = sum.Add(v.FilledFee)
+	}
+	return sum
+}
+
+func avgPrice(vs []*gobs.Order) decimal.Decimal {
+	var sum decimal.Decimal
+	for _, v := range vs {
+		sum = sum.Add(v.FilledPrice)
+	}
+	return sum.Div(decimal.NewFromInt(int64(len(vs))))
+}
+
+func maxPrice(max decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
+	for _, v := range vs {
+		if v.FilledPrice.GreaterThan(max) {
+			max = v.FilledPrice
+		}
+	}
+	return max
+}
+
+func minPrice(min decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
+	for _, v := range vs {
+		if v.FilledPrice.LessThan(min) {
+			min = v.FilledPrice
+		}
+	}
+	return min
+}
+
+func unsoldActions(buys, sells []*gobs.Action) []*gobs.Action {
+	var bsize, ssize decimal.Decimal
+	for _, s := range sells {
+		ssize = ssize.Add(filledSize(s.Orders))
+	}
+	var unsold []*gobs.Action
+	for i, b := range buys {
+		if bsize.LessThan(ssize) {
+			bsize = bsize.Add(filledSize(b.Orders))
+			continue
+		}
+		unsold = buys[i:]
+		break
+	}
+	return unsold
+}
+
+func (v *Looper) Status() *trader.Status {
+	actions := v.Actions()
 	if len(actions) == 0 {
-		return nil
-	}
-
-	// Verify that order ids are all unique.
-	orderIDCounts := make(map[string]int)
-	for _, a := range actions {
-		for _, v := range a.Orders {
-			orderIDCounts[v.ServerOrderID] = orderIDCounts[v.ServerOrderID] + 1
+		return &trader.Status{
+			UID:          v.uid,
+			ProductID:    v.productID,
+			ExchangeName: v.exchangeName,
+			Summary:      new(trader.Summary),
 		}
 	}
-	for id, cnt := range orderIDCounts {
-		if cnt > 1 {
-			log.Printf("warning: order id %s is found duplicated %d times", id, cnt)
-		}
-	}
-
-	first := slices.MinFunc(actions, func(a, b *gobs.Action) int {
-		return a.Orders[0].CreateTime.Time.Compare(b.Orders[0].CreateTime.Time)
-	})
 
 	nbuys, nsells := 0, 0
 	for _, a := range actions {
@@ -59,33 +98,25 @@ func GetStatus(job Trader) *Status {
 		}
 	}
 
-	side := func(a *gobs.Action) string {
-		return a.Orders[0].Side
-	}
-
-	pairedActions := make(map[string][]*gobs.Action)
-	for _, a := range actions {
-		if len(a.PairingKey) > 0 {
-			vs := pairedActions[a.PairingKey]
-			pairedActions[a.PairingKey] = append(vs, a)
-			continue
-		}
-	}
-
-	if len(pairedActions) == 0 {
-		return nil
-	}
+	first := slices.MinFunc(actions, func(a, b *gobs.Action) int {
+		return a.Orders[0].CreateTime.Time.Compare(b.Orders[0].CreateTime.Time)
+	})
 
 	var pairs [][2][]*gobs.Action
-	for _, actions := range pairedActions {
-		var pair [2][]*gobs.Action
-		for _, a := range actions {
-			if side(a) == "BUY" {
-				pair[0] = append(pair[0], a)
-			} else {
-				pair[1] = append(pair[1], a)
+
+	var pair [2][]*gobs.Action
+	for _, a := range actions {
+		if a.Orders[0].Side == "BUY" {
+			if len(pair[1]) > 0 {
+				pairs = append(pairs, pair)
+				pair = [2][]*gobs.Action{}
 			}
+			pair[0] = append(pair[0], a)
+		} else {
+			pair[1] = append(pair[1], a)
 		}
+	}
+	if len(pair[0]) > 0 {
 		pairs = append(pairs, pair)
 	}
 
@@ -179,12 +210,12 @@ func GetStatus(job Trader) *Status {
 		}
 	}
 
-	s := &Status{
-		UID:          job.UID(),
-		ProductID:    job.ProductID(),
-		ExchangeName: job.ExchangeName(),
+	s := &trader.Status{
+		UID:          v.uid,
+		ProductID:    v.productID,
+		ExchangeName: v.exchangeName,
 
-		Summary: &Summary{
+		Summary: &trader.Summary{
 			NumBuys:  nbuys,
 			NumSells: nsells,
 
@@ -208,6 +239,6 @@ func GetStatus(job Trader) *Status {
 		},
 	}
 	feePct, _ := s.FeePct().Float64()
-	s.Budget = job.BudgetAt(feePct)
+	s.Budget = v.BudgetAt(feePct)
 	return s
 }

@@ -94,6 +94,14 @@ func (w *Waller) BudgetAt(feePct float64) decimal.Decimal {
 	return sum
 }
 
+func (w *Waller) Pairs() []*point.Pair {
+	var ps []*point.Pair
+	for _, l := range w.loopers {
+		ps = append(ps, l.Pair())
+	}
+	return ps
+}
+
 func (w *Waller) Actions() []*gobs.Action {
 	var actions []*gobs.Action
 	for _, l := range w.loopers {
