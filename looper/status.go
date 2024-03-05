@@ -85,7 +85,9 @@ func (v *Looper) Status() *trader.Status {
 			UID:          v.uid,
 			ProductID:    v.productID,
 			ExchangeName: v.exchangeName,
-			Summary:      new(trader.Summary),
+			Summary: &trader.Summary{
+				Budget: v.BudgetAt(0.25),
+			},
 		}
 	}
 

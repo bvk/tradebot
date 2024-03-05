@@ -120,8 +120,10 @@ func Summarize(statuses []*Status) *Summary {
 		sum.OversoldSize = sum.OversoldSize.Add(s.OversoldSize)
 		sum.OversoldValue = sum.OversoldValue.Add(s.OversoldValue)
 
-		if minCreateTime.IsZero() || s.MinCreateTime.Before(minCreateTime) {
-			minCreateTime = s.MinCreateTime
+		if !s.MinCreateTime.IsZero() {
+			if minCreateTime.IsZero() || s.MinCreateTime.Before(minCreateTime) {
+				minCreateTime = s.MinCreateTime
+			}
 		}
 	}
 
