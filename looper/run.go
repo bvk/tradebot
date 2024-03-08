@@ -148,20 +148,20 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
-	log.Printf("%s: adding new limit-buy buy-%06d", v.uid, len(v.buys))
-
 	// Wait for the ticker to go above the buy point price.
 	tickerCh, stopTickers := rt.Product.TickerCh()
 	defer stopTickers()
 
-	for p := v.buyPoint.Price; p.LessThanOrEqual(v.buyPoint.Price); {
+	var curPrice decimal.Decimal
+	for curPrice.IsZero() || curPrice.LessThanOrEqual(v.buyPoint.Price) {
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
 		case ticker := <-tickerCh:
-			p = ticker.Price
+			curPrice = ticker.Price
 		}
 	}
+	log.Printf("%s: adding new limit-buy buy-%06d at buy-price %s when current price is %s", v.uid, len(v.buys), v.buyPoint.Price.StringFixed(3), curPrice.StringFixed(3))
 
 	uid := path.Join(v.uid, fmt.Sprintf("buy-%06d", len(v.buys)))
 	b, err := limiter.New(uid, v.exchangeName, v.productID, &v.buyPoint)
