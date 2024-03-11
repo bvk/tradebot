@@ -174,7 +174,9 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) er
 		return fmt.Errorf("unexpected: cancel order response has %d results", n)
 	}
 	if !resp.Results[0].Success {
-		return errors.New(resp.Results[0].FailureReason)
+		if resp.Results[0].FailureReason != "DUPLICATE_CANCEL_REQUEST" {
+			return errors.New(resp.Results[0].FailureReason)
+		}
 	}
 	// Schedule a Get for the canceled order so that a notification is generated.
 	var get func(context.Context)
