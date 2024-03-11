@@ -5,12 +5,15 @@ package idgen
 import (
 	"crypto/md5"
 	"encoding/binary"
+	"sync"
 
 	"github.com/google/uuid"
 )
 
 // Generator creates sequence of uuids derived from a given base uuid.
 type Generator struct {
+	mu sync.Mutex
+
 	seed string
 	base uuid.UUID
 
@@ -28,10 +31,16 @@ func (v *Generator) Seed() string {
 }
 
 func (v *Generator) Offset() uint64 {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	return v.next
 }
 
 func (v *Generator) NextID() uuid.UUID {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	if len(v.cache) == 0 || v.next%10 == 0 {
 		v.cache = v.prepare(v.next/10*10, 10)
 	}
@@ -41,6 +50,9 @@ func (v *Generator) NextID() uuid.UUID {
 }
 
 func (v *Generator) RevertID() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	if v.next > 0 {
 		v.next--
 		v.cache = nil
