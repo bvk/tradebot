@@ -26,6 +26,7 @@ import (
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
+	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -57,6 +58,8 @@ type Server struct {
 	handlerMap map[string]http.Handler
 
 	runner *job.Runner
+
+	jobMap syncmap.Map[string, trader.Trader]
 
 	mu sync.Mutex
 

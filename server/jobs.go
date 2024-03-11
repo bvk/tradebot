@@ -31,6 +31,9 @@ func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", uid, pid, ename, err)
 		}
 
+		s.jobMap.Store(uid, v)
+		defer s.jobMap.Delete(uid)
+
 		return v.Run(ctx, s.Runtime(product))
 	}
 }
