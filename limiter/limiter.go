@@ -18,6 +18,7 @@ import (
 	"github.com/bvk/tradebot/idgen"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -38,7 +39,9 @@ type Limiter struct {
 
 	idgen *idgen.Generator
 
-	orderMap map[exchange.OrderID]*exchange.Order
+	// orderMap holds all orders created by the limiter. It is used by Run and
+	// Save methods, so it needs to be thread-safe.
+	orderMap syncmap.Map[exchange.OrderID, *exchange.Order]
 }
 
 var _ trader.Trader = &Limiter{}
@@ -54,7 +57,6 @@ func New(uid, exchangeName, productID string, point *point.Point) (*Limiter, err
 		uid:          uid,
 		point:        *point,
 		idgen:        idgen.New(uid, 0),
-		orderMap:     make(map[exchange.OrderID]*exchange.Order),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -100,9 +102,18 @@ func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
 }
 
+func (v *Limiter) dupOrderMap() map[exchange.OrderID]*exchange.Order {
+	dup := make(map[exchange.OrderID]*exchange.Order)
+	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+		dup[id] = order
+		return true
+	})
+	return dup
+}
+
 func (v *Limiter) StartTime() time.Time {
 	var min time.Time
-	for _, order := range v.orderMap {
+	for _, order := range v.dupOrderMap() {
 		if min.IsZero() {
 			min = order.CreateTime.Time
 		} else if order.CreateTime.Time.Before(min) {
@@ -114,7 +125,7 @@ func (v *Limiter) StartTime() time.Time {
 
 func (v *Limiter) Actions() []*gobs.Action {
 	var orders []*gobs.Order
-	for _, order := range v.orderMap {
+	for _, order := range v.dupOrderMap() {
 		if order.Done && !order.FilledSize.IsZero() {
 			gorder := &gobs.Order{
 				ServerOrderID: string(order.OrderID),
@@ -142,7 +153,7 @@ func (v *Limiter) Actions() []*gobs.Action {
 
 func (v *Limiter) Fees() decimal.Decimal {
 	var sum decimal.Decimal
-	for _, order := range v.orderMap {
+	for _, order := range v.dupOrderMap() {
 		sum = sum.Add(order.Fee)
 	}
 	return sum
@@ -171,7 +182,7 @@ func (v *Limiter) UnsoldValue() decimal.Decimal {
 
 func (v *Limiter) FilledSize() decimal.Decimal {
 	var filled decimal.Decimal
-	for _, order := range v.orderMap {
+	for _, order := range v.dupOrderMap() {
 		filled = filled.Add(order.FilledSize)
 	}
 	return filled
@@ -179,7 +190,7 @@ func (v *Limiter) FilledSize() decimal.Decimal {
 
 func (v *Limiter) FilledValue() decimal.Decimal {
 	var value decimal.Decimal
-	for _, order := range v.orderMap {
+	for _, order := range v.dupOrderMap() {
 		value = value.Add(order.FilledSize.Mul(order.FilledPrice))
 	}
 	return value
@@ -198,17 +209,17 @@ func (v *Limiter) PendingValue() decimal.Decimal {
 }
 
 func (v *Limiter) compactOrderMap() {
-	for id, order := range v.orderMap {
+	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
 		if order.Done && order.FilledSize.IsZero() {
-			delete(v.orderMap, id)
-			continue
+			v.orderMap.Delete(id)
 		}
-	}
+		return true
+	})
 }
 
 func (v *Limiter) updateOrderMap(order *exchange.Order) {
-	if _, ok := v.orderMap[order.OrderID]; ok {
-		v.orderMap[order.OrderID] = order
+	if _, ok := v.orderMap.Load(order.OrderID); ok {
+		v.orderMap.Store(order.OrderID, order)
 	}
 }
 
@@ -228,7 +239,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 			ServerIDOrderMap: make(map[string]*gobs.Order),
 		},
 	}
-	for k, v := range v.orderMap {
+	for k, v := range v.dupOrderMap() {
 		order := &gobs.Order{
 			ServerOrderID: string(v.OrderID),
 			ClientOrderID: v.ClientOrderID,
@@ -297,8 +308,6 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			Price:  gv.V2.TradePoint.Price,
 			Cancel: gv.V2.TradePoint.Cancel,
 		},
-
-		orderMap: make(map[exchange.OrderID]*exchange.Order),
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
 		order := &exchange.Order{
@@ -313,7 +322,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			Done:          vv.Done,
 			DoneReason:    vv.DoneReason,
 		}
-		v.orderMap[exchange.OrderID(kk)] = order
+		v.orderMap.Store(exchange.OrderID(kk), order)
 	}
 	return v, nil
 }

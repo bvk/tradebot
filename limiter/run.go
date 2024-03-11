@@ -40,7 +40,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	// Check if any of the orders in the orderMap are still active on the
 	// exchange.
 	var live []*exchange.Order
-	for _, order := range v.orderMap {
+	for _, order := range v.dupOrderMap() {
 		if !order.Done {
 			live = append(live, order)
 		}
@@ -205,11 +205,11 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		return "", err
 	}
 
-	v.orderMap[orderID] = &exchange.Order{
+	v.orderMap.Store(orderID, &exchange.Order{
 		OrderID:       orderID,
 		ClientOrderID: clientOrderID.String(),
 		Side:          v.point.Side(),
-	}
+	})
 
 	log.Printf("%s:%s: created a new limit order %s with client-order-id %s (%d) in %s", v.uid, v.point, orderID, clientOrderID, offset, latency)
 	return orderID, nil
@@ -225,7 +225,7 @@ func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOr
 }
 
 func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (nupdated int, status error) {
-	for id, order := range v.orderMap {
+	for id, order := range v.dupOrderMap() {
 		if order.Done {
 			continue
 		}
@@ -234,7 +234,7 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (
 			log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
 			return nupdated, err
 		}
-		v.orderMap[id] = norder
+		v.orderMap.Store(id, norder)
 		nupdated++
 	}
 	return nupdated, nil
