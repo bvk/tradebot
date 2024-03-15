@@ -70,10 +70,12 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	var assets []string
 	holdMap := make(map[string]decimal.Decimal)
 	availMap := make(map[string]decimal.Decimal)
+	currencyMap := make(map[string]string)
 	for _, a := range accounts {
-		holdMap[a.CurrencyID] = a.Hold
-		availMap[a.CurrencyID] = a.Available
-		assets = append(assets, a.CurrencyID)
+		holdMap[a.Name] = a.Hold
+		availMap[a.Name] = a.Available
+		currencyMap[a.Name] = a.CurrencyID
+		assets = append(assets, a.Name)
 	}
 	sort.Strings(assets)
 
@@ -214,8 +216,9 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		prices := []any{"Price"}
 		totals := []any{"Total"}
 		for _, a := range assets {
+			currency := currencyMap[a]
 			ids = append(ids, a)
-			if p, ok := priceMap[a+"-USD"]; ok {
+			if p, ok := priceMap[currency+"-USD"]; ok {
 				prices = append(prices, p.StringFixed(3))
 			} else {
 				prices = append(prices, "")
