@@ -453,6 +453,7 @@ func (ds *Datastore) LoadAccounts(ctx context.Context) ([]*gobs.Account, error) 
 		}
 		ga := &gobs.Account{
 			Timestamp:  value.Timestamp,
+			Name:       v.Name,
 			CurrencyID: a.CurrencyID,
 			Available:  v.AvailableBalance.Value.Decimal,
 			Hold:       v.Hold.Value.Decimal,

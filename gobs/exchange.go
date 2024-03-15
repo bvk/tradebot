@@ -69,6 +69,7 @@ type Product struct {
 type Account struct {
 	Timestamp time.Time
 
+	Name       string
 	CurrencyID string
 
 	Available decimal.Decimal
