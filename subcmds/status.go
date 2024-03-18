@@ -144,7 +144,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		}
 	}
 
-	sum := trader.Summarize(statuses)
+	sum := trader.Summarize(statuses, uid2statusMap)
 	// js, _ := json.MarshalIndent(sum, "", "  ")
 	// fmt.Printf("%s\n", js)
 

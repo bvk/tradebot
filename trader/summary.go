@@ -5,6 +5,7 @@ package trader
 import (
 	"time"
 
+	"github.com/bvk/tradebot/job"
 	"github.com/shopspring/decimal"
 )
 
@@ -95,14 +96,16 @@ func (s *Summary) AnnualReturnRate() decimal.Decimal {
 	return perYear.Mul(decimal.NewFromInt(100)).Div(s.Budget)
 }
 
-func Summarize(statuses []*Status) *Summary {
+func Summarize(statuses []*Status, uid2statusmap map[string]string) *Summary {
 	sum := new(Summary)
 
 	var minCreateTime time.Time
 	for _, s := range statuses {
 		sum.NumBuys += s.NumBuys
 		sum.NumSells += s.NumSells
-		sum.Budget = sum.Budget.Add(s.Budget)
+		if jobStatus, ok := uid2statusmap[s.UID]; ok && jobStatus == string(job.RUNNING) {
+			sum.Budget = sum.Budget.Add(s.Budget)
+		}
 
 		sum.SoldFees = sum.SoldFees.Add(s.SoldFees)
 		sum.SoldSize = sum.SoldSize.Add(s.SoldSize)

@@ -23,7 +23,7 @@ func (w *Waller) Status() *trader.Status {
 	for _, l := range w.loopers {
 		ss = append(ss, l.Status())
 	}
-	summary := trader.Summarize(ss)
+	summary := trader.Summarize(ss, nil)
 	s := &trader.Status{
 		UID:          w.uid,
 		ProductID:    w.productID,
