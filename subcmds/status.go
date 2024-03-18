@@ -148,6 +148,14 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	// js, _ := json.MarshalIndent(sum, "", "  ")
 	// fmt.Printf("%s\n", js)
 
+	var runningStatuses []*trader.Status
+	for _, s := range statuses {
+		if status, ok := uid2statusMap[s.UID]; ok && status == string(job.RUNNING) {
+			runningStatuses = append(runningStatuses, s)
+		}
+	}
+	runningSum := trader.Summarize(runningStatuses)
+
 	var (
 		d30  = decimal.NewFromInt(30)
 		d100 = decimal.NewFromInt(100)
@@ -172,9 +180,9 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	fmt.Printf("Per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
 
 	fmt.Println()
-	fmt.Printf("Budget: %s\n", sum.Budget.StringFixed(3))
-	fmt.Printf("Return Rate: %s%%\n", sum.ReturnRate().StringFixed(3))
-	fmt.Printf("Annual Return Rate: %s%%\n", sum.AnnualReturnRate().StringFixed(3))
+	fmt.Printf("Budget: %s\n", runningSum.Budget.StringFixed(3))
+	fmt.Printf("Return Rate: %s%%\n", runningSum.ReturnRate().StringFixed(3))
+	fmt.Printf("Annual Return Rate: %s%%\n", runningSum.AnnualReturnRate().StringFixed(3))
 
 	emptystrings := func(n int) (vs []any) {
 		for i := 0; i < n; i++ {
