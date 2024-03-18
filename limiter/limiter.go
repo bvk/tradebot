@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
@@ -42,6 +43,23 @@ type Limiter struct {
 	// orderMap holds all orders created by the limiter. It is used by Run and
 	// Save methods, so it needs to be thread-safe.
 	orderMap syncmap.Map[exchange.OrderID, *exchange.Order]
+
+	optionMap map[string]string
+
+	// holdOpt when true, pauses the buy/sell operations by this job. This flag
+	// can be updated while job is running, so it needs to be an atomic.
+	holdOpt atomic.Bool
+
+	// waitForTickerSideOpt when true, makes the job wait for ticker price to be
+	// on the correct side of the execution-price (i.e, above for buy and below
+	// for sell) before creating the order. This option is volatile, i.e., it is
+	// reset to false immediately after it is ready.
+	waitForTickerSideOpt atomic.Bool
+
+	// sizeLimitOpt when set and non-zero, contains the max limit for buy/sell
+	// orders. It's value is typically less than the total size so that large
+	// orders can be avoided.
+	sizeLimitOpt atomic.Pointer[decimal.Decimal]
 }
 
 var _ trader.Trader = &Limiter{}
@@ -57,6 +75,7 @@ func New(uid, exchangeName, productID string, point *point.Point) (*Limiter, err
 		uid:          uid,
 		point:        *point,
 		idgen:        idgen.New(uid, 0),
+		optionMap:    make(map[string]string),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -237,6 +256,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 				Cancel: v.point.Cancel,
 			},
 			ServerIDOrderMap: make(map[string]*gobs.Order),
+			Options:          v.optionMap,
 		},
 	}
 	for k, v := range v.dupOrderMap() {
@@ -302,6 +322,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
 		idgen:        idgen.New(seed, gv.V2.ClientIDOffset),
+		optionMap:    make(map[string]string),
 
 		point: point.Point{
 			Size:   gv.V2.TradePoint.Size,
@@ -323,6 +344,14 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			DoneReason:    vv.DoneReason,
 		}
 		v.orderMap.Store(exchange.OrderID(kk), order)
+	}
+	if err := v.check(); err != nil {
+		return nil, err
+	}
+	for opt, val := range gv.V2.Options {
+		if err := v.SetOption(opt, val); err != nil {
+			return nil, fmt.Errorf("could not set options: %v", err)
+		}
 	}
 	return v, nil
 }

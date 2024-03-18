@@ -160,6 +160,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
 	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
 	t.handlerMap[api.JobPausePath] = httpPostJSONHandler(t.doPause)
+	t.handlerMap[api.JobSetOptionPath] = httpPostJSONHandler(t.doJobSetOption)
 	t.handlerMap[api.SetJobNamePath] = httpPostJSONHandler(t.doSetJobName)
 
 	t.handlerMap[api.LimitPath] = httpPostJSONHandler(t.doLimit)

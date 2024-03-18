@@ -171,3 +171,49 @@ func (s *Server) doSetJobName(ctx context.Context, req *api.SetJobNameRequest) (
 
 	return &api.SetJobNameResponse{}, nil
 }
+
+func (s *Server) doJobSetOption(ctx context.Context, req *api.JobSetOptionRequest) (*api.JobSetOptionResponse, error) {
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("invalid rename request: %w", err)
+	}
+
+	if _, err := uuid.Parse(req.UID); err != nil {
+		return nil, fmt.Errorf("job uid must be an uuid: %w", err)
+	}
+
+	// Job can be running or in paused state.
+	update := func(ctx context.Context, rw kv.ReadWriter) error {
+		if v, ok := s.jobMap.Load(req.UID); ok {
+			if err := v.SetOption(req.OptionKey, req.OptionValue); err != nil {
+				return err
+			}
+			if err := v.Save(ctx, rw); err != nil {
+				return fmt.Errorf("could not save option change (deferred): %w", err)
+			}
+			return nil
+		}
+
+		jd, err := s.runner.Get(ctx, rw, req.UID)
+		if err != nil {
+			return err
+		}
+
+		if job.IsDone(jd.State) {
+			return fmt.Errorf("job %q is already completed (%q)", req.UID, jd.State)
+		}
+
+		job, err := Load(ctx, rw, req.UID, jd.Typename)
+		if err != nil {
+			return fmt.Errorf("could not load trader job %q: %w", req.UID, err)
+		}
+
+		if err := job.SetOption(req.OptionKey, req.OptionValue); err != nil {
+			return fmt.Errorf("could not set job option: %w", err)
+		}
+		return nil
+	}
+	if err := kv.WithReadWriter(ctx, s.db, update); err != nil {
+		return nil, err
+	}
+	return &api.JobSetOptionResponse{}, nil
+}

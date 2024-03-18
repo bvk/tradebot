@@ -69,6 +69,8 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	orderUpdatesCh, stopUpdates := rt.Product.OrderUpdatesCh()
 	defer stopUpdates()
 
+	lastSizeLimit := v.sizeLimit()
+
 	for p := v.PendingSize(); !p.IsZero(); p = v.PendingSize() {
 		select {
 		case <-ctx.Done():
@@ -103,6 +105,38 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 
 		case ticker := <-tickerCh:
+			// We should pause this job when hold option is set, effectively pausing
+			// the job. We should cancel active order if any.
+			if v.holdOpt.Load() {
+				if activeOrderID != "" {
+					log.Printf("%v: canceling existing order %s cause option hold=true is set", v.uid, activeOrderID)
+					if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
+						return err
+					}
+					dirty++
+					activeOrderID = ""
+				}
+				// Do not create any new orders.
+				continue
+			}
+
+			// Cancel the active order if size-limit option value has changed; order
+			// will be recreated with correct size-limit.
+			if x := v.sizeLimit(); activeOrderID != "" && !lastSizeLimit.Equal(x) {
+				log.Printf("%v: canceling existing order %s cause size-limit has changed from %s to %s", v.uid, activeOrderID, lastSizeLimit, x)
+				if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
+					return err
+				}
+				dirty++
+				activeOrderID = ""
+				lastSizeLimit = x
+			}
+
+			// Do not create orders when we need to wait for ticker side.
+			if activeOrderID == "" && !v.isTickerSideReady(ticker.Price) {
+				continue
+			}
+
 			if v.IsSell() {
 				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
@@ -182,7 +216,11 @@ func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
 func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, error) {
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
+
 	size := v.PendingSize()
+	if s := v.sizeLimit(); size.GreaterThan(s) {
+		size = s
+	}
 	if size.LessThan(product.BaseMinSize()) {
 		size = product.BaseMinSize()
 	}

@@ -42,9 +42,10 @@ func main() {
 		new(job.Resume),
 		new(job.Cancel),
 		new(job.Actions),
-		new(job.SetName),
 		new(job.Export),
 		new(job.Import),
+		new(job.SetName),
+		new(job.SetOption),
 	}
 
 	limiterCmds := []cli.Command{
