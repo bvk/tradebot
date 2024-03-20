@@ -145,8 +145,12 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 
 	sum := trader.Summarize(statuses)
-	// js, _ := json.MarshalIndent(sum, "", "  ")
-	// fmt.Printf("%s\n", js)
+	var curUnsoldValue decimal.Decimal
+	for _, s := range statuses {
+		if p, ok := priceMap[s.ProductID]; ok {
+			curUnsoldValue = curUnsoldValue.Add(s.UnsoldSize.Mul(p))
+		}
+	}
 
 	var runningStatuses []*trader.Status
 	for _, s := range statuses {
@@ -170,8 +174,12 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	fmt.Printf("Fees: %s\n", sum.Fees().StringFixed(3))
 	fmt.Printf("Sold: %s\n", sum.Sold().StringFixed(3))
 	fmt.Printf("Bought: %s\n", sum.Bought().StringFixed(3))
-	fmt.Printf("Lockin: %s\n", sum.UnsoldValue.StringFixed(3))
 	fmt.Printf("Effective Fee Pct: %s%%\n", sum.FeePct().StringFixed(3))
+
+	fmt.Println()
+	fmt.Printf("Lockin Position: %s\n", curUnsoldValue.Sub(sum.UnsoldValue).StringFixed(3))
+	fmt.Printf("Lockin at Buy Price: %s\n", sum.UnsoldValue.StringFixed(3))
+	fmt.Printf("Lockin at Current Price: %s\n", curUnsoldValue.StringFixed(3))
 
 	fmt.Println()
 	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
