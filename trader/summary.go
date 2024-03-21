@@ -74,7 +74,7 @@ func (s *Summary) NumDays() decimal.Decimal {
 
 func (s *Summary) ProfitPerDay() decimal.Decimal {
 	ndays := s.NumDays()
-	if ndays.Equal(decimal.NewFromInt(0)) {
+	if ndays.IsZero() {
 		return s.Profit()
 	}
 	return s.Profit().Div(ndays)
