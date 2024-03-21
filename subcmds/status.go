@@ -166,7 +166,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		d365 = decimal.NewFromInt(365)
 	)
 
-	fmt.Printf("Num Days: %d\n", sum.NumDays())
+	fmt.Printf("Num Days: %s\n", sum.NumDays().StringFixed(2))
 	fmt.Printf("Num Buys: %d\n", sum.NumBuys)
 	fmt.Printf("Num Sells: %d\n", sum.NumSells)
 
@@ -272,7 +272,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		for _, s := range statuses {
 			name := uid2nameMap[s.UID]
 			status := uid2statusMap[s.UID]
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, status, s.ProductID, s.Budget.StringFixed(3), s.ReturnRate().StringFixed(3), s.AnnualReturnRate().StringFixed(3), s.NumDays(), s.NumBuys, s.NumSells, s.Profit().StringFixed(3), s.Fees().StringFixed(3), s.Bought().StringFixed(3), s.Sold().StringFixed(3), s.UnsoldValue.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, status, s.ProductID, s.Budget.StringFixed(3), s.ReturnRate().StringFixed(3), s.AnnualReturnRate().StringFixed(3), s.NumDays().StringFixed(2), s.NumBuys, s.NumSells, s.Profit().StringFixed(3), s.Fees().StringFixed(3), s.Bought().StringFixed(3), s.Sold().StringFixed(3), s.UnsoldValue.StringFixed(3), s.SoldSize.Sub(s.OversoldSize).StringFixed(3), s.UnsoldSize.StringFixed(3))
 		}
 		tw.Flush()
 	}

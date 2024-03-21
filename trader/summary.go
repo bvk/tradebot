@@ -65,19 +65,19 @@ func (s *Summary) Profit() decimal.Decimal {
 	return profit
 }
 
-func (s *Summary) NumDays() int {
+func (s *Summary) NumDays() decimal.Decimal {
 	if s.MinCreateTime.IsZero() {
-		return 0
+		return decimal.NewFromInt(0)
 	}
-	return int(time.Now().Sub(s.MinCreateTime) / (24 * time.Hour))
+	return decimal.NewFromFloat(time.Now().Sub(s.MinCreateTime).Hours() / 24)
 }
 
 func (s *Summary) ProfitPerDay() decimal.Decimal {
 	ndays := s.NumDays()
-	if ndays == 0 {
+	if ndays.Equal(decimal.NewFromInt(0)) {
 		return s.Profit()
 	}
-	return s.Profit().Div(decimal.NewFromInt(int64(ndays)))
+	return s.Profit().Div(ndays)
 }
 
 func (s *Summary) ReturnRate() decimal.Decimal {
