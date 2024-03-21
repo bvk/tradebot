@@ -67,7 +67,7 @@ func (s *Summary) Profit() decimal.Decimal {
 
 func (s *Summary) NumDays() decimal.Decimal {
 	if s.MinCreateTime.IsZero() {
-		return decimal.NewFromInt(0)
+		return decimal.Zero
 	}
 	return decimal.NewFromFloat(time.Now().Sub(s.MinCreateTime).Hours() / 24)
 }
