@@ -2,6 +2,8 @@ cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMT
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/bvkgo/kv v0.0.0-20231109000250-749bef1474a8 h1:vNZLxpPd89Trzpy5XLQ8ocdwJGy70WNsRAo6wU0bomk=
 github.com/bvkgo/kv v0.0.0-20231109000250-749bef1474a8/go.mod h1:qXpgt48a2BJTZuWXrCqiHqVT2UFBof1fF3qfTxCWSyo=
+github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55 h1:tLDJCRB7Bqf98/0vTiCt0L7o/StfsjfIxgzVPKp8OCg=
+github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55/go.mod h1:qXpgt48a2BJTZuWXrCqiHqVT2UFBof1fF3qfTxCWSyo=
 github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d h1:CGE+0LsMh2bI3wo86Oyo9Joq2bbfKY1tKYusO0II76k=
 github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d/go.mod h1:iia+mSsb/epB9FACYngxxyTy+hL8r8Nufc320DhYDSg=
 github.com/bvkgo/topic v1.0.1-0.20231225172130-d8945de4fa3c h1:rjg3+cJdUxmSa04r2Vb32jm18ssGjdEF+pNjcMppDPM=
