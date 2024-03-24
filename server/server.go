@@ -147,6 +147,8 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 				"BTC-USD",
 				"ETH-USD",
 				"AVAX-USD",
+				"DOGE-USD",
+				"SHIB-USD",
 			},
 		}
 	}
