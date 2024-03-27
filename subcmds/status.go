@@ -128,10 +128,15 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	// Remove limiter jobs cause they are one-side trades.
+	// Remove jobs that don't implement Status interface.
+	type Statuser interface {
+		Status() *trader.Status
+	}
 	jobs = slices.DeleteFunc(jobs, func(j trader.Trader) bool {
-		_, ok := j.(*limiter.Limiter)
-		return ok
+		if _, ok := j.(Statuser); !ok {
+			return true
+		}
+		return false
 	})
 	sort.Slice(jobs, func(i, j int) bool {
 		return jobs[i].ProductID() < jobs[j].ProductID()
@@ -139,8 +144,10 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	var statuses []*trader.Status
 	for _, j := range jobs {
-		if s := trader.GetStatus(j); s != nil {
-			statuses = append(statuses, s)
+		if v, ok := j.(Statuser); ok {
+			if s := v.Status(); s != nil {
+				statuses = append(statuses, s)
+			}
 		}
 	}
 

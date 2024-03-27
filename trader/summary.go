@@ -39,6 +39,7 @@ func (s *Summary) FeePct() decimal.Decimal {
 		return decimal.Zero
 	}
 	totalFees := s.SoldFees.Add(s.BoughtFees)
+	d100 := decimal.NewFromInt(100)
 	return totalFees.Mul(d100).Div(divisor)
 }
 

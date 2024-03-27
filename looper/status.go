@@ -6,70 +6,21 @@ import (
 	"log"
 	"slices"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/trader"
 	"github.com/shopspring/decimal"
 )
 
-func filledSize(vs []*gobs.Order) decimal.Decimal {
-	var sum decimal.Decimal
-	for _, v := range vs {
-		sum = sum.Add(v.FilledSize)
-	}
-	return sum
-}
-
-func filledValue(vs []*gobs.Order) decimal.Decimal {
-	var sum decimal.Decimal
-	for _, v := range vs {
-		sum = sum.Add(v.FilledSize.Mul(v.FilledPrice))
-	}
-	return sum
-}
-
-func filledFee(vs []*gobs.Order) decimal.Decimal {
-	var sum decimal.Decimal
-	for _, v := range vs {
-		sum = sum.Add(v.FilledFee)
-	}
-	return sum
-}
-
-func avgPrice(vs []*gobs.Order) decimal.Decimal {
-	var sum decimal.Decimal
-	for _, v := range vs {
-		sum = sum.Add(v.FilledPrice)
-	}
-	return sum.Div(decimal.NewFromInt(int64(len(vs))))
-}
-
-func maxPrice(max decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
-	for _, v := range vs {
-		if v.FilledPrice.GreaterThan(max) {
-			max = v.FilledPrice
-		}
-	}
-	return max
-}
-
-func minPrice(min decimal.Decimal, vs []*gobs.Order) decimal.Decimal {
-	for _, v := range vs {
-		if v.FilledPrice.LessThan(min) {
-			min = v.FilledPrice
-		}
-	}
-	return min
-}
-
 func unsoldActions(buys, sells []*gobs.Action) []*gobs.Action {
 	var bsize, ssize decimal.Decimal
 	for _, s := range sells {
-		ssize = ssize.Add(filledSize(s.Orders))
+		ssize = ssize.Add(exchange.FilledSize(s.Orders))
 	}
 	var unsold []*gobs.Action
 	for i, b := range buys {
 		if bsize.LessThan(ssize) {
-			bsize = bsize.Add(filledSize(b.Orders))
+			bsize = bsize.Add(exchange.FilledSize(b.Orders))
 			continue
 		}
 		unsold = buys[i:]
@@ -134,9 +85,9 @@ func (v *Looper) Status() *trader.Status {
 		var pufees, pusize, puvalue decimal.Decimal
 
 		for _, s := range bs[1] {
-			sfees := filledFee(s.Orders)
-			ssize := filledSize(s.Orders)
-			svalue := filledValue(s.Orders)
+			sfees := exchange.FilledFee(s.Orders)
+			ssize := exchange.FilledSize(s.Orders)
+			svalue := exchange.FilledValue(s.Orders)
 
 			psfees = psfees.Add(sfees)
 			pssize = pssize.Add(ssize)
@@ -147,13 +98,13 @@ func (v *Looper) Status() *trader.Status {
 			if sprice.IsZero() {
 				sprice = s.Orders[0].FilledPrice
 			}
-			sprice = minPrice(sprice, s.Orders)
+			sprice = decimal.Min(sprice, exchange.MinPrice(s.Orders))
 		}
 
 		for _, b := range bs[0] {
-			bfees := filledFee(b.Orders)
-			bsize := filledSize(b.Orders)
-			bvalue := filledValue(b.Orders)
+			bfees := exchange.FilledFee(b.Orders)
+			bsize := exchange.FilledSize(b.Orders)
+			bvalue := exchange.FilledValue(b.Orders)
 
 			pbfees = pbfees.Add(bfees)
 			pbsize = pbsize.Add(bsize)
@@ -161,13 +112,13 @@ func (v *Looper) Status() *trader.Status {
 
 			// Find out the worst-case buy price. We use this to approximate the
 			// unsold items value.
-			bprice = maxPrice(bprice, b.Orders)
+			bprice = decimal.Max(bprice, exchange.MaxPrice(b.Orders))
 		}
 
 		for _, u := range unsoldActions(bs[0], bs[1]) {
-			ufees := filledFee(u.Orders)
-			usize := filledSize(u.Orders)
-			uvalue := filledValue(u.Orders)
+			ufees := exchange.FilledFee(u.Orders)
+			usize := exchange.FilledSize(u.Orders)
+			uvalue := exchange.FilledValue(u.Orders)
 
 			pufees = pufees.Add(ufees)
 			pusize = pusize.Add(usize)

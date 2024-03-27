@@ -18,7 +18,6 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
-	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 )
 
@@ -81,7 +80,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			if err != nil {
 				return fmt.Errorf("could not load looper instance at key %q: %w", k, err)
 			}
-			status := trader.GetStatus(t)
+			status := t.Status()
 			if status == nil {
 				log.Printf("looper at %q has nil status", k)
 				return nil
