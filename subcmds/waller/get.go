@@ -102,12 +102,12 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 			continue
 		}
 		id := fmt.Sprintf("%s-%s", p.Buy.Price.StringFixed(2), p.Sell.Price.StringFixed(2))
-		fmt.Fprintf(tw, "%s\t%s\t%s%%\t%s%%\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s%%\t%s%%\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
 			id,
 			s.Budget.StringFixed(3),
 			s.ReturnRate().StringFixed(3),
 			s.AnnualReturnRate().StringFixed(3),
-			s.NumDays(),
+			s.NumDays().StringFixed(3),
 			s.NumBuys,
 			s.NumSells,
 			s.Profit().StringFixed(3),
