@@ -3,13 +3,12 @@
 package trader
 
 import (
-	"time"
-
+	"github.com/bvk/tradebot/timerange"
 	"github.com/shopspring/decimal"
 )
 
 type Summary struct {
-	MinCreateTime time.Time
+	TimePeriod timerange.Range
 
 	NumSells int
 	NumBuys  int
@@ -67,10 +66,10 @@ func (s *Summary) Profit() decimal.Decimal {
 }
 
 func (s *Summary) NumDays() decimal.Decimal {
-	if s.MinCreateTime.IsZero() {
+	if s.TimePeriod.IsZero() {
 		return decimal.Zero
 	}
-	return decimal.NewFromFloat(time.Now().Sub(s.MinCreateTime).Hours() / 24)
+	return decimal.NewFromFloat(s.TimePeriod.Duration().Hours() / 24)
 }
 
 func (s *Summary) ProfitPerDay() decimal.Decimal {
@@ -99,8 +98,14 @@ func (s *Summary) AnnualReturnRate() decimal.Decimal {
 func Summarize(statuses []*Status) *Summary {
 	sum := new(Summary)
 
-	var minCreateTime time.Time
-	for _, s := range statuses {
+	var tr *timerange.Range
+	for i, s := range statuses {
+		if i == 0 {
+			tr = &s.TimePeriod
+		} else {
+			tr = timerange.Union(tr, &s.TimePeriod)
+		}
+
 		sum.NumBuys += s.NumBuys
 		sum.NumSells += s.NumSells
 		sum.Budget = sum.Budget.Add(s.Budget)
@@ -120,14 +125,10 @@ func Summarize(statuses []*Status) *Summary {
 		sum.OversoldFees = sum.OversoldFees.Add(s.OversoldFees)
 		sum.OversoldSize = sum.OversoldSize.Add(s.OversoldSize)
 		sum.OversoldValue = sum.OversoldValue.Add(s.OversoldValue)
-
-		if !s.MinCreateTime.IsZero() {
-			if minCreateTime.IsZero() || s.MinCreateTime.Before(minCreateTime) {
-				minCreateTime = s.MinCreateTime
-			}
-		}
 	}
 
-	sum.MinCreateTime = minCreateTime
+	if tr != nil {
+		sum.TimePeriod = *tr
+	}
 	return sum
 }

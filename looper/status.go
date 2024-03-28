@@ -8,6 +8,7 @@ import (
 
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/shopspring/decimal"
 )
@@ -188,7 +189,7 @@ func (v *Looper) Status() *trader.Status {
 			OversoldSize:  oversoldSizeTotal,
 			OversoldValue: oversoldValueTotal,
 
-			MinCreateTime: first.Orders[0].CreateTime.Time,
+			TimePeriod: timerange.Range{Begin: first.Orders[0].CreateTime.Time},
 		},
 	}
 	feePct, _ := s.FeePct().Float64()
