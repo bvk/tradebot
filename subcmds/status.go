@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
@@ -22,6 +23,7 @@ import (
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -32,6 +34,8 @@ type Status struct {
 	cmdutil.DBFlags
 
 	budget float64
+
+	beginTime, endTime string
 }
 
 func (c *Status) Synopsis() string {
@@ -42,6 +46,8 @@ func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.Float64Var(&c.budget, "budget", 0, "Includes this budget in the return rate table")
+	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for status time period")
+	fset.StringVar(&c.endTime, "end-time", "", "End time for status time period")
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -128,9 +134,36 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		return err
 	}
 
+	now := time.Now()
+	parseTime := func(s string) (time.Time, error) {
+		if d, err := time.ParseDuration(s); err == nil {
+			return now.Add(d), nil
+		}
+		if v, err := time.Parse("2006-01-02", s); err == nil {
+			return v, nil
+		}
+		return time.Parse(time.RFC3339, s)
+	}
+
+	var period timerange.Range
+	if len(c.beginTime) > 0 {
+		v, err := parseTime(c.beginTime)
+		if err != nil {
+			return err
+		}
+		period.Begin = v
+	}
+	if len(c.endTime) > 0 {
+		v, err := parseTime(c.endTime)
+		if err != nil {
+			return err
+		}
+		period.End = v
+	}
+
 	// Remove jobs that don't implement Status interface.
 	type Statuser interface {
-		Status() *trader.Status
+		Status(*timerange.Range) *trader.Status
 	}
 	jobs = slices.DeleteFunc(jobs, func(j trader.Trader) bool {
 		if _, ok := j.(Statuser); !ok {
@@ -145,7 +178,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	var statuses []*trader.Status
 	for _, j := range jobs {
 		if v, ok := j.(Statuser); ok {
-			if s := v.Status(); s != nil {
+			if s := v.Status(&period); s != nil {
 				statuses = append(statuses, s)
 			}
 		}
@@ -173,31 +206,33 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		d365 = decimal.NewFromInt(365)
 	)
 
-	fmt.Printf("Num Days: %s\n", sum.NumDays().StringFixed(2))
-	fmt.Printf("Num Buys: %d\n", sum.NumBuys)
-	fmt.Printf("Num Sells: %d\n", sum.NumSells)
+	if period.IsZero() {
+		fmt.Printf("Num Days: %s\n", sum.NumDays().StringFixed(2))
+		fmt.Printf("Num Buys: %d\n", sum.NumBuys)
+		fmt.Printf("Num Sells: %d\n", sum.NumSells)
 
-	fmt.Println()
-	fmt.Printf("Fees: %s\n", sum.Fees().StringFixed(3))
-	fmt.Printf("Sold: %s\n", sum.Sold().StringFixed(3))
-	fmt.Printf("Bought: %s\n", sum.Bought().StringFixed(3))
-	fmt.Printf("Effective Fee Pct: %s%%\n", sum.FeePct().StringFixed(3))
+		fmt.Println()
+		fmt.Printf("Fees: %s\n", sum.Fees().StringFixed(3))
+		fmt.Printf("Sold: %s\n", sum.Sold().StringFixed(3))
+		fmt.Printf("Bought: %s\n", sum.Bought().StringFixed(3))
+		fmt.Printf("Effective Fee Pct: %s%%\n", sum.FeePct().StringFixed(3))
 
-	fmt.Println()
-	fmt.Printf("Lockin Position: %s\n", curUnsoldValue.Sub(sum.UnsoldValue).StringFixed(3))
-	fmt.Printf("Lockin at Buy Price: %s\n", sum.UnsoldValue.StringFixed(3))
-	fmt.Printf("Lockin at Current Price: %s\n", curUnsoldValue.StringFixed(3))
+		fmt.Println()
+		fmt.Printf("Lockin Position: %s\n", curUnsoldValue.Sub(sum.UnsoldValue).StringFixed(3))
+		fmt.Printf("Lockin at Buy Price: %s\n", sum.UnsoldValue.StringFixed(3))
+		fmt.Printf("Lockin at Current Price: %s\n", curUnsoldValue.StringFixed(3))
 
-	fmt.Println()
-	fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
-	fmt.Printf("Per day (average): %s\n", sum.ProfitPerDay().StringFixed(3))
-	fmt.Printf("Per month (projected): %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
-	fmt.Printf("Per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
+		fmt.Println()
+		fmt.Printf("Profit: %s\n", sum.Profit().StringFixed(3))
+		fmt.Printf("Per day (average): %s\n", sum.ProfitPerDay().StringFixed(3))
+		fmt.Printf("Per month (projected): %s\n", sum.ProfitPerDay().Mul(d30).StringFixed(3))
+		fmt.Printf("Per year (projected): %s\n", sum.ProfitPerDay().Mul(d365).StringFixed(3))
 
-	fmt.Println()
-	fmt.Printf("Budget: %s\n", runningSum.Budget.StringFixed(3))
-	fmt.Printf("Return Rate: %s%%\n", runningSum.ReturnRate().StringFixed(3))
-	fmt.Printf("Annual Return Rate: %s%%\n", runningSum.AnnualReturnRate().StringFixed(3))
+		fmt.Println()
+		fmt.Printf("Budget: %s\n", runningSum.Budget.StringFixed(3))
+		fmt.Printf("Return Rate: %s%%\n", runningSum.ReturnRate().StringFixed(3))
+		fmt.Printf("Annual Return Rate: %s%%\n", runningSum.AnnualReturnRate().StringFixed(3))
+	}
 
 	emptystrings := func(n int) (vs []any) {
 		for i := 0; i < n; i++ {
@@ -206,13 +241,15 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		return vs
 	}
 
-	if p := sum.Profit(); p.IsPositive() {
+	if p := sum.Profit(); p.IsPositive() && period.IsZero() {
 		fmt.Println()
 		unsold, _ := sum.UnsoldValue.Float64()
 		amounts := []float64{unsold, 50000, 100000, 200000, 250000, 500000}
 		if c.budget != 0 {
 			amounts = append([]float64{c.budget}, amounts...)
 		}
+		amounts = slices.DeleteFunc(amounts, func(v float64) bool { return v == 0 })
+
 		fmtstr := strings.Repeat("%s\t", len(amounts)+1)
 		amts := []any{"Amounts"}
 		covered := []any{"Covered"}
@@ -231,7 +268,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		tw.Flush()
 	}
 
-	if len(availMap) > 0 {
+	if len(availMap) > 0 && period.IsZero() {
 		fmt.Println()
 		ids := []any{""}
 		avails := []any{"Available"}

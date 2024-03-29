@@ -3,8 +3,8 @@
 package looper
 
 import (
-	"log"
 	"slices"
+	"time"
 
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
@@ -30,7 +30,21 @@ func unsoldActions(buys, sells []*gobs.Action) []*gobs.Action {
 	return unsold
 }
 
-func (v *Looper) Status() *trader.Status {
+func actionTime(actions []*gobs.Action) time.Time {
+	var max time.Time
+	for i, a := range actions {
+		// FIXME: We should introduce filled-time in orders.
+		lastOrder := slices.MaxFunc(a.Orders, func(i, j *gobs.Order) int {
+			return i.CreateTime.Time.Compare(j.CreateTime.Time)
+		})
+		if i == 0 || max.Before(lastOrder.CreateTime.Time) {
+			max = lastOrder.CreateTime.Time
+		}
+	}
+	return max
+}
+
+func (v *Looper) Status(period *timerange.Range) *trader.Status {
 	actions := v.Actions()
 	if len(actions) == 0 {
 		return &trader.Status{
@@ -43,18 +57,12 @@ func (v *Looper) Status() *trader.Status {
 		}
 	}
 
-	nbuys, nsells := 0, 0
-	for _, a := range actions {
-		if a.Orders[0].Side == "BUY" {
-			nbuys++
-		} else {
-			nsells++
-		}
-	}
-
 	first := slices.MinFunc(actions, func(a, b *gobs.Action) int {
 		return a.Orders[0].CreateTime.Time.Compare(b.Orders[0].CreateTime.Time)
 	})
+	if period == nil || period.IsZero() {
+		period = &timerange.Range{Begin: first.Orders[0].CreateTime.Time}
+	}
 
 	var pairs [][2][]*gobs.Action
 
@@ -74,46 +82,65 @@ func (v *Looper) Status() *trader.Status {
 		pairs = append(pairs, pair)
 	}
 
+	nbuys, nsells := 0, 0
 	var sellFeesTotal, sellSizeTotal, sellValueTotal decimal.Decimal
 	var buyFeesTotal, buySizeTotal, buyValueTotal decimal.Decimal
 	var unsoldFeesTotal, unsoldSizeTotal, unsoldValueTotal decimal.Decimal
 	var oversoldFeesTotal, oversoldSizeTotal, oversoldValueTotal decimal.Decimal
 
 	for _, bs := range pairs {
+		btime := actionTime(bs[0])
+		stime := actionTime(bs[1])
+		if !period.InRange(btime) && !period.InRange(stime) {
+			continue
+		}
+
+		buyInRange := period.InRange(actionTime(bs[0]))
+		sellInRange := period.InRange(actionTime(bs[1]))
+
 		var bprice, sprice decimal.Decimal
 		var psfees, pssize, psvalue decimal.Decimal
 		var pbfees, pbsize, pbvalue decimal.Decimal
 		var pufees, pusize, puvalue decimal.Decimal
 
-		for _, s := range bs[1] {
-			sfees := exchange.FilledFee(s.Orders)
-			ssize := exchange.FilledSize(s.Orders)
-			svalue := exchange.FilledValue(s.Orders)
+		if sellInRange {
+			nsells++
+			for _, s := range bs[1] {
+				sfees := exchange.FilledFee(s.Orders)
+				ssize := exchange.FilledSize(s.Orders)
+				svalue := exchange.FilledValue(s.Orders)
 
-			psfees = psfees.Add(sfees)
-			pssize = pssize.Add(ssize)
-			psvalue = psvalue.Add(svalue)
+				psfees = psfees.Add(sfees)
+				pssize = pssize.Add(ssize)
+				psvalue = psvalue.Add(svalue)
 
-			// Find out the worst-case sell price. We use this to approximate
-			// oversold items value.
-			if sprice.IsZero() {
-				sprice = s.Orders[0].FilledPrice
+				// Find out the worst-case sell price. We use this to approximate
+				// oversold items value.
+				if sprice.IsZero() {
+					sprice = s.Orders[0].FilledPrice
+				}
+				sprice = decimal.Min(sprice, exchange.MinPrice(s.Orders))
 			}
-			sprice = decimal.Min(sprice, exchange.MinPrice(s.Orders))
 		}
 
-		for _, b := range bs[0] {
-			bfees := exchange.FilledFee(b.Orders)
-			bsize := exchange.FilledSize(b.Orders)
-			bvalue := exchange.FilledValue(b.Orders)
+		if buyInRange {
+			nbuys++
+		}
 
-			pbfees = pbfees.Add(bfees)
-			pbsize = pbsize.Add(bsize)
-			pbvalue = pbvalue.Add(bvalue)
+		if buyInRange || sellInRange {
+			for _, b := range bs[0] {
+				bfees := exchange.FilledFee(b.Orders)
+				bsize := exchange.FilledSize(b.Orders)
+				bvalue := exchange.FilledValue(b.Orders)
 
-			// Find out the worst-case buy price. We use this to approximate the
-			// unsold items value.
-			bprice = decimal.Max(bprice, exchange.MaxPrice(b.Orders))
+				pbfees = pbfees.Add(bfees)
+				pbsize = pbsize.Add(bsize)
+				pbvalue = pbvalue.Add(bvalue)
+
+				// Find out the worst-case buy price. We use this to approximate the
+				// unsold items value.
+				bprice = decimal.Max(bprice, exchange.MaxPrice(b.Orders))
+			}
 		}
 
 		for _, u := range unsoldActions(bs[0], bs[1]) {
@@ -140,7 +167,7 @@ func (v *Looper) Status() *trader.Status {
 
 		sizediff := pbsize.Sub(pssize)
 		if sizediff.IsNegative() {
-			log.Printf("OVERSELL: %s sold size %s, but only bought size %s", bs[0][0].PairingKey, pssize.StringFixed(3), pbsize.StringFixed(3))
+			// log.Printf("OVERSELL: %s sold size %s, but only bought size %s", bs[0][0].PairingKey, pssize.StringFixed(3), pbsize.StringFixed(3))
 			osize := pssize.Sub(pbsize)
 			ovalue := sprice.Mul(osize)
 			ofees := psfees.Div(pssize).Mul(osize)
@@ -156,7 +183,7 @@ func (v *Looper) Status() *trader.Status {
 			usize := sizediff.Sub(pusize)
 			uvalue := bprice.Mul(usize)
 			ufees := pbfees.Div(pbsize).Mul(usize)
-			log.Printf("UNDERSELL: %s has unsold size %s that is not covered by any sell actions", bs[0][0].PairingKey, usize.StringFixed(3))
+			// log.Printf("UNDERSELL: %s has unsold size %s that is not covered by any sell actions", bs[0][0].PairingKey, usize.StringFixed(3))
 
 			unsoldFeesTotal = unsoldFeesTotal.Add(ufees)
 			unsoldSizeTotal = unsoldSizeTotal.Add(usize)
@@ -189,7 +216,7 @@ func (v *Looper) Status() *trader.Status {
 			OversoldSize:  oversoldSizeTotal,
 			OversoldValue: oversoldValueTotal,
 
-			TimePeriod: timerange.Range{Begin: first.Orders[0].CreateTime.Time},
+			TimePeriod: *period,
 		},
 	}
 	feePct, _ := s.FeePct().Float64()

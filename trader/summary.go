@@ -3,6 +3,8 @@
 package trader
 
 import (
+	"fmt"
+
 	"github.com/bvk/tradebot/timerange"
 	"github.com/shopspring/decimal"
 )
@@ -30,6 +32,12 @@ type Summary struct {
 	OversoldFees  decimal.Decimal
 	OversoldSize  decimal.Decimal
 	OversoldValue decimal.Decimal
+}
+
+func (s *Summary) String() string {
+	return fmt.Sprintf("nsells=%d nbuys=%d sfees=%s ssize=%s svalue=%s bfees=%s bsize=%s bvalue=%s",
+		s.NumSells, s.NumBuys, s.SoldFees.StringFixed(3), s.SoldSize.StringFixed(3), s.SoldValue.StringFixed(3),
+		s.BoughtFees.StringFixed(3), s.BoughtSize.StringFixed(3), s.BoughtValue.StringFixed(3))
 }
 
 func (s *Summary) FeePct() decimal.Decimal {
