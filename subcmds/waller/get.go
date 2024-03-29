@@ -63,7 +63,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	}
 
 	// Print the waller state in a human readable format.
-	s := wall.Status()
+	s := wall.Status(nil)
 	fmt.Println("UID", s.UID)
 	fmt.Println("ProductID", s.ProductID)
 	fmt.Println("ExchangeName", s.ExchangeName)
@@ -97,7 +97,7 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 	fmt.Fprintf(tw, "Pair\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
 	for _, p := range wall.Pairs() {
-		s := wall.PairStatus(p)
+		s := wall.PairStatus(p, nil)
 		if c.skipZeroBuys && s.NumBuys == 0 {
 			continue
 		}

@@ -4,24 +4,26 @@ package waller
 
 import (
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 )
 
 // PairStatus returns trade status for a buy-sell pair. Returns nil if trading
 // pair is not one of the trade pairs of the waller.
-func (w *Waller) PairStatus(p *point.Pair) *trader.Status {
+func (w *Waller) PairStatus(p *point.Pair, period *timerange.Range) *trader.Status {
 	for _, l := range w.loopers {
 		if p.Equal(l.Pair()) {
-			return l.Status()
+			return l.Status(period)
 		}
 	}
 	return nil
 }
 
-func (w *Waller) Status() *trader.Status {
+func (w *Waller) Status(period *timerange.Range) *trader.Status {
 	var ss []*trader.Status
 	for _, l := range w.loopers {
-		ss = append(ss, l.Status())
+		s := l.Status(period)
+		ss = append(ss, s)
 	}
 	summary := trader.Summarize(ss)
 	s := &trader.Status{

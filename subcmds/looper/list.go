@@ -80,7 +80,7 @@ func (c *List) Run(ctx context.Context, args []string) error {
 			if err != nil {
 				return fmt.Errorf("could not load looper instance at key %q: %w", k, err)
 			}
-			status := t.Status()
+			status := t.Status(nil)
 			if status == nil {
 				log.Printf("looper at %q has nil status", k)
 				return nil
