@@ -20,6 +20,7 @@ type Order struct {
 	Side string
 
 	CreateTime RemoteTime
+	FinishTime RemoteTime
 
 	Fee         decimal.Decimal
 	FilledSize  decimal.Decimal

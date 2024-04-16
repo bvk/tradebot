@@ -15,7 +15,9 @@ type RemoteTime struct {
 type Order struct {
 	ServerOrderID string
 	ClientOrderID string
-	CreateTime    RemoteTime
+
+	CreateTime RemoteTime
+	FinishTime RemoteTime
 
 	Side   string
 	Status string

@@ -29,6 +29,7 @@ func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 			Side:          order.Side,
 			Status:        order.Status,
 			CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
+			FinishTime:    gobs.RemoteTime{Time: order.FinishTime.Time},
 			FilledFee:     order.Fee,
 			FilledSize:    order.FilledSize,
 			FilledPrice:   order.FilledPrice,
