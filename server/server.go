@@ -19,6 +19,7 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
@@ -44,10 +45,7 @@ const (
 )
 
 type Server struct {
-	closeCtx   context.Context
-	closeCause context.CancelCauseFunc
-
-	wg sync.WaitGroup
+	cg ctxutil.CloseGroup
 
 	opts Options
 
@@ -75,13 +73,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		opts = new(Options)
 	}
 	opts.setDefaults()
-
-	ctx, cancel := context.WithCancelCause(context.Background())
-	defer func() {
-		if status != nil {
-			cancel(status)
-		}
-	}()
 
 	exchangeMap := make(map[string]exchange.Exchange)
 	defer func() {
@@ -118,7 +109,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		pushoverClient = client
 	}
 
-	state, err := kvutil.GetDB[gobs.ServerState](ctx, db, serverStateKey)
+	state, err := kvutil.GetDB[gobs.ServerState](newctx, db, serverStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("could not load trader state: %w", err)
@@ -126,8 +117,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	}
 
 	t := &Server{
-		closeCtx:       ctx,
-		closeCause:     cancel,
 		db:             db,
 		opts:           *opts,
 		state:          state,
@@ -152,7 +141,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 			},
 		}
 	}
-	if err := t.loadProducts(ctx); err != nil {
+	if err := t.loadProducts(newctx); err != nil {
 		return nil, fmt.Errorf("could not load default products: %w", err)
 	}
 
@@ -176,8 +165,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 }
 
 func (s *Server) Close() error {
-	s.closeCause(fmt.Errorf("trade is closing: %w", os.ErrClosed))
-	s.wg.Wait()
+	s.cg.Close()
 
 	for _, pmap := range s.exProductsMap {
 		for _, p := range pmap {
@@ -291,7 +279,7 @@ func (s *Server) resume(ctx context.Context, rw kv.ReadWriter, jdata *job.JobDat
 		return "", fmt.Errorf("could not load trader job %q: %w", uid, err)
 	}
 
-	state, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(trader), s.closeCtx)
+	state, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(trader), s.cg.Context())
 	if err != nil {
 		return "", fmt.Errorf("could not resume job %q: %w", uid, err)
 	}
@@ -357,7 +345,7 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
 	}
 
-	product, err := exch.OpenProduct(s.closeCtx, productID)
+	product, err := exch.OpenProduct(s.cg.Context(), productID)
 	if err != nil {
 		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
 	}
@@ -458,7 +446,7 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		if err := s.runner.Add(ctx, rw, uid, "Limiter"); err != nil {
 			return fmt.Errorf("could not add new limiter as a job: %w", err)
 		}
-		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(limit), s.closeCtx); err != nil {
+		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(limit), s.cg.Context()); err != nil {
 			return fmt.Errorf("could not resume new limiter job: %w", err)
 		}
 		return nil
@@ -501,7 +489,7 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		if err := s.runner.Add(ctx, rw, uid, "Looper"); err != nil {
 			return fmt.Errorf("could not add new looper as a job: %w", err)
 		}
-		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(loop), s.closeCtx); err != nil {
+		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(loop), s.cg.Context()); err != nil {
 			return fmt.Errorf("could not resume new looper job: %w", err)
 		}
 		return nil
@@ -544,7 +532,7 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		if err := s.runner.Add(ctx, rw, uid, "Waller"); err != nil {
 			return fmt.Errorf("could not add new waller as a job: %w", err)
 		}
-		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(wall), s.closeCtx); err != nil {
+		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(wall), s.cg.Context()); err != nil {
 			return fmt.Errorf("could not resume new waller job: %w", err)
 		}
 		return nil

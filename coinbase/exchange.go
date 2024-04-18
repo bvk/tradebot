@@ -145,6 +145,8 @@ func (ex *Exchange) sync(ctx context.Context) error {
 
 	log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
 
+	// FIXME: Number of cancelled orders can be huge. We probably don't need to
+	// fetch all cancelled orders.
 	cancelled, err := ex.ListOrders(ctx, ex.lastFilledTime, "CANCELLED")
 	if err != nil {
 		return fmt.Errorf("could not fetch old canceled orders: %w", err)
