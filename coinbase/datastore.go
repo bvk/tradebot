@@ -333,6 +333,22 @@ func (ds *Datastore) saveOrderLocked(ctx context.Context, rw kv.ReadWriter, v *i
 	return nil
 }
 
+func (ds *Datastore) GetOrder(ctx context.Context, orderID string) (*internal.Order, error) {
+	var order *internal.Order
+	load := func(ctx context.Context, r kv.Reader) error {
+		v, err := ds.loadOrderLocked(ctx, r, orderID)
+		if err != nil {
+			return err
+		}
+		order = v
+		return nil
+	}
+	if err := kv.WithReader(ctx, ds.db, load); err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
 func (ds *Datastore) loadOrderLocked(ctx context.Context, r kv.Reader, orderID string) (*internal.Order, error) {
 	key := path.Join(Keyspace, "orders", orderID)
 	v, err := kvutil.Get[gobs.CoinbaseOrder](ctx, r, key)

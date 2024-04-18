@@ -65,6 +65,8 @@ type Product interface {
 type Exchange interface {
 	io.Closer
 
+	ExchangeName() string
+
 	OpenProduct(ctx context.Context, productID string) (Product, error)
 
 	GetProduct(ctx context.Context, id string) (*gobs.Product, error)

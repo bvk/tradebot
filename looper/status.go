@@ -3,6 +3,7 @@
 package looper
 
 import (
+	"log"
 	"slices"
 	"time"
 
@@ -33,12 +34,22 @@ func unsoldActions(buys, sells []*gobs.Action) []*gobs.Action {
 func actionTime(actions []*gobs.Action) time.Time {
 	var max time.Time
 	for i, a := range actions {
-		// FIXME: We should introduce filled-time in orders.
 		lastOrder := slices.MaxFunc(a.Orders, func(i, j *gobs.Order) int {
-			return i.CreateTime.Time.Compare(j.CreateTime.Time)
+			return i.FinishTime.Time.Compare(j.FinishTime.Time)
 		})
-		if i == 0 || max.Before(lastOrder.CreateTime.Time) {
-			max = lastOrder.CreateTime.Time
+		if i == 0 || max.Before(lastOrder.FinishTime.Time) {
+			max = lastOrder.FinishTime.Time
+		}
+	}
+	if len(actions) > 0 && max.IsZero() {
+		log.Printf("finish Time field is empty for one or more actions for %s; using create time instead", actions[0].UID)
+		for i, a := range actions {
+			lastOrder := slices.MaxFunc(a.Orders, func(i, j *gobs.Order) int {
+				return i.CreateTime.Time.Compare(j.CreateTime.Time)
+			})
+			if i == 0 || max.Before(lastOrder.CreateTime.Time) {
+				max = lastOrder.CreateTime.Time
+			}
 		}
 	}
 	return max

@@ -132,6 +132,10 @@ func (ex *Exchange) Close() error {
 	return nil
 }
 
+func (ex *Exchange) ExchangeName() string {
+	return "coinbase"
+}
+
 func (ex *Exchange) sync(ctx context.Context) error {
 	filled, err := ex.ListOrders(ctx, ex.lastFilledTime, "FILLED")
 	if err != nil {
@@ -349,6 +353,9 @@ func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.Order, boo
 }
 
 func (ex *Exchange) GetOrder(ctx context.Context, orderID exchange.OrderID) (*exchange.Order, error) {
+	if v, err := ex.datastore.GetOrder(ctx, string(orderID)); err == nil {
+		return exchangeOrderFromOrder(v), nil
+	}
 	resp, err := ex.client.GetOrder(ctx, string(orderID))
 	if err != nil {
 		return nil, fmt.Errorf("could not get order %s: %w", orderID, err)

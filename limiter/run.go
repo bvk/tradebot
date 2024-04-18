@@ -33,6 +33,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 		if nupdated != 0 {
 			_ = kv.WithReadWriter(ctx, rt.Database, v.Save)
 		}
+		asyncUpdateFinishTime(v)
 		log.Printf("%s:%s: limiter is complete cause pending size is zero", v.uid, v.point)
 		return nil
 	}
@@ -84,6 +85,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			if err := kv.WithReadWriter(localCtx, rt.Database, v.Save); err != nil {
 				log.Printf("%s:%s dirty limit order state could not be saved to the database (will retry): %v", v.uid, v.point, err)
 			}
+			asyncUpdateFinishTime(v)
 			return context.Cause(ctx)
 
 		case <-flushCh:
@@ -191,6 +193,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		return err
 	}
+	asyncUpdateFinishTime(v)
 	return nil
 }
 
