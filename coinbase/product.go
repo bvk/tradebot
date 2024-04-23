@@ -103,6 +103,8 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 		return order.OrderID, nil
 	}
 
+	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
+
 	req := &internal.CreateOrderRequest{
 		ClientOrderID: clientOrderID,
 		ProductID:     p.productData.ProductID,
@@ -110,7 +112,7 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 		Order: &internal.OrderConfig{
 			LimitGTC: &internal.LimitLimitGTC{
 				BaseSize:   exchange.NullDecimal{Decimal: size},
-				LimitPrice: exchange.NullDecimal{Decimal: price.Round(2)}, // FIXME: Find a better way to round.
+				LimitPrice: exchange.NullDecimal{Decimal: roundPrice},
 			},
 		},
 	}
@@ -139,6 +141,8 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 		return order.OrderID, nil
 	}
 
+	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
+
 	req := &internal.CreateOrderRequest{
 		ClientOrderID: clientOrderID,
 		ProductID:     p.productData.ProductID,
@@ -146,7 +150,7 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 		Order: &internal.OrderConfig{
 			LimitGTC: &internal.LimitLimitGTC{
 				BaseSize:   exchange.NullDecimal{Decimal: size},
-				LimitPrice: exchange.NullDecimal{Decimal: price.Round(2)},
+				LimitPrice: exchange.NullDecimal{Decimal: roundPrice},
 			},
 		},
 	}
