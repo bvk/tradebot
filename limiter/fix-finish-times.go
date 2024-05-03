@@ -47,9 +47,9 @@ func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Exchange) {
 		log.Printf("finish times are already fixed/updated in all limiters")
 	}
 
-	var next string
+	next := begin
 	fix := func(ctx context.Context, rw kv.ReadWriter) error {
-		nextKey, err := fixFinishTime(ctx, rw, ex, begin, end, 100)
+		nextKey, err := fixFinishTime(ctx, rw, ex, next, end, 100)
 		if err != nil {
 			log.Printf("could not fix finish time in orders (will retry): %v", err)
 			return err
@@ -92,7 +92,6 @@ func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Exchange) {
 					log.Printf("all limiters are scanned and updated with FinishTime fields")
 					continue
 				}
-				begin = next
 			}
 		}
 	}
