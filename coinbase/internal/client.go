@@ -89,7 +89,7 @@ func (c *Client) Close() error {
 
 func (c *Client) goFindTimeAdjustment(ctx context.Context) {
 	for ctxutil.Sleep(ctx, c.opts.SyncTimeInterval); ctx.Err() == nil; ctxutil.Sleep(ctx, c.opts.SyncTimeInterval) {
-		if diff, err := findTimeAdjustment(ctx, c.opts.MaxFetchTimeLatency); err == nil {
+		if diff, err := findTimeAdjustment(ctx, c.opts.MaxFetchTimeLatency); err == nil && diff != 0 {
 			log.Printf("local time needs to be adjusted by -%s to match the coinbase server time", diff)
 			c.timeAdjustment.Store(int64(diff))
 		}
