@@ -313,7 +313,7 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 		ds.recentlySaved = append(ds.recentlySaved, vs...)
 	}
 	slices.SortFunc(ds.recentlySaved, compareLastFillTime)
-	slices.CompactFunc(ds.recentlySaved, equalLastFillTime)
+	ds.recentlySaved = slices.CompactFunc(ds.recentlySaved, equalLastFillTime)
 	return nil
 }
 
