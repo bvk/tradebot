@@ -5,15 +5,21 @@ package waller
 import (
 	"context"
 	"flag"
+	"fmt"
+	"os"
+	"text/tabwriter"
 
 	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/waller"
+	"github.com/shopspring/decimal"
 )
 
 var aprs = []float64{5, 10, 20, 30}
 
 type Query struct {
 	spec Spec
+
+	printPairs bool
 }
 
 func (c *Query) run(ctx context.Context, args []string) error {
@@ -24,17 +30,32 @@ func (c *Query) run(ctx context.Context, args []string) error {
 	feePct := c.spec.feePercentage
 	a := waller.Analyze(pairs, feePct)
 	PrintAnalysis(a)
+
+	if c.printPairs {
+		d100 := decimal.NewFromInt(100)
+		feePctDec := decimal.NewFromFloat(feePct)
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+		fmt.Fprintf(tw, "BuySize\tBuyPrice\tSellSize\tSellPrice\tPriceMargin\tProfit\t\n")
+		for _, p := range pairs {
+			bfee := p.Buy.Price.Mul(p.Buy.Size).Mul(feePctDec).Div(d100)
+			sfee := p.Sell.Price.Mul(p.Sell.Size).Mul(feePctDec).Div(d100)
+			profit := p.ValueMargin().Sub(bfee).Sub(sfee)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t\n", p.Buy.Size.StringFixed(2), p.Buy.Price.StringFixed(2), p.Sell.Size.StringFixed(2), p.Sell.Price.StringFixed(2), p.Sell.Price.Sub(p.Buy.Price).StringFixed(2), profit)
+		}
+		tw.Flush()
+	}
 	return nil
 }
 
 func (c *Query) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("query", flag.ContinueOnError)
 	c.spec.SetFlags(fset)
+	fset.BoolVar(&c.printPairs, "print-pairs", false, "when true, prints buy-sell points")
 	return fset, cli.CmdFunc(c.run)
 }
 
 func (c *Query) Synopsis() string {
-	return "Print summary for a job"
+	return "Print summary for a waller job"
 }
 
 func (c *Query) CommandHelp() string {
