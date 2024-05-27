@@ -164,6 +164,7 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchang
 		}
 		order.FinishTime = gobs.RemoteTime{Time: v.FinishTime.Time}
 		modified = true
+		log.Printf("fixed non-existent finish time for order %s to %s", id, v.FinishTime.Time)
 	}
 
 	if modified {
