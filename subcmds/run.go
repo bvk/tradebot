@@ -58,7 +58,7 @@ func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "max timeout for shutdown when restarting")
 	fset.BoolVar(&c.noPprof, "no-pprof", false, "when true net/http/pprof handler is not registered")
 	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
-	fset.BoolVar(&c.noFetchCandles, "no-fetch-candles", false, "when true, candle data is not saved in the datastore")
+	fset.BoolVar(&c.noFetchCandles, "no-fetch-candles", true, "when true, candle data is not saved in the datastore")
 	fset.DurationVar(&c.maxFetchTimeLatency, "max-fetch-time-latency", 0, "max latency for fetch-time operation in finding time difference")
 	fset.DurationVar(&c.maxHttpClientTimeout, "max-http-client-timeout", 10*time.Second, "default max timeout for http requests")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
