@@ -122,6 +122,7 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) 
 			return false
 		}
 		order.FinishTime = v.FinishTime
+		log.Printf("fixed non-existent finish time for just finished order %s to %s", id, v.FinishTime.Time)
 		return true
 	})
 	return status
