@@ -47,6 +47,9 @@ func (s *Spec) BuySellPairs() []*point.Pair {
 }
 
 func (s *Spec) setDefaults() {
+	if s.sellSize == 0 {
+		s.sellSize = s.buySize
+	}
 }
 
 func (s *Spec) Check() error {
@@ -55,8 +58,8 @@ func (s *Spec) Check() error {
 	if s.beginPriceRange <= 0 || s.endPriceRange <= 0 {
 		return fmt.Errorf("begin/end price ranges cannot be zero or negative")
 	}
-	if s.buySize <= 0 || s.sellSize <= 0 {
-		return fmt.Errorf("buy/sell sizes cannot be zero or negative")
+	if s.buySize <= 0 {
+		return fmt.Errorf("buy size cannot be zero or negative")
 	}
 	if s.buyInterval <= 0 {
 		return fmt.Errorf("buy interval cannot be zero or negative")
@@ -78,8 +81,8 @@ func (s *Spec) Check() error {
 	if diff := s.endPriceRange - s.beginPriceRange; diff <= s.buyInterval {
 		return fmt.Errorf("price range %f is too small for the buy interval %f", diff, s.buyInterval)
 	}
-	if s.buySize < s.sellSize {
-		return fmt.Errorf("buy size cannot be lesser than sell size")
+	if s.sellSize > 0 && s.sellSize != s.buySize {
+		return fmt.Errorf("sell size must always be equal to the buy size")
 	}
 	if s.feePercentage < 0 || s.feePercentage >= 100 {
 		return fmt.Errorf("fee percentage should be in between 0-100")
