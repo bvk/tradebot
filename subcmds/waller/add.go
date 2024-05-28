@@ -47,7 +47,13 @@ func (c *Add) check() error {
 }
 
 func (c *Add) buySellPairs() []*point.Pair {
-	return fixedProfitPairs(&c.spec)
+	if c.spec.profitMargin > 0 {
+		return fixedProfitPairs(&c.spec)
+	}
+	if c.spec.profitMarginPct > 0 {
+		return percentProfitPairs(&c.spec)
+	}
+	return nil
 }
 
 func (c *Add) Run(ctx context.Context, args []string) error {

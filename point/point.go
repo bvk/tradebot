@@ -14,7 +14,7 @@ import (
 type Point gobs.Point
 
 func (p Point) String() string {
-	return fmt.Sprintf("%s:%s@%s", p.Side(), p.Size, p.Price.StringFixed(2))
+	return fmt.Sprintf("%s:%s@%s", p.Side(), p.Size, p.Price.StringFixed(5))
 }
 
 func (p *Point) LogValue() slog.Value {
