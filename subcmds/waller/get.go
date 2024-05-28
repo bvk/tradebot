@@ -68,30 +68,30 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	fmt.Println("ProductID", s.ProductID)
 	fmt.Println("ExchangeName", s.ExchangeName)
 	fmt.Println()
-	fmt.Println("Budget", s.Budget.StringFixed(3))
-	fmt.Println("ReturnRate", s.ReturnRate().StringFixed(3))
-	fmt.Println("AnnualReturnRate", s.AnnualReturnRate().StringFixed(3))
-	fmt.Println("ProfitPerDay", s.ProfitPerDay().StringFixed(3))
+	fmt.Println("Budget", s.Budget.StringFixed(5))
+	fmt.Println("ReturnRate", s.ReturnRate().StringFixed(5))
+	fmt.Println("AnnualReturnRate", s.AnnualReturnRate().StringFixed(5))
+	fmt.Println("ProfitPerDay", s.ProfitPerDay().StringFixed(5))
 	fmt.Println()
 	fmt.Println("NumDays", s.NumDays())
 	fmt.Println("NumBuys", s.NumBuys)
 	fmt.Println("NumSells", s.NumSells)
 	fmt.Println()
-	fmt.Println("BoughtFees", s.BoughtFees.StringFixed(3))
-	fmt.Println("BoughtSize", s.BoughtSize.StringFixed(3))
-	fmt.Println("BoughtValue", s.BoughtValue.StringFixed(3))
+	fmt.Println("BoughtFees", s.BoughtFees.StringFixed(5))
+	fmt.Println("BoughtSize", s.BoughtSize.StringFixed(5))
+	fmt.Println("BoughtValue", s.BoughtValue.StringFixed(5))
 	fmt.Println()
-	fmt.Println("SoldFees", s.SoldFees.StringFixed(3))
-	fmt.Println("SoldSize", s.SoldSize.StringFixed(3))
-	fmt.Println("SoldValue", s.SoldValue.StringFixed(3))
+	fmt.Println("SoldFees", s.SoldFees.StringFixed(5))
+	fmt.Println("SoldSize", s.SoldSize.StringFixed(5))
+	fmt.Println("SoldValue", s.SoldValue.StringFixed(5))
 	fmt.Println()
-	fmt.Println("UnsoldFees", s.UnsoldFees.StringFixed(3))
-	fmt.Println("UnsoldSize", s.UnsoldSize.StringFixed(3))
-	fmt.Println("UnsoldValue", s.UnsoldValue.StringFixed(3))
+	fmt.Println("UnsoldFees", s.UnsoldFees.StringFixed(5))
+	fmt.Println("UnsoldSize", s.UnsoldSize.StringFixed(5))
+	fmt.Println("UnsoldValue", s.UnsoldValue.StringFixed(5))
 	fmt.Println()
-	fmt.Println("OversoldFees", s.OversoldFees.StringFixed(3))
-	fmt.Println("OversoldSize", s.OversoldSize.StringFixed(3))
-	fmt.Println("OversoldValue", s.OversoldValue.StringFixed(3))
+	fmt.Println("OversoldFees", s.OversoldFees.StringFixed(5))
+	fmt.Println("OversoldSize", s.OversoldSize.StringFixed(5))
+	fmt.Println("OversoldValue", s.OversoldValue.StringFixed(5))
 
 	fmt.Println()
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
@@ -101,22 +101,22 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		if c.skipZeroBuys && s.NumBuys == 0 {
 			continue
 		}
-		id := fmt.Sprintf("%s-%s", p.Buy.Price.StringFixed(2), p.Sell.Price.StringFixed(2))
+		id := fmt.Sprintf("%s-%s", p.Buy.Price.StringFixed(5), p.Sell.Price.StringFixed(5))
 		fmt.Fprintf(tw, "%s\t%s\t%s%%\t%s%%\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
 			id,
-			s.Budget.StringFixed(3),
-			s.ReturnRate().StringFixed(3),
-			s.AnnualReturnRate().StringFixed(3),
-			s.NumDays().StringFixed(3),
+			s.Budget.StringFixed(5),
+			s.ReturnRate().StringFixed(5),
+			s.AnnualReturnRate().StringFixed(5),
+			s.NumDays().StringFixed(5),
 			s.NumBuys,
 			s.NumSells,
-			s.Profit().StringFixed(3),
-			s.Fees().StringFixed(3),
-			s.Bought().StringFixed(3),
-			s.Sold().StringFixed(3),
-			s.UnsoldValue.StringFixed(3),
-			s.SoldSize.Sub(s.OversoldSize).StringFixed(3),
-			s.UnsoldSize.StringFixed(3))
+			s.Profit().StringFixed(5),
+			s.Fees().StringFixed(5),
+			s.Bought().StringFixed(5),
+			s.Sold().StringFixed(5),
+			s.UnsoldValue.StringFixed(5),
+			s.SoldSize.Sub(s.OversoldSize).StringFixed(5),
+			s.UnsoldSize.StringFixed(5))
 	}
 	tw.Flush()
 	return nil

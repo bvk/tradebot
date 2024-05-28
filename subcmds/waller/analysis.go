@@ -9,25 +9,25 @@ import (
 )
 
 func PrintAnalysis(a *waller.Analysis) {
-	fmt.Printf("Budget required: %s\n", a.Budget().StringFixed(2))
+	fmt.Printf("Budget required: %s\n", a.Budget().StringFixed(5))
 	fmt.Printf("Fee percentage: %.2f%%\n", a.FeePct())
 
 	fmt.Println()
 	fmt.Printf("Num Buy/Sell pairs: %d\n", a.NumPairs())
 
 	fmt.Println()
-	fmt.Printf("Minimum loop fee: %s\n", a.MinLoopFee().StringFixed(2))
-	fmt.Printf("Maximum loop fee: %s\n", a.MaxLoopFee().StringFixed(2))
+	fmt.Printf("Minimum loop fee: %s\n", a.MinLoopFee().StringFixed(5))
+	fmt.Printf("Maximum loop fee: %s\n", a.MaxLoopFee().StringFixed(5))
 
 	fmt.Println()
-	fmt.Printf("Minimum price margin: %s\n", a.MinPriceMargin().StringFixed(2))
-	fmt.Printf("Average price margin: %s\n", a.AvgPriceMargin().StringFixed(2))
-	fmt.Printf("Maximum price margin: %s\n", a.MaxPriceMargin().StringFixed(2))
+	fmt.Printf("Minimum price margin: %s\n", a.MinPriceMargin().StringFixed(5))
+	fmt.Printf("Average price margin: %s\n", a.AvgPriceMargin().StringFixed(5))
+	fmt.Printf("Maximum price margin: %s\n", a.MaxPriceMargin().StringFixed(5))
 
 	fmt.Println()
-	fmt.Printf("Minimum profit margin: %s\n", a.MinProfitMargin().StringFixed(2))
-	fmt.Printf("Average profit margin: %s\n", a.AvgProfitMargin().StringFixed(2))
-	fmt.Printf("Maximum profit margin: %s\n", a.MaxProfitMargin().StringFixed(2))
+	fmt.Printf("Minimum profit margin: %s\n", a.MinProfitMargin().StringFixed(5))
+	fmt.Printf("Average profit margin: %s\n", a.AvgProfitMargin().StringFixed(5))
+	fmt.Printf("Maximum profit margin: %s\n", a.MaxProfitMargin().StringFixed(5))
 
 	fmt.Println()
 	for _, rate := range aprs {
