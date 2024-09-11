@@ -76,6 +76,7 @@ func main() {
 	coinbaseCmds := []cli.Command{
 		new(coinbase.Sync),
 		new(coinbase.List),
+		new(coinbase.GetOrder),
 	}
 
 	cmds := []cli.Command{
