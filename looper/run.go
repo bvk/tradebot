@@ -9,6 +9,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
@@ -52,6 +53,21 @@ func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	v.runtimeLock.Lock()
 	defer v.runtimeLock.Unlock()
+
+	// Wait for the ticker to go above the buy/sell point price.
+	{
+		tickerCh, stopTickers := rt.Product.TickerCh()
+		defer stopTickers()
+
+		var tick *exchange.Ticker
+		for !v.isReady(tick) {
+			select {
+			case <-ctx.Done():
+				return context.Cause(ctx)
+			case tick = <-tickerCh:
+			}
+		}
+	}
 
 	for ctx.Err() == nil {
 		nbuys, nsells := len(v.buys), len(v.sells)

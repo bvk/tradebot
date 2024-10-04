@@ -54,6 +54,15 @@ func (p Point) Equal(v *Point) bool {
 	return Equal(gobs.Point(p), gobs.Point(*v))
 }
 
+// InRange returns true if input price is within the activation price range for
+// the trade point.
+func (p Point) InRange(ticker decimal.Decimal) bool {
+	if p.Side() == "BUY" {
+		return ticker.GreaterThanOrEqual(p.Price) && ticker.LessThan(p.Cancel)
+	}
+	return ticker.GreaterThan(p.Cancel) && ticker.LessThanOrEqual(p.Price)
+}
+
 // Side returns "BUY" or "SELL" side for the point. Side is determined by
 // comparing the point price and it's cancel price. Cancel price must be
 // greater than point price for buy orders and lower than the point price for

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
@@ -160,6 +161,14 @@ func (v *Looper) UnsoldValue() decimal.Decimal {
 		return d.Mul(v.buyPoint.Price)
 	}
 	return decimal.Zero
+}
+
+// isReady returns true if ticker price is inside the looper action range.
+func (v *Looper) isReady(ticker *exchange.Ticker) bool {
+	if ticker == nil {
+		return false
+	}
+	return v.buyPoint.InRange(ticker.Price) || v.sellPoint.InRange(ticker.Price)
 }
 
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
