@@ -268,6 +268,15 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 // dispatchOrder relays the order fetched from coinbase for any reason to the
 // appropriate product for side-channel handling.
 func (ex *Exchange) dispatchOrder(productID string, order *exchange.Order) {
+	if len(order.ClientOrderID) == 0 {
+		log.Printf("error: relay request with empty client order id is ignored")
+		return
+	}
+	if len(order.OrderID) == 0 {
+		log.Printf("error: relay request with empty server order id is ignored")
+		return
+	}
+
 	ready := slices.Contains(readyStatuses, order.Status)
 	done := slices.Contains(doneStatuses, order.Status)
 
