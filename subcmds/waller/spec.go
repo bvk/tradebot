@@ -25,7 +25,8 @@ type Spec struct {
 	buySize  float64
 	sellSize float64
 
-	cancelOffset float64
+	cancelOffsetPct float64
+	cancelOffset    float64
 
 	pairs []*point.Pair
 }
@@ -38,7 +39,7 @@ func (s *Spec) SetFlags(fset *flag.FlagSet) {
 	fset.Float64Var(&s.profitMarginPct, "profit-margin-pct", 0, "wanted profit as a percentage of the buy point")
 	fset.Float64Var(&s.buySize, "buy-size", 0, "asset buy-size for the trade")
 	fset.Float64Var(&s.sellSize, "sell-size", 0, "asset sell-size for the trade")
-	fset.Float64Var(&s.cancelOffset, "cancel-offset", 50, "cancel-at price offset for the buy/sell points")
+	fset.Float64Var(&s.cancelOffsetPct, "cancel-offset-pct", 5, "cancel-at price as pct of middle of the price range")
 	fset.Float64Var(&s.feePercentage, "fee-pct", 0.25, "exchange fee percentage to adjust sell margin")
 }
 
@@ -49,6 +50,11 @@ func (s *Spec) BuySellPairs() []*point.Pair {
 func (s *Spec) setDefaults() {
 	if s.sellSize == 0 {
 		s.sellSize = s.buySize
+	}
+	// Calculate cancel-offset as 5% away from the buy/sell prices.
+	if s.cancelOffset == 0 {
+		mid := decimal.NewFromFloat((s.beginPriceRange + s.endPriceRange) / 2)
+		s.cancelOffset, _ = mid.Mul(decimal.NewFromFloat(s.cancelOffsetPct)).Div(decimal.NewFromInt(100)).Float64()
 	}
 }
 
