@@ -7,8 +7,12 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvkgo/topic"
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -58,17 +62,56 @@ func TestClient(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	if ps, err := c.ListProducts(ctx, "SPOT"); err != nil {
+	if _, err := c.ListProducts(ctx, "SPOT"); err != nil {
 		t.Fatal(err)
-	} else {
-		js, _ := json.MarshalIndent(ps, "", "  ")
-		t.Logf("%s", js)
 	}
 
-	if as, _, err := c.ListAccounts(ctx, nil); err != nil {
+	if _, _, err := c.ListAccounts(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := func(msg *Message) {
+		if msg.Channel != "heartbeats" {
+			js, _ := json.MarshalIndent(msg, "", "  ")
+			t.Logf("%s", js)
+		}
+	}
+
+	products := []string{"DOGE-USDC"}
+	ws := c.GetMessages("heartbeats", products, handler)
+	ws.Subscribe("user", products)
+	ws.Subscribe("ticker", products)
+
+	time.Sleep(30 * time.Second)
+
+	createReq := &CreateOrderRequest{
+		ClientOrderID: uuid.New().String(),
+		ProductID:     "DOGE-USDC",
+		Side:          "SELL",
+		Order: &OrderConfig{
+			LimitGTC: &LimitLimitGTC{
+				BaseSize:   exchange.NullDecimal{Decimal: decimal.NewFromInt(1000)},
+				LimitPrice: exchange.NullDecimal{Decimal: decimal.NewFromFloat(0.21)},
+				PostOnly:   true,
+			},
+		},
+	}
+	createResp, err := c.CreateOrder(ctx, createReq)
+	if err != nil {
 		t.Fatal(err)
 	} else {
-		js, _ := json.MarshalIndent(as, "", "  ")
+		js, _ := json.MarshalIndent(createResp, "", "  ")
 		t.Logf("%s", js)
 	}
+	defer func() {
+		cancelReq := &CancelOrderRequest{
+			OrderIDs: []string{createResp.SuccessResponse.OrderID},
+		}
+		if _, err := c.CancelOrder(ctx, cancelReq); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	time.Sleep(30 * time.Second)
+
 }

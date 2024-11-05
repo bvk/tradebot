@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/coinbase/internal"
@@ -80,7 +81,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 	}
 	pids := make([]string, 0, len(ps.Products))
 	for _, p := range ps.Products {
-		if p.QuoteDisplaySymbol == "USD" {
+		if p.QuoteDisplaySymbol == "USD" || p.QuoteDisplaySymbol == "USDC" {
 			pids = append(pids, p.ProductID)
 		}
 	}
@@ -316,6 +317,13 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 		for _, event := range msg.Events {
 			for _, ticker := range event.Tickers {
 				if p, ok := ex.productMap.Load(ticker.ProductID); ok {
+					p.handleTickerEvent(timestamp, ticker)
+				}
+				if !strings.HasSuffix(ticker.ProductID, "-USD") {
+					continue
+				}
+				usdcProduct := strings.TrimSuffix(ticker.ProductID, "-USD") + "-USDC"
+				if p, ok := ex.productMap.Load(usdcProduct); ok {
 					p.handleTickerEvent(timestamp, ticker)
 				}
 			}

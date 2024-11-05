@@ -138,6 +138,13 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 				"AVAX-USD",
 				"DOGE-USD",
 				"SHIB-USD",
+
+				"BCH-USDC",
+				"BTC-USDC",
+				"ETH-USDC",
+				"AVAX-USDC",
+				"DOGE-USDC",
+				"SHIB-USDC",
 			},
 		}
 	}

@@ -81,7 +81,8 @@ func (v *Options) setDefaults() {
 	}
 	if len(v.WatchProductIDs) == 0 {
 		v.WatchProductIDs = []string{
-			"BTC-USD", "BCH-USD", "ETH-USD", "AVAX-USD","DOGE-USD","SHIB-USD",
+			"BTC-USD", "BCH-USD", "ETH-USD", "AVAX-USD", "DOGE-USD", "SHIB-USD",
+			"BTC-USDC", "BCH-USDC", "ETH-USDC", "AVAX-USDC", "DOGE-USDC", "SHIB-USDC",
 		}
 	}
 }
