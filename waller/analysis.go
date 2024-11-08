@@ -96,6 +96,35 @@ func (a *Analysis) MaxLoopFee() decimal.Decimal {
 	return a.pairs[len(a.pairs)-1].FeesAt(a.feePct)
 }
 
+// AvgProfitAtVolatility returns the average amount of profit and sells
+// *expected* for a given percentage of raise in the price.
+func (a *Analysis) AvgProfitAtVolatility(volatilityPct float64) (decimal.Decimal, decimal.Decimal) {
+	vpct := decimal.NewFromFloat(volatilityPct)
+	d100 := decimal.NewFromInt(100)
+
+	var nsells int
+	var totalProfit decimal.Decimal
+	for _, pair := range a.pairs {
+		change := pair.Buy.Price.Mul(vpct).Div(d100)
+		endSellPrice := pair.Buy.Price.Add(change)
+		beginSellPrice := pair.Sell.Price
+
+		var profit decimal.Decimal
+		for _, p := range a.pairs {
+			if p.Sell.Price.GreaterThanOrEqual(beginSellPrice) && p.Sell.Price.LessThanOrEqual(endSellPrice) {
+				v := p.ValueMargin().Sub(p.FeesAt(a.feePct))
+				profit = profit.Add(v)
+				nsells++
+			}
+		}
+		totalProfit = totalProfit.Add(profit)
+	}
+	npairs := decimal.NewFromInt(int64(len(a.pairs)))
+	avgProfit := totalProfit.Div(npairs)
+	avgSells := decimal.NewFromInt(int64(nsells)).Div(npairs)
+	return avgProfit, avgSells
+}
+
 func (a *Analysis) ProfitGoalForReturnRate(targetPct float64) decimal.Decimal {
 	budget := a.Budget()
 	target := decimal.NewFromFloat(targetPct)

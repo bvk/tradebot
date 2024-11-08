@@ -12,13 +12,17 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+var d100 = decimal.NewFromInt(100)
+
 type Spec struct {
 	feePercentage float64
 
 	beginPriceRange float64
 	endPriceRange   float64
 
-	buyInterval     float64
+	buyInterval    float64
+	buyIntervalPct float64
+
 	profitMargin    float64
 	profitMarginPct float64
 
@@ -35,6 +39,7 @@ func (s *Spec) SetFlags(fset *flag.FlagSet) {
 	fset.Float64Var(&s.beginPriceRange, "begin-price", 0, "begin price for the trading price range")
 	fset.Float64Var(&s.endPriceRange, "end-price", 0, "end price for the trading price range")
 	fset.Float64Var(&s.buyInterval, "buy-interval", 0, "interval between successive buy price points")
+	fset.Float64Var(&s.buyIntervalPct, "buy-interval-pct", 0, "buy-interval as pct of the previous buy point")
 	fset.Float64Var(&s.profitMargin, "profit-margin", 0, "wanted profit to determine sell price point")
 	fset.Float64Var(&s.profitMarginPct, "profit-margin-pct", 0, "wanted profit as a percentage of the buy point")
 	fset.Float64Var(&s.buySize, "buy-size", 0, "asset buy-size for the trade")
@@ -67,9 +72,13 @@ func (s *Spec) Check() error {
 	if s.buySize <= 0 {
 		return fmt.Errorf("buy size cannot be zero or negative")
 	}
-	if s.buyInterval <= 0 {
+	if s.buyInterval <= 0 && s.buyIntervalPct <= 0 {
 		return fmt.Errorf("buy interval cannot be zero or negative")
 	}
+	if s.buyInterval > 0 && s.buyIntervalPct > 0 {
+		return fmt.Errorf("only one of buy interval and buy interval percent can be positive")
+	}
+
 	if s.cancelOffset <= 0 {
 		return fmt.Errorf("buy/sell cancel offsets cannot be zero or negative")
 	}
@@ -83,9 +92,6 @@ func (s *Spec) Check() error {
 
 	if s.endPriceRange <= s.beginPriceRange {
 		return fmt.Errorf("end price range cannot be lower or equal to the begin price")
-	}
-	if diff := s.endPriceRange - s.beginPriceRange; diff <= s.buyInterval {
-		return fmt.Errorf("price range %f is too small for the buy interval %f", diff, s.buyInterval)
 	}
 	if s.sellSize > 0 && s.sellSize != s.buySize {
 		return fmt.Errorf("sell size must always be equal to the buy size")
@@ -104,7 +110,7 @@ func (s *Spec) Check() error {
 	if s.profitMarginPct > 0 {
 		pairs := percentProfitPairs(s)
 		if pairs == nil || len(pairs) == 0 {
-			return fmt.Errorf("could not create profit margin percentage based buy/sell pairs")
+			return fmt.Errorf("could not create percentage profit buy/sell pairs")
 		}
 		s.pairs = pairs
 	}
@@ -112,13 +118,23 @@ func (s *Spec) Check() error {
 	return nil
 }
 
+func (s *Spec) buyIntervalSize(p decimal.Decimal) decimal.Decimal {
+	if s.buyIntervalPct == 0 {
+		return decimal.NewFromFloat(s.buyInterval)
+	}
+	return p.Mul(decimal.NewFromFloat(s.buyIntervalPct).Div(d100))
+}
+
 func fixedProfitPairs(s *Spec) []*point.Pair {
 	var pairs []*point.Pair
-	for price := s.beginPriceRange; price < s.endPriceRange; price += s.buyInterval {
+	beginPrice := decimal.NewFromFloat(s.beginPriceRange)
+	endPrice := decimal.NewFromFloat(s.endPriceRange)
+	cancelOffset := decimal.NewFromFloat(s.cancelOffset)
+	for price := beginPrice; price.LessThan(endPrice); price = price.Add(s.buyIntervalSize(price)) {
 		buy := &point.Point{
-			Price:  decimal.NewFromFloat(price),
+			Price:  price,
 			Size:   decimal.NewFromFloat(s.buySize),
-			Cancel: decimal.NewFromFloat(price + s.cancelOffset),
+			Cancel: price.Add(cancelOffset),
 		}
 		if err := buy.Check(); err != nil {
 			log.Fatal(err)
@@ -141,18 +157,21 @@ func fixedProfitPairs(s *Spec) []*point.Pair {
 
 func percentProfitPairs(s *Spec) []*point.Pair {
 	var pairs []*point.Pair
-	for price := s.beginPriceRange; price < s.endPriceRange; price += s.buyInterval {
+	beginPrice := decimal.NewFromFloat(s.beginPriceRange)
+	endPrice := decimal.NewFromFloat(s.endPriceRange)
+	cancelOffset := decimal.NewFromFloat(s.cancelOffset)
+	for price := beginPrice; price.LessThan(endPrice); price = price.Add(s.buyIntervalSize(price)) {
 		buy := &point.Point{
-			Price:  decimal.NewFromFloat(price),
+			Price:  price,
 			Size:   decimal.NewFromFloat(s.buySize),
-			Cancel: decimal.NewFromFloat(price + s.cancelOffset),
+			Cancel: price.Add(cancelOffset),
 		}
 		if err := buy.Check(); err != nil {
 			log.Fatal(err)
 		}
 
 		// margin := buyValue * marginPct / 100
-		margin := buy.Value().Mul(decimal.NewFromFloat(s.profitMarginPct).Div(decimal.NewFromInt(100)))
+		margin := buy.Value().Mul(decimal.NewFromFloat(s.profitMarginPct).Div(d100))
 		sell, err := point.SellPoint(buy, margin)
 		if err != nil {
 			log.Fatal(err)

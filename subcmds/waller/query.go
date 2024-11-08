@@ -40,7 +40,7 @@ func (c *Query) run(ctx context.Context, args []string) error {
 			bfee := p.Buy.Price.Mul(p.Buy.Size).Mul(feePctDec).Div(d100)
 			sfee := p.Sell.Price.Mul(p.Sell.Size).Mul(feePctDec).Div(d100)
 			profit := p.ValueMargin().Sub(bfee).Sub(sfee)
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t\n", p.Buy.Size.StringFixed(5), p.Buy.Price.StringFixed(5), p.Sell.Size.StringFixed(5), p.Sell.Price.StringFixed(5), p.Sell.Price.Sub(p.Buy.Price).StringFixed(5), profit)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t\n", p.Buy.Size.StringFixed(5), p.Buy.Price.StringFixed(5), p.Sell.Size.StringFixed(5), p.Sell.Price.StringFixed(5), p.Sell.Price.Sub(p.Buy.Price).StringFixed(5), profit.StringFixed(2))
 		}
 		tw.Flush()
 	}

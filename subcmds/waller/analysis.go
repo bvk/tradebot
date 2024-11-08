@@ -4,6 +4,9 @@ package waller
 
 import (
 	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/bvk/tradebot/waller"
 )
@@ -28,6 +31,24 @@ func PrintAnalysis(a *waller.Analysis) {
 	fmt.Printf("Minimum profit margin: %s\n", a.MinProfitMargin().StringFixed(5))
 	fmt.Printf("Average profit margin: %s\n", a.AvgProfitMargin().StringFixed(5))
 	fmt.Printf("Maximum profit margin: %s\n", a.MaxProfitMargin().StringFixed(5))
+
+	fmt.Println()
+	vols := []any{"Volatility Pct:"}
+	nsells := []any{"Avg Num Sells:"}
+	profits := []any{"Avg Profit:"}
+	vpcts := []float64{3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20}
+	for _, p := range vpcts {
+		profit, sells := a.AvgProfitAtVolatility(p)
+		vols = append(vols, fmt.Sprintf("%.02f%%", p))
+		nsells = append(nsells, sells.StringFixed(2))
+		profits = append(profits, profit.StringFixed(3))
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+	fmtstr := strings.Repeat("%s\t", len(vpcts)+1)
+	fmt.Fprintf(tw, fmtstr+"\n", vols...)
+	fmt.Fprintf(tw, fmtstr+"\n", nsells...)
+	fmt.Fprintf(tw, fmtstr+"\n", profits...)
+	tw.Flush()
 
 	fmt.Println()
 	for _, rate := range aprs {
