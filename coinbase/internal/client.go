@@ -177,6 +177,11 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusBadGateway {
+			log.Printf("warning: get request returned with status code 429 - too many requests (retrying after timeout)")
+			time.Sleep(time.Second)
+			return c.getJSON(ctx, url, result)
+		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			log.Printf("warning: get request returned with status code 429 - too many requests (retrying)")
 			return c.getJSON(ctx, url, result)
@@ -230,6 +235,11 @@ func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusBadGateway {
+			log.Printf("warning: get request returned with status code 429 - too many requests (retrying after timeout)")
+			time.Sleep(time.Second)
+			return c.postJSON(ctx, url, request, resultPtr)
+		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			log.Printf("warning: post request returned with status code 429 - too many requests (retrying)")
 			return c.postJSON(ctx, url, request, resultPtr)
