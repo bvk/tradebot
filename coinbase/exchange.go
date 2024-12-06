@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"slices"
@@ -67,6 +68,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 	}
 	client, err := internal.New(ctx, key, secret, copts)
 	if err != nil {
+		slog.Error("could not create coinbase client", "err", err)
 		return nil, fmt.Errorf("could not create coinbase client: %w", err)
 	}
 	defer func() {
@@ -77,6 +79,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 
 	ps, err := client.ListProducts(ctx, "SPOT")
 	if err != nil {
+		slog.Error("could not list spot products", "err", err)
 		return nil, fmt.Errorf("could not list coinbase products: %w", err)
 	}
 	pids := make([]string, 0, len(ps.Products))
@@ -115,6 +118,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 
 	if !opts.subcmdMode {
 		if err := exchange.sync(ctx); err != nil {
+			slog.Error("could not sync with coinbase to fix any lost data", "err", err)
 			return nil, fmt.Errorf("could not sync for lost data: %w", err)
 		}
 
@@ -140,6 +144,7 @@ func (ex *Exchange) ExchangeName() string {
 func (ex *Exchange) sync(ctx context.Context) error {
 	filled, err := ex.ListOrders(ctx, ex.lastFilledTime, "FILLED")
 	if err != nil {
+		slog.Error("could not fetch filled orders", "lastFilledTime", ex.lastFilledTime, "err", err)
 		return fmt.Errorf("could not fetch old filled orders: %w", err)
 	}
 	for _, v := range filled {
@@ -154,6 +159,7 @@ func (ex *Exchange) sync(ctx context.Context) error {
 	// fetch all cancelled orders.
 	cancelled, err := ex.ListOrders(ctx, ex.lastFilledTime, "CANCELLED")
 	if err != nil {
+		slog.Error("could not fetch canceled orders", "fromTime", ex.lastFilledTime, "err", err)
 		return fmt.Errorf("could not fetch old canceled orders: %w", err)
 	}
 	for _, v := range cancelled {
@@ -170,11 +176,11 @@ func (ex *Exchange) goFetchProducts(ctx context.Context) {
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		resp, err := ex.client.ListProducts(ctx, "SPOT")
 		if err != nil {
-			log.Printf("could not list spot products (will retry): %v", err)
+			slog.Warn("could not list spot products (will retry)", "err", err)
 			continue
 		}
 		if err := ex.datastore.saveProducts(ctx, resp.Products); err != nil {
-			log.Printf("could not update products list (will retry): %v", err)
+			slog.Warn("could not save products list (will retry)", "err", err)
 			continue
 		}
 	}
@@ -191,7 +197,7 @@ func (ex *Exchange) goFetchCandles(ctx context.Context) {
 		if last.IsZero() {
 			v, err := ex.datastore.lastCandlesTime(ctx)
 			if err != nil {
-				log.Printf("could not determine last fetched candles time (will retry): %v", err)
+				slog.Warn("could not determine last fetched candles time (will retry)", "err", err)
 				continue
 			}
 			last = v
@@ -203,7 +209,7 @@ func (ex *Exchange) goFetchCandles(ctx context.Context) {
 		failed := false
 		for _, pid := range ex.opts.WatchProductIDs {
 			if err := ex.SyncCandles(ctx, pid, last, now); err != nil {
-				log.Printf("could not fetch candles (will retry): %v", err)
+				slog.Warn("could not fetch candles (will retry)", "err", err)
 				failed = true
 				break
 			}
@@ -222,7 +228,7 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 		now := ex.client.Now().Time
 		fills, err := ex.listFillsFrom(ctx, last)
 		if err != nil {
-			log.Printf("could not list fills from %s (will retry): %v", last, err)
+			slog.Warn("could not list fills", "fromTime", last, "err", err)
 			continue
 		}
 		if len(fills) > 0 {
@@ -234,7 +240,7 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 		for _, fill := range fills {
 			resp, err := ex.client.GetOrder(ctx, fill.OrderID)
 			if err != nil {
-				log.Printf("could not get order %q: %v", fill.OrderID, err)
+				slog.Warn("could not get order", "order", fill.OrderID, "err", err)
 				failed = true
 				continue
 			}
@@ -246,7 +252,7 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 
 		if len(orders) > 0 {
 			if err := ex.datastore.maybeSaveOrders(ctx, orders); err != nil {
-				log.Printf("could not save filled orders (will retry): %v", err)
+				slog.Warn("could not save filled orders (will retry)", "err", err)
 				continue
 			}
 		}
@@ -257,10 +263,10 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 
 		// Update account balances.
 		if accounts, err := ex.listRawAccounts(ctx); err != nil {
-			log.Printf("could not fetch account balances (will retry): %v", err)
+			slog.Warn("could not fetch account balances (will retry)", "err", err)
 		} else {
 			if err := ex.datastore.saveAccounts(ctx, accounts); err != nil {
-				log.Printf("could not save account balances (will retry): %v", err)
+				slog.Warn("could not save account balances (will retry)", "err", err)
 			}
 		}
 	}
@@ -270,11 +276,11 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 // appropriate product for side-channel handling.
 func (ex *Exchange) dispatchOrder(productID string, order *exchange.Order) {
 	if len(order.ClientOrderID) == 0 {
-		log.Printf("error: relay request with empty client order id is ignored")
+		slog.Error("relay request with empty client order id is ignored")
 		return
 	}
 	if len(order.OrderID) == 0 {
-		log.Printf("error: relay request with empty server order id is ignored")
+		slog.Error("unexpected relay request with empty server order id is ignored")
 		return
 	}
 
@@ -311,7 +317,7 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 	if msg.Channel == "ticker" {
 		timestamp, err := time.Parse(time.RFC3339Nano, msg.Timestamp)
 		if err != nil {
-			log.Printf("error: could not parse websocket msg timestamp %q (ignored): %v", msg.Timestamp, err)
+			slog.Error("could not parse websocket msg (ignored)", "timestamp", msg.Timestamp, "err", err)
 			return
 		}
 		for _, event := range msg.Events {
@@ -334,7 +340,7 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOrderRequest) (*internal.CreateOrderResponse, error) {
 	statusReadyCh := make(chan struct{})
 	if v, loaded := ex.pendingMap.LoadOrStore(req.ClientOrderID, statusReadyCh); loaded {
-		log.Printf("unexpected: client id %s already exists in the pending map (previous request may've failed; ignored)", req.ClientOrderID)
+		slog.Error("unexpected: client id already exists in the pending map (previous request may've failed; ignored)", "client-order-id", req.ClientOrderID)
 		statusReadyCh = v
 	}
 
@@ -356,7 +362,7 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 			case <-statusReadyCh:
 				stop = true
 			case <-time.After(time.Second):
-				log.Printf("warning: client order id %s created with server order id %s  (%s) in %s is not ready in time (forcing a fetch)", req.ClientOrderID, resp.OrderID, req.Side, req.ProductID)
+				slog.Warn(fmt.Sprintf("client order id %s created with server order id %s  (%s) in %s is not ready in time (forcing a fetch)", req.ClientOrderID, resp.OrderID, req.Side, req.ProductID))
 				ex.GetOrder(ctx, exchange.OrderID(resp.OrderID))
 			}
 		}
@@ -395,6 +401,7 @@ func (ex *Exchange) SyncFilled(ctx context.Context, from time.Time) error {
 	}
 	if len(orders) > 0 {
 		if err := ex.datastore.maybeSaveOrders(ctx, orders); err != nil {
+			slog.Error("could not save filled orders to the data store", "err", err)
 			return fmt.Errorf("could not save orders: %w", err)
 		}
 	}
@@ -409,6 +416,7 @@ func (ex *Exchange) SyncCancelled(ctx context.Context, from time.Time) error {
 	}
 	if len(orders) > 0 {
 		if err := ex.datastore.maybeSaveOrders(ctx, orders); err != nil {
+			slog.Error("could not save canceled orders to the data store", "err", err)
 			return fmt.Errorf("could not save orders: %w", err)
 		}
 	}
@@ -424,6 +432,7 @@ func (ex *Exchange) listFillsFrom(ctx context.Context, from time.Time) ([]*inter
 	for i := 0; i == 0 || values != nil; i++ {
 		resp, cont, err := ex.client.ListFills(ctx, values)
 		if err != nil {
+			slog.Error("could not list fills", "from", from, "err", err)
 			return nil, err
 		}
 		values = cont
@@ -447,6 +456,7 @@ func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status st
 	for i := 0; i == 0 || values != nil; i++ {
 		resp, cont, err := ex.client.ListOrders(ctx, values)
 		if err != nil {
+			slog.Error("could not list orders", "from", from, "status", status, "err", err)
 			return nil, err
 		}
 		values = cont

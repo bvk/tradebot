@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -53,15 +54,18 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 
 	adjustment, err := findTimeAdjustment(ctx, opts.MaxFetchTimeLatency)
 	if err != nil {
+		slog.Error("could not determine time adjustment value", "err", err)
 		return nil, err
 	}
 	log.Printf("local time needs to be adjusted by -%s to match the coinbase server time", adjustment)
 	if adjustment > opts.MaxTimeAdjustment {
+		slog.Error("local time is out of sync by large amount", "required", adjustment)
 		return nil, fmt.Errorf("local time is out-of-sync by large amount with the server time")
 	}
 
 	jar, err := cookiejar.New(nil /* options */)
 	if err != nil {
+		slog.Error("could not create cookiejar", "err", err)
 		return nil, fmt.Errorf("could not create cookiejar: %w", err)
 	}
 
@@ -108,22 +112,25 @@ func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Dur
 
 		latency := stop.Sub(start)
 		if latency > maxLatency {
-			log.Printf("warning: get coinbase server time took %s > %s (too long; will retry)", latency, maxLatency)
+			slog.Warn(fmt.Sprintf("get coinbase server time took %s > %s (too long; will retry)", latency, maxLatency))
 			continue // retry
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
+			slog.Error("could not read server time response body", "err", err)
 			return 0, fmt.Errorf("could not ready server time response: %w", err)
 		}
 
 		var st ServerTime
 		if err := json.Unmarshal(body, &st); err != nil {
+			slog.Error("could not unmarshal server time response", "err", err)
 			return 0, fmt.Errorf("could not unmarshal server time response: %w", err)
 		}
 
 		stime, err := time.Parse("2006-01-02T15:04:05.999Z", st.ISO)
 		if err != nil {
+			slog.Error("could not parse server timestap", "value", st.ISO, "err", err)
 			return 0, fmt.Errorf("could not parse server timestamp: %w", err)
 		}
 
@@ -148,7 +155,7 @@ func (c *Client) sign(message string) string {
 	signature := hmac.New(sha256.New, c.secret)
 	_, err := signature.Write([]byte(message))
 	if err != nil {
-		slog.Error("could not write to hmac stream (ignored)", "error", err)
+		slog.Error("could not write to hmac stream (ignored)", "err", err)
 		return ""
 	}
 	sig := hex.EncodeToString(signature.Sum(nil))
@@ -159,6 +166,7 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 	at := fmt.Sprintf("%d", c.Now().Unix())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
+		slog.Error("could not create http get request with context", "url", url, "err", err)
 		return err
 	}
 	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, "")
@@ -173,17 +181,20 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not do http client request", "err", err)
+		}
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusBadGateway {
-			log.Printf("warning: get request returned with status code 429 - too many requests (retrying after timeout)")
+			slog.Warn(fmt.Sprintf("get request returned with status code 429 - too many requests (retrying after timeout)"))
 			time.Sleep(time.Second)
 			return c.getJSON(ctx, url, result)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			log.Printf("warning: get request returned with status code 429 - too many requests (retrying)")
+			slog.Warn(fmt.Sprintf("get request returned with status code 429 - too many requests (retrying)"))
 			return c.getJSON(ctx, url, result)
 		}
 		slog.Error("http GET is unsuccessful", "status", resp.StatusCode, "url", url.String())
@@ -199,7 +210,7 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 	// body = bytes.NewReader(data)
 
 	if err := json.NewDecoder(body).Decode(result); err != nil {
-		slog.Error("could not decode response to json", "error", err)
+		slog.Error("could not decode response to json", "err", err)
 		return err
 	}
 	return nil
@@ -208,11 +219,13 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr interface{}) error {
 	payload, err := json.Marshal(request)
 	if err != nil {
+		slog.Error("could not marshal post request body to json", "err", err)
 		return err
 	}
 	at := fmt.Sprintf("%d", c.Now().Unix())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(payload))
 	if err != nil {
+		slog.Error("could not create http post request with context", "url", url, "err", err)
 		return err
 	}
 	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, payload)
@@ -228,20 +241,23 @@ func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr 
 	s := time.Now()
 	resp, err := c.client.Do(req)
 	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
-		log.Printf("warning: post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout)
+		slog.Warn(fmt.Sprintf("post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
 	}
 	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not perform http post request", "url", url, "err", err)
+		}
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusBadGateway {
-			log.Printf("warning: get request returned with status code 429 - too many requests (retrying after timeout)")
+			slog.Error(fmt.Sprintf("get request returned with status code 429 - too many requests (retrying after timeout)"))
 			time.Sleep(time.Second)
 			return c.postJSON(ctx, url, request, resultPtr)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			log.Printf("warning: post request returned with status code 429 - too many requests (retrying)")
+			slog.Warn(fmt.Sprintf("post request returned with status code 429 - too many requests (retrying)"))
 			return c.postJSON(ctx, url, request, resultPtr)
 		}
 		slog.Error("http POST is unsuccessful", "status", resp.StatusCode)
@@ -257,7 +273,7 @@ func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr 
 	// body = bytes.NewReader(data)
 	/////
 	if err := json.NewDecoder(body).Decode(resultPtr); err != nil {
-		slog.Error("could not decode response to json", "error", err)
+		slog.Error("could not decode response to json", "err", err)
 		return err
 	}
 	return nil
@@ -266,12 +282,14 @@ func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr 
 func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload interface{}) (*http.Response, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
+		slog.Error("could not marshal user payload to json", "url", url, "err", err)
 		return nil, err
 	}
 
 	at := fmt.Sprintf("%d", c.Now().Unix())
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(data))
 	if err != nil {
+		slog.Error("could not create http request object with context", "method", method, "url", url, "err", err)
 		return nil, err
 	}
 	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, data)
@@ -304,6 +322,9 @@ func (c *Client) GetOrder(ctx context.Context, orderID string) (*GetOrderRespons
 	}
 	resp := new(GetOrderResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not http get order details", "order", orderID, "err", err)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -317,6 +338,9 @@ func (c *Client) GetAccount(ctx context.Context, uuid string) (*GetAccountRespon
 	}
 	resp := new(GetAccountResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not http get account details", "account", uuid, "err", err)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -331,6 +355,9 @@ func (c *Client) ListAccounts(ctx context.Context, values url.Values) (_ *ListAc
 	}
 	resp := new(ListAccountsResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not http list accounts", "url", url, "err", err)
+		}
 		return nil, nil, err
 	}
 	if len(resp.Cursor) > 0 {
@@ -349,6 +376,9 @@ func (c *Client) ListFills(ctx context.Context, values url.Values) (_ *ListFills
 	}
 	resp := new(ListFillsResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not http list fills", "url", url, "err", err)
+		}
 		return nil, nil, err
 	}
 	if len(resp.Cursor) > 0 {
@@ -367,6 +397,9 @@ func (c *Client) ListOrders(ctx context.Context, values url.Values) (_ *ListOrde
 	}
 	resp := new(ListOrdersResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not list orders", "url", url, "err", err)
+		}
 		return nil, nil, err
 	}
 	if len(resp.Cursor) > 0 {
@@ -384,6 +417,9 @@ func (c *Client) GetProduct(ctx context.Context, productID string) (*GetProductR
 	}
 	resp := new(GetProductResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get product details", "url", url, "product", productID, "err", err)
+		}
 		return nil, fmt.Errorf("could not http-get product %q: %w", productID, err)
 	}
 	return resp, nil
@@ -401,6 +437,9 @@ func (c *Client) ListProducts(ctx context.Context, productType string) (*ListPro
 	}
 	resp := new(ListProductsResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not list products", "url", url, "err", err)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -414,6 +453,9 @@ func (c *Client) CreateOrder(ctx context.Context, request *CreateOrderRequest) (
 	}
 	resp := new(CreateOrderResponse)
 	if err := c.postJSON(ctx, url, request, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not create order", "url", url, "err", err)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -427,6 +469,9 @@ func (c *Client) CancelOrder(ctx context.Context, request *CancelOrderRequest) (
 	}
 	resp := new(CancelOrderResponse)
 	if err := c.postJSON(ctx, url, request, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not cancel order", "url", url, "err", err)
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -441,6 +486,9 @@ func (c *Client) GetProductCandles(ctx context.Context, productID string, values
 	}
 	resp := new(GetProductCandlesResponse)
 	if err := c.getJSON(ctx, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get product candles", "url", url, "err", err)
+		}
 		return nil, fmt.Errorf("could not http-get product candles %q: %w", productID, err)
 	}
 	return resp, nil
