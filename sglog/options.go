@@ -42,9 +42,9 @@ type Options struct {
 	// file.
 	LogFileHeader bool
 
-	// ReuseFileDuration maximum duration to reuse the last log file as long as
-	// it doesn't cross the maximum log file size.
-	ReuseFileDuration time.Duration
+	// LogFileReuseDuration when non-zero contains time duration to reuse the last
+	// log file as long as it doesn't cross the maximum log file size.
+	LogFileReuseDuration time.Duration
 
 	// LogMessageMaxLen is the limit on length of a formatted log message,
 	// including the standard line prefix and trailing newline.
@@ -71,9 +71,6 @@ func (v *Options) setDefaults() {
 	}
 	if v.LogFileMode == 0 {
 		v.LogFileMode = 0644
-	}
-	if v.ReuseFileDuration == 0 {
-		v.ReuseFileDuration = time.Hour
 	}
 	if v.LogMessageMaxLen == 0 {
 		v.LogMessageMaxLen = 15000

@@ -96,7 +96,7 @@ func (v *Backend) emit(level slog.Level, msg []byte) error {
 	v.mu.Unlock()
 
 	// Log messages above the LogBufLevel are flushed immediately. FIXME: we
-	// should not miss the log level.
+	// should not miss a log level just because channel is full.
 	if level > v.opts.BufferedLogLevel {
 		select {
 		case v.flushChan <- level:

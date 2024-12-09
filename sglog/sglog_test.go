@@ -32,7 +32,9 @@ func TestBasic(t *testing.T) {
 	log.SetFlags(log.Lshortfile)
 
 	backend := NewBackend(&Options{
-		LogFileMaxSize: 4 * 1024,
+		LogFileMaxSize:       4 * 1024,
+		LogFileReuseDuration: time.Minute,
+		LogFileHeader:        true,
 	})
 	defer backend.Flush()
 
@@ -61,7 +63,6 @@ func TestLogFileRotation(t *testing.T) {
 
 	backend := NewBackend(&Options{
 		LogFileMaxSize: 1024 * 1024,
-		LogDirs:        []string{"."},
 	})
 	defer backend.Flush()
 

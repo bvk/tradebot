@@ -196,9 +196,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 	log.SetFlags(log.Lshortfile)
 	backend := sglog.NewBackend(&sglog.Options{
-		LogFileHeader:  true,
-		LogDirs:        []string{dataDir},
-		LogFileMaxSize: 100 * 1024 * 1024,
+		LogFileHeader:        true,
+		LogDirs:              []string{dataDir},
+		LogFileMaxSize:       100 * 1024 * 1024,
+		LogFileReuseDuration: time.Hour,
 	})
 	defer backend.Close()
 	defer backend.Flush()

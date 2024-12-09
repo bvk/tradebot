@@ -12,10 +12,6 @@
 //
 //   - Globally defined flags are replaced with an Options structure.
 //
-//   - Thread-ID field in the log file names is always set to zero to enable
-//     log file reuse across restarts. Thread-ID is still included in the
-//     individual log messages, even though it is not very useful in Go.
-//
 //   - Google's glog package adds a footer message when a log file is rotated,
 //     which is not supported in this package.
 //
@@ -29,9 +25,10 @@
 // restarted. This can exhaust filesystem inodes if the process is crashing
 // repeatedly.
 //
-// This package changes the above behavior and enables log file reuse with a
-// certain timeout (ex: maximum one log file per hour.) As part of this,
-// thread-id field in the log file name is replaced with a zero.
+// This package provides an option to enable log file reuse with a certain
+// timeout (ex: maximum one log file per hour.) When this feature is enabled,
+// process id field in the log file name won't match the logging process
+// because it could be reused.
 //
 // Note that log file is still rotated when the file size reaches up to the
 // maximum limit.

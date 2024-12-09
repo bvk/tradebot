@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 )
@@ -119,14 +118,21 @@ func (f *levelFile) Flush() error {
 }
 
 func (f *levelFile) fileName(t time.Time) string {
-	return f.filePrefix + t.Format(".20060102-150405.") + "0"
+	return f.filePrefix + t.Format(".20060102-150405.") + fmt.Sprintf("%d", pid)
 }
 
-func (f *levelFile) fileTime(name string) (time.Time, error) {
-	return time.ParseInLocation(f.filePrefix+".20060102-150405.0", name, time.Local)
+func (f *levelFile) fileTime(name string) (ts time.Time, err error) {
+	if !strings.HasPrefix(name, f.filePrefix) {
+		return ts, os.ErrInvalid
+	}
+	fs := strings.Split(name, ".")
+	if len(fs) != 7 {
+		return ts, os.ErrInvalid
+	}
+	return time.ParseInLocation("20060102-150405", fs[5], time.Local)
 }
 
-func (f *levelFile) linkName(t time.Time) string {
+func (f *levelFile) linkName() string {
 	return program + "." + f.level.String()
 }
 
@@ -136,20 +142,23 @@ func (f *levelFile) lastFileName(dir string) (string, error) {
 		return "", err
 	}
 
-	var times []time.Time
+	var lastName string
+	var maxTime time.Time
 	for _, entry := range entries {
 		t, err := f.fileTime(entry.Name())
 		if err != nil {
 			continue
 		}
-		times = append(times, t)
+		if t.After(maxTime) {
+			lastName = entry.Name()
+			maxTime = t
+		}
 	}
-	if len(times) == 0 {
+	if lastName == "" {
 		return "", nil
 	}
 
-	last := slices.MaxFunc(times, time.Time.Compare)
-	return f.fileName(last), nil
+	return lastName, nil
 }
 
 func (f *levelFile) filePath(dir string, t time.Time) (string, int64, error) {
@@ -165,7 +174,7 @@ func (f *levelFile) filePath(dir string, t time.Time) (string, int64, error) {
 				return "", 0, err
 			}
 
-			if lastFileTime.After(t.Truncate(f.backend.opts.ReuseFileDuration)) {
+			if lastFileTime.After(t.Truncate(f.backend.opts.LogFileReuseDuration)) {
 				lastPath := filepath.Join(dir, lastName)
 				fstat, err := os.Stat(lastPath)
 				if err != nil {
@@ -184,7 +193,7 @@ func (f *levelFile) filePath(dir string, t time.Time) (string, int64, error) {
 }
 
 func (f *levelFile) createFile(t time.Time) (fp *os.File, filename string, err error) {
-	link := f.linkName(t)
+	link := f.linkName()
 
 	var lastErr error
 	for _, dir := range f.backend.opts.LogDirs {
