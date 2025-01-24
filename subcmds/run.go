@@ -84,8 +84,8 @@ JSON format. A example secrets file format is given below:
 
     {
         "coinbase":{
-            "key":"111111111",
-            "secret":"2222222222"
+            "kid":"organizations/org-uuid/apiKeys/key-uuid",
+            "pem":"-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIBXCw....7smegg==\n-----END EC PRIVATE KEY-----\n"
         }
     }
 

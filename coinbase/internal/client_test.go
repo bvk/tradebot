@@ -25,6 +25,9 @@ func checkCredentials() bool {
 	type Credentials struct {
 		Key    string
 		Secret string
+
+		KID string // `json:"kid"`
+		PEM string // `json:"pem"`
 	}
 	if len(testingKey) != 0 && len(testingSecret) != 0 {
 		return true
@@ -37,8 +40,8 @@ func checkCredentials() bool {
 	if err := json.Unmarshal(data, s); err != nil {
 		return false
 	}
-	testingKey = s.Key
-	testingSecret = s.Secret
+	testingKey = s.KID
+	testingSecret = s.PEM
 	return len(testingKey) != 0 && len(testingSecret) != 0
 }
 
@@ -72,7 +75,7 @@ func TestClient(t *testing.T) {
 
 	handler := func(msg *Message) {
 		if msg.Channel != "heartbeats" {
-			js, _ := json.MarshalIndent(msg, "", "  ")
+			js, _ := json.Marshal(msg)
 			t.Logf("%s", js)
 		}
 	}
@@ -87,11 +90,11 @@ func TestClient(t *testing.T) {
 	createReq := &CreateOrderRequest{
 		ClientOrderID: uuid.New().String(),
 		ProductID:     "DOGE-USDC",
-		Side:          "SELL",
+		Side:          "BUY",
 		Order: &OrderConfig{
 			LimitGTC: &LimitLimitGTC{
 				BaseSize:   exchange.NullDecimal{Decimal: decimal.NewFromInt(1000)},
-				LimitPrice: exchange.NullDecimal{Decimal: decimal.NewFromFloat(0.21)},
+				LimitPrice: exchange.NullDecimal{Decimal: decimal.NewFromFloat(0.20)},
 				PostOnly:   true,
 			},
 		},
@@ -113,5 +116,4 @@ func TestClient(t *testing.T) {
 	}()
 
 	time.Sleep(30 * time.Second)
-
 }

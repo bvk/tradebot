@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,7 +29,8 @@ type Message struct {
 	Channel    string   `json:"channel"`
 	APIKey     string   `json:"api_key"`
 	Timestamp  string   `json:"timestamp"`
-	Signature  string   `json:"signature"`
+
+	JWT string `json:"jwt"`
 
 	Sequence int64 `json:"sequence_num,number"`
 
@@ -243,32 +243,34 @@ func readMessage(ctx context.Context, conn *websocket.Conn) (*Message, error) {
 }
 
 func (c *Client) subscribeMsg(channel string, products []string) *Message {
+	jwt, err := c.signJWT("")
+	if err != nil {
+		slog.Error("could not create jwt token for websocket (ignored)", "err", err)
+	}
 	submsg := &Message{
 		Type:       "subscribe",
 		ProductIDs: products,
 		Channel:    channel,
 		APIKey:     c.key,
 		Timestamp:  fmt.Sprintf("%d", c.Now().Unix()),
-		Signature:  "",
+		JWT:        jwt,
 	}
-	subdata := fmt.Sprintf("%s%s%s", submsg.Timestamp, submsg.Channel, strings.Join(submsg.ProductIDs, ","))
-	signature := c.sign(subdata)
-	submsg.Signature = signature
 	return submsg
 }
 
 func (c *Client) unsubscribeMsg(channel string, products []string) *Message {
+	jwt, err := c.signJWT("")
+	if err != nil {
+		slog.Error("could not create jwt token for websocket (ignored)", "err", err)
+	}
 	unsubmsg := &Message{
 		Type:       "unsubscribe",
 		ProductIDs: products,
 		Channel:    channel,
 		APIKey:     c.key,
 		Timestamp:  fmt.Sprintf("%d", c.Now().Unix()),
-		Signature:  "",
+		JWT:        jwt,
 	}
-	unsubdata := fmt.Sprintf("%s%s%s", unsubmsg.Timestamp, unsubmsg.Channel, strings.Join(unsubmsg.ProductIDs, ","))
-	signature := c.sign(unsubdata)
-	unsubmsg.Signature = signature
 	return unsubmsg
 }
 

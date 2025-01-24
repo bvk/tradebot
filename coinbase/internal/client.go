@@ -5,18 +5,22 @@ package internal
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
+	"math"
+	"math/big"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"path"
 	"sync/atomic"
 	"time"
@@ -24,12 +28,21 @@ import (
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
 	"golang.org/x/time/rate"
+
+	jose "gopkg.in/square/go-jose.v2"
+	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 type Client struct {
 	cg ctxutil.CloseGroup
 
 	opts Options
+
+	kid     string
+	pemText string
+
+	priKey *ecdsa.PrivateKey
+	signer jose.Signer
 
 	key    string
 	secret []byte
@@ -45,12 +58,40 @@ type Client struct {
 	timeAdjustment atomic.Int64
 }
 
+type nonceSource struct{}
+
+func (n nonceSource) Nonce() (string, error) {
+	r, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		return "", err
+	}
+	return r.String(), nil
+}
+
 // New creates a client for coinbase exchange.
-func New(ctx context.Context, key, secret string, opts *Options) (*Client, error) {
+func New(ctx context.Context, kid, pemtext string, opts *Options) (*Client, error) {
 	if opts == nil {
 		opts = new(Options)
 	}
 	opts.setDefaults()
+
+	block, _ := pem.Decode([]byte(pemtext))
+	if block == nil {
+		slog.Error("could not parse the PEM private key")
+		return nil, os.ErrInvalid
+	}
+	priKey, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		slog.Error("could not parse the EC private key", "err", err)
+		return nil, err
+	}
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.ES256, Key: priKey},
+		(&jose.SignerOptions{NonceSource: nonceSource{}}).WithType("JWT").WithHeader("kid", kid),
+	)
+	if err != nil {
+		slog.Error("could not create go-jose.v2 pkg signer", "err", err)
+		return nil, err
+	}
 
 	adjustment, err := findTimeAdjustment(ctx, opts.MaxFetchTimeLatency)
 	if err != nil {
@@ -70,9 +111,11 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 	}
 
 	c := &Client{
-		opts:   *opts,
-		key:    key,
-		secret: []byte(secret),
+		opts:    *opts,
+		kid:     kid,
+		pemText: pemtext,
+		priKey:  priKey,
+		signer:  signer,
 		client: &http.Client{
 			Jar:     jar,
 			Timeout: opts.HttpClientTimeout,
@@ -151,31 +194,47 @@ func (c *Client) Now() exchange.RemoteTime {
 	return exchange.RemoteTime{Time: time.Now().Add(time.Duration(-c.timeAdjustment.Load()))}
 }
 
-func (c *Client) sign(message string) string {
-	signature := hmac.New(sha256.New, c.secret)
-	_, err := signature.Write([]byte(message))
-	if err != nil {
-		slog.Error("could not write to hmac stream (ignored)", "err", err)
-		return ""
-	}
-	sig := hex.EncodeToString(signature.Sum(nil))
-	return sig
+type APIKeyClaims struct {
+	*jwt.Claims
+	URI string `json:"uri"`
 }
 
+func (c *Client) signJWT(uri string) (string, error) {
+	cl := &APIKeyClaims{
+		Claims: &jwt.Claims{
+			Subject:   c.kid,
+			Issuer:    "cdp",
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Expiry:    jwt.NewNumericDate(time.Now().Add(2 * time.Minute)),
+		},
+		URI: uri,
+	}
+	return jwt.Signed(c.signer).Claims(cl).CompactSerialize()
+}
+
+// func (c *Client) sign(message string) string {
+// 	signature := hmac.New(sha256.New, c.secret)
+// 	_, err := signature.Write([]byte(message))
+// 	if err != nil {
+// 		slog.Error("could not write to hmac stream (ignored)", "err", err)
+// 		return ""
+// 	}
+// 	sig := hex.EncodeToString(signature.Sum(nil))
+// 	return sig
+// }
+
 func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) error {
-	at := fmt.Sprintf("%d", c.Now().Unix())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
 		slog.Error("could not create http get request with context", "url", url, "err", err)
 		return err
 	}
-	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, "")
-	signature := c.sign(sdata)
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Cache-Control", "no-store")
-	req.Header.Add("CB-ACCESS-KEY", c.key)
-	req.Header.Add("CB-ACCESS-SIGN", signature)
-	req.Header.Add("CB-ACCESS-TIMESTAMP", at)
+	token, err := c.signJWT(fmt.Sprintf("%s %s%s", req.Method, req.URL.Host, req.URL.Path))
+	if err != nil {
+		slog.Error("could not create signed jwt token for GET", "url", url, "err", err)
+		return err
+	}
+	req.Header.Add("Authorization", "Bearer "+token)
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
@@ -222,19 +281,17 @@ func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr 
 		slog.Error("could not marshal post request body to json", "err", err)
 		return err
 	}
-	at := fmt.Sprintf("%d", c.Now().Unix())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(payload))
 	if err != nil {
 		slog.Error("could not create http post request with context", "url", url, "err", err)
 		return err
 	}
-	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, payload)
-	signature := c.sign(sdata)
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Cache-Control", "no-store")
-	req.Header.Add("CB-ACCESS-KEY", c.key)
-	req.Header.Add("CB-ACCESS-SIGN", signature)
-	req.Header.Add("CB-ACCESS-TIMESTAMP", at)
+	token, err := c.signJWT(fmt.Sprintf("%s %s%s", req.Method, req.URL.Host, req.URL.Path))
+	if err != nil {
+		slog.Error("could not create signed jwt token for POST", "url", url, "err", err)
+		return err
+	}
+	req.Header.Add("Authorization", "Bearer "+token)
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
@@ -286,19 +343,17 @@ func (c *Client) Do(ctx context.Context, method string, url *url.URL, payload in
 		return nil, err
 	}
 
-	at := fmt.Sprintf("%d", c.Now().Unix())
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(data))
 	if err != nil {
 		slog.Error("could not create http request object with context", "method", method, "url", url, "err", err)
 		return nil, err
 	}
-	sdata := fmt.Sprintf("%s%s%s%s", at, req.Method, url.Path, data)
-	signature := c.sign(sdata)
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Cache-Control", "no-store")
-	req.Header.Add("CB-ACCESS-KEY", c.key)
-	req.Header.Add("CB-ACCESS-SIGN", signature)
-	req.Header.Add("CB-ACCESS-TIMESTAMP", at)
+	token, err := c.signJWT(fmt.Sprintf("%s %s%s", method, url.Host, url.Path))
+	if err != nil {
+		slog.Error("could not create signed jwt token", "method", method, "err", err)
+		return nil, err
+	}
+	req.Header.Add("Authorization", "Bearer "+token)
 
 	if err := c.limiter.Wait(ctx); err != nil {
 		return nil, err

@@ -47,7 +47,7 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	db := kvmemdb.New()
 
 	opts := coinbase.SubcommandOptions()
-	cb, err := coinbase.New(ctx, db, secrets.Coinbase.Key, secrets.Coinbase.Secret, opts)
+	cb, err := coinbase.New(ctx, db, secrets.Coinbase.KID, secrets.Coinbase.PEM, opts)
 	if err != nil {
 		return fmt.Errorf("could not create coinbase client: %w", err)
 	}

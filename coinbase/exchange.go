@@ -52,7 +52,7 @@ type Exchange struct {
 }
 
 // New creates a client for coinbase exchange.
-func New(ctx context.Context, db kv.Database, key, secret string, opts *Options) (_ *Exchange, status error) {
+func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_ *Exchange, status error) {
 	if opts == nil {
 		opts = new(Options)
 	}
@@ -66,7 +66,7 @@ func New(ctx context.Context, db kv.Database, key, secret string, opts *Options)
 		MaxTimeAdjustment:      opts.MaxTimeAdjustment,
 		MaxFetchTimeLatency:    opts.MaxFetchTimeLatency,
 	}
-	client, err := internal.New(ctx, key, secret, copts)
+	client, err := internal.New(ctx, kid, pem, copts)
 	if err != nil {
 		slog.Error("could not create coinbase client", "err", err)
 		return nil, fmt.Errorf("could not create coinbase client: %w", err)
