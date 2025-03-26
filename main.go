@@ -66,6 +66,7 @@ func main() {
 		new(waller.Get),
 		new(waller.Query),
 		new(waller.Upgrade),
+		new(waller.Simulate),
 	}
 
 	exchangeCmds := []cli.Command{
