@@ -86,8 +86,6 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	defer v.runtimeLock.Unlock()
 
 	for ctx.Err() == nil {
-		nbuys, nsells := len(v.buys), len(v.sells)
-
 		var bought decimal.Decimal
 		for _, b := range v.buys {
 			bought = bought.Add(b.FilledSize())
@@ -97,10 +95,44 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			sold = sold.Add(s.FilledSize())
 		}
 
-		// Pause this loop completely if holdings size is found to be -ve.
+		numBuys, pbuy := bought.QuoRem(v.buyPoint.Size, 6)
+		numSells, psell := sold.QuoRem(v.sellPoint.Size, 6)
+		nbuys, nsells := numBuys.IntPart(), numSells.IntPart()
 		holdings := bought.Sub(sold)
-		if holdings.IsNegative() {
-			log.Printf("%s: WARNING: current holding size %s-%s = %s is negative (out of %d buys and %d sells)", v.uid, bought, sold, holdings, nbuys, nsells)
+
+		action := "STOP"
+		switch {
+		case nbuys < nsells || holdings.IsNegative():
+			action = "STOP"
+
+		case pbuy.IsZero() && psell.IsZero():
+			// When no partial buys/sells are present, next action depends on number
+			// of sells vs number of buys.
+			if nbuys == nsells {
+				action = "BUY"
+			} else if nbuys > nsells {
+				action = "SELL"
+			} else { // nbuys < nsells is unexpected
+				action = "STOP"
+			}
+
+		case !pbuy.IsZero() && !psell.IsZero():
+			// When buys and sells are both partial, then we have a bug, we must stop
+			// this job completely.
+			action = "STOP"
+
+		case pbuy.IsZero() && !psell.IsZero():
+			// When buy is full, but sell is partial, we should complete the sell.
+			action = "SELL"
+
+		case !pbuy.IsZero() && psell.IsZero():
+			// When sell is full, but buy is partial, we should complete the buy.
+			action = "BUY"
+		}
+
+		switch action {
+		default: // STOP
+			log.Printf("%s: STOPPED: bought (%s) and sold (%s) sizes with holding=%s are inconsistent (out of %d buys and %d sells)", v.uid, bought, sold, holdings, nbuys, nsells)
 			var bought decimal.Decimal
 			for i, b := range v.buys {
 				size := b.FilledSize()
@@ -115,15 +147,12 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 			<-ctx.Done()
 			return context.Cause(ctx)
-		}
 
-		// Start a buy if holding amount is less than buy size.
-		if holdings.LessThan(v.buyPoint.Size) {
+		case "BUY":
 			v.readyWaitForBuy(ctx, rt)
+			log.Printf("%s: current holding size is %s-%s=%s (starting a buy)", v.uid, bought, sold, holdings)
 
-			log.Printf("%s: current holding size %s-%s=%s is less than buy size %s (starting a buy)", v.uid, bought, sold, holdings, v.buyPoint.Size)
-
-			if nbuys == 0 || v.buys[nbuys-1].PendingSize().IsZero() {
+			if len(v.buys) == 0 || v.buys[len(v.buys)-1].PendingSize().IsZero() {
 				if err := v.addNewBuy(ctx, rt); err != nil {
 					if ctx.Err() == nil {
 						log.Printf("could not add limit-buy %d (retrying): %v", nbuys, err)
@@ -133,10 +162,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 					log.Printf("%v: could not create new limit-buy op (will retry): %v", v.uid, err)
 					continue
 				}
-				nbuys = len(v.buys)
 			}
 
-			if err := v.buys[nbuys-1].Run(ctx, rt); err != nil {
+			if err := v.buys[len(v.buys)-1].Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("limit-buy %d has failed (retrying): %v", nbuys, err)
 					time.Sleep(time.Second)
@@ -145,39 +173,40 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				log.Printf("%v: could not complete limit-buy op (will retry): %v", v.uid, err)
 				continue
 			}
-		}
 
-		// Start a sell if holding amount is greater than sell size.
-		if holdings.GreaterThanOrEqual(v.sellPoint.Size) {
-			v.readyWaitForSell(ctx, rt)
-			log.Printf("%s: current holding size %s-%s=%s is greater-than or equal to sell size %s (starting a sell)", v.uid, bought, sold, holdings, v.sellPoint.Size)
-			if nsells == 0 || v.sells[nsells-1].PendingSize().IsZero() {
-				if err := v.addNewSell(ctx, rt); err != nil {
+		case "SELL":
+			// Start a sell if holding amount is greater than sell size.
+			if action == "SELL" {
+				v.readyWaitForSell(ctx, rt)
+				log.Printf("%s: current holding size is %s-%s=%s (starting a sell)", v.uid, bought, sold, holdings)
+
+				if len(v.sells) == 0 || v.sells[len(v.sells)-1].PendingSize().IsZero() {
+					if err := v.addNewSell(ctx, rt); err != nil {
+						if ctx.Err() == nil {
+							log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
+							time.Sleep(time.Second)
+							continue
+						}
+						log.Printf("%v: could not create new limit-sell op (will retry): %v", v.uid, err)
+						continue
+					}
+				}
+
+				if err := v.sells[len(v.sells)-1].Run(ctx, rt); err != nil {
 					if ctx.Err() == nil {
-						log.Printf("could not add limit-sell %d (retrying); %v", nsells, err)
+						log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
 						time.Sleep(time.Second)
 						continue
 					}
-					log.Printf("%v: could not create new limit-sell op (will retry): %v", v.uid, err)
+					log.Printf("%v: could not complete limit-sell op (will retry): %v", v.uid, err)
 					continue
 				}
-				nsells = len(v.sells)
-			}
 
-			if err := v.sells[nsells-1].Run(ctx, rt); err != nil {
-				if ctx.Err() == nil {
-					log.Printf("limit-sell %d has failed (retrying): %v", nsells, err)
-					time.Sleep(time.Second)
-					continue
-				}
-				log.Printf("%v: could not complete limit-sell op (will retry): %v", v.uid, err)
-				continue
+				sell, buy := v.sells[len(v.sells)-1], v.buys[len(v.buys)-1]
+				fees := sell.Fees().Add(buy.Fees())
+				profit := sell.SoldValue().Sub(buy.BoughtValue()).Sub(fees)
+				rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.exchangeName, profit.StringFixed(3))
 			}
-
-			sell, buy := v.sells[nsells-1], v.buys[nbuys-1]
-			fees := sell.Fees().Add(buy.Fees())
-			profit := sell.SoldValue().Sub(buy.BoughtValue()).Sub(fees)
-			rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.exchangeName, profit.StringFixed(3))
 		}
 	}
 	return context.Cause(ctx)
