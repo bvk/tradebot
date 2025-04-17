@@ -205,6 +205,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				sell, buy := v.sells[len(v.sells)-1], v.buys[len(v.buys)-1]
 				fees := sell.Fees().Add(buy.Fees())
 				profit := sell.SoldValue().Sub(buy.BoughtValue()).Sub(fees)
+				log.Printf("%v: SendMessage: profit=%s nbuys=%d nsells=%d last.sell.fees=%s last.buy.fees=%s last.buy.value=%s", v.uid, profit, len(v.sells), len(v.buys), sell.Fees(), buy.Fees(), buy.BoughtValue())
 				rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.exchangeName, profit.StringFixed(3))
 			}
 		}
