@@ -24,12 +24,12 @@ import (
 	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
 	"github.com/bvk/tradebot/server"
-	"github.com/bvk/tradebot/sglog"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
+	"github.com/visvasity/sglog"
 )
 
 type Run struct {
@@ -202,7 +202,6 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		LogFileReuseDuration: time.Hour,
 	})
 	defer backend.Close()
-	defer backend.Flush()
 
 	slog.SetDefault(slog.New(backend.Handler()))
 	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
