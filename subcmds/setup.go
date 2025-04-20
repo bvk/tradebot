@@ -24,6 +24,7 @@ import (
 type Setup struct {
 	dataDir     string
 	secretsPath string
+	skipTesting bool
 }
 
 func (c *Setup) Synopsis() string {
@@ -34,6 +35,7 @@ func (c *Setup) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
+	fset.BoolVar(&c.skipTesting, "skip-testing", false, "don't test the parameters")
 	return fset, cli.CmdFunc(c.run)
 }
 
@@ -49,14 +51,14 @@ COINBASE PARAMETERS
 Coinbase API keys are required to query and put buy/sell orders on the
 coinbase. They can be configured as follows:
 
-  $tradebot setup coinbase-key=organizations/org-uuid/apiKeys/key-uuid coinbase-pem="-----BEGIN EC PRIVATE ... PRIVATE KEY-----\n"
+  $ tradebot setup coinbase-key=organizations/org-uuid/apiKeys/key-uuid coinbase-pem="-----BEGIN EC PRIVATE ... PRIVATE KEY-----\n"
 
 PUSHOVER PARAMETERS
 
 Pushover keys are optional. They are required to receive notifications to the
 mobile phones. They can be configured as follows:
 
-  $tradebot setup pushover-app=awja5ue...ito7svf pushover-user=uscjs2...tvp4kv
+  $ tradebot setup pushover-app=awja5ue...ito7svf pushover-user=uscjs2...tvp4kv
 `
 }
 
@@ -133,12 +135,14 @@ func (c *Setup) run(ctx context.Context, args []string) error {
 			KID: coinbaseKey,
 			PEM: coinbasePem,
 		}
-		// Attempt to authenticate with coinbase to validate the keys.
-		client, err := coinbase.New(ctx, kvmemdb.New(), coinbaseKey, coinbasePem, coinbase.SubcommandOptions())
-		if err != nil {
-			return err
+		if !c.skipTesting {
+			// Attempt to authenticate with coinbase to validate the keys.
+			client, err := coinbase.New(ctx, kvmemdb.New(), coinbaseKey, coinbasePem, coinbase.SubcommandOptions())
+			if err != nil {
+				return err
+			}
+			client.Close()
 		}
-		client.Close()
 	}
 
 	pushoverApp := kvMap["pushover-app"]
@@ -151,13 +155,15 @@ func (c *Setup) run(ctx context.Context, args []string) error {
 			ApplicationKey: pushoverApp,
 			UserKey:        pushoverUser,
 		}
-		// Attempt to authenticate with pushover to validate the keys.
-		client, err := pushover.New(secrets.Pushover)
-		if err != nil {
-			return err
-		}
-		if err := client.SendMessage(ctx, time.Now(), "Test message from Pushover config setup; please ignore."); err != nil {
-			return err
+		if !c.skipTesting {
+			// Attempt to authenticate with pushover to validate the keys.
+			client, err := pushover.New(secrets.Pushover)
+			if err != nil {
+				return err
+			}
+			if err := client.SendMessage(ctx, time.Now(), "Test message from Pushover config setup; please ignore."); err != nil {
+				return err
+			}
 		}
 	}
 
