@@ -10,21 +10,21 @@ import (
 	"os"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
+	"github.com/visvasity/cli"
 )
 
 type SetName struct {
 	cmdutil.DBFlags
 }
 
-func (c *SetName) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("set-name", flag.ContinueOnError)
+func (c *SetName) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "set-name", fset, cli.CmdFunc(c.run)
 }
 
 func (c *SetName) run(ctx context.Context, args []string) error {
@@ -75,6 +75,6 @@ func (c *SetName) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *SetName) Synopsis() string {
+func (c *SetName) Purpose() string {
 	return "Names or renames a trading job"
 }

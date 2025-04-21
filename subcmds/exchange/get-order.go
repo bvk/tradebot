@@ -9,8 +9,8 @@ import (
 	"fmt"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type GetOrder struct {
@@ -19,11 +19,15 @@ type GetOrder struct {
 	name string
 }
 
-func (c *GetOrder) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *GetOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-order", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	fset.StringVar(&c.name, "name", "coinbase", "name of the exchange")
-	return fset, cli.CmdFunc(c.run)
+	return "get-order", fset, cli.CmdFunc(c.run)
+}
+
+func (c *GetOrder) Purpose() string {
+	return "Fetches an order metadata from the local data store."
 }
 
 func (c *GetOrder) run(ctx context.Context, args []string) error {

@@ -13,6 +13,8 @@ require (
 	github.com/gorilla/websocket v1.4.0
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/shopspring/decimal v1.3.1
+	github.com/visvasity/cli v0.0.0-20250421023013-9c73481f42bd
+	github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7
 	golang.org/x/sys v0.14.0
 	golang.org/x/time v0.4.0
 	gopkg.in/square/go-jose.v2 v2.6.0
@@ -30,7 +32,6 @@ require (
 	github.com/google/flatbuffers v23.5.26+incompatible // indirect
 	github.com/klauspost/compress v1.17.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.15.0 // indirect
 	golang.org/x/net v0.18.0 // indirect

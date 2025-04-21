@@ -11,9 +11,9 @@ import (
 	"os"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Cancel struct {
@@ -52,12 +52,12 @@ func (c *Cancel) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Cancel) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("cancel", flag.ContinueOnError)
+func (c *Cancel) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "cancel", fset, cli.CmdFunc(c.run)
 }
 
-func (c *Cancel) Synopsis() string {
+func (c *Cancel) Purpose() string {
 	return "Cancels a trading job"
 }

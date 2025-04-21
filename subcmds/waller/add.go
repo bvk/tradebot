@@ -10,9 +10,9 @@ import (
 	"log"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Add struct {
@@ -102,7 +102,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Add) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("add", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	c.spec.SetFlags(fset)
@@ -110,14 +110,14 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.name, "name", "", "a name for the trader job")
 	fset.StringVar(&c.product, "product", "", "product id for the trader")
 	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
-	return fset, cli.CmdFunc(c.Run)
+	return "add", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Add) Synopsis() string {
+func (c *Add) Purpose() string {
 	return "Creates a new waller job over a price range"
 }
 
-func (c *Add) CommandHelp() string {
+func (c *Add) Description() string {
 	return `
 
 Command "add" creates multiple buy-and-sell loops within a given ticker price

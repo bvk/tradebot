@@ -9,8 +9,8 @@ import (
 	"fmt"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type GetProduct struct {
@@ -19,11 +19,11 @@ type GetProduct struct {
 	name string
 }
 
-func (c *GetProduct) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *GetProduct) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-product", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	fset.StringVar(&c.name, "name", "coinbase", "name of the exchange")
-	return fset, cli.CmdFunc(c.run)
+	return "get-product", fset, cli.CmdFunc(c.run)
 }
 
 func (c *GetProduct) run(ctx context.Context, args []string) error {

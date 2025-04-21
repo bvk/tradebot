@@ -12,10 +12,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Backup struct {
@@ -92,12 +92,12 @@ func (c *Backup) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Backup) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("backup", flag.ContinueOnError)
+func (c *Backup) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "backup", fset, cli.CmdFunc(c.run)
 }
 
-func (c *Backup) Synopsis() string {
+func (c *Backup) Purpose() string {
 	return "Takes a backup of the database into a file"
 }

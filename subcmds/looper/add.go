@@ -9,10 +9,10 @@ import (
 	"fmt"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/cli"
 )
 
 type Add struct {
@@ -89,7 +89,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Add) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("add", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	fset.StringVar(&c.product, "product", "", "product id for the trade")
@@ -100,14 +100,14 @@ func (c *Add) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.sellSize, "sell-size", 0, "sell-size for the trade")
 	fset.Float64Var(&c.sellPrice, "sell-price", 0, "limit sell-price for the trade")
 	fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 0, "sell-cancel price offset for the trade")
-	return fset, cli.CmdFunc(c.Run)
+	return "add", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Add) Synopsis() string {
+func (c *Add) Purpose() string {
 	return "Creates a new buy-sell loop job"
 }
 
-func (c *Add) CommandHelp() string {
+func (c *Add) Description() string {
 	return `
 
 Command "add" creates a limit-buy-then-limit-sell loop. Trading begins with a

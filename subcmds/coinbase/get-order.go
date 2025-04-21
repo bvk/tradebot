@@ -11,21 +11,25 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv/kvmemdb"
+	"github.com/visvasity/cli"
 )
 
 type GetOrder struct {
 	secretsPath string
 }
 
-func (c *GetOrder) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *GetOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-order", flag.ContinueOnError)
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
-	return fset, cli.CmdFunc(c.run)
+	return "get-order", fset, cli.CmdFunc(c.run)
+}
+
+func (c *GetOrder) Purpose() string {
+	return "Fetch one or more orders by their server uuid from Coinbase."
 }
 
 func (c *GetOrder) run(ctx context.Context, args []string) error {

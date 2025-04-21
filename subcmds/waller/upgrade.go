@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Upgrade struct {
@@ -49,12 +49,12 @@ func (c *Upgrade) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Upgrade) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Upgrade) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("upgrade", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.Run)
+	return "upgrade", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Upgrade) Synopsis() string {
+func (c *Upgrade) Purpose() string {
 	return "Upgrades one or more Waller's persistent state"
 }

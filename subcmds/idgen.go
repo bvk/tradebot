@@ -7,8 +7,8 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/idgen"
+	"github.com/visvasity/cli"
 )
 
 type IDGen struct {
@@ -29,13 +29,13 @@ func (c *IDGen) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *IDGen) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *IDGen) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("idgen", flag.ContinueOnError)
 	fset.Uint64Var(&c.from, "from", 0, "initial id offset")
 	fset.IntVar(&c.count, "count", 10, "number of uuids")
-	return fset, cli.CmdFunc(c.run)
+	return "idgen", fset, cli.CmdFunc(c.run)
 }
 
-func (c *IDGen) Synopsis() string {
+func (c *IDGen) Purpose() string {
 	return "Prints client-order-ids for a seed string"
 }

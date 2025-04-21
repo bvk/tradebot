@@ -15,7 +15,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
@@ -28,6 +27,7 @@ import (
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/cli"
 )
 
 type Status struct {
@@ -38,17 +38,17 @@ type Status struct {
 	beginTime, endTime string
 }
 
-func (c *Status) Synopsis() string {
-	return "Status prints global summary of all or selected trade jobs"
+func (c *Status) Purpose() string {
+	return "Prints summary of all or selected trade jobs"
 }
 
-func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.Float64Var(&c.budget, "budget", 0, "Includes this budget in the return rate table")
 	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for status time period")
 	fset.StringVar(&c.endTime, "end-time", "", "End time for status time period")
-	return fset, cli.CmdFunc(c.run)
+	return "status", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Status) run(ctx context.Context, args []string) error {

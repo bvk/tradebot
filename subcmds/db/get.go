@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Get struct {
@@ -66,13 +66,13 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("get", flag.ContinueOnError)
+func (c *Get) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.valueType, "value-type", "", "when non-empty unmarshals to the selected type")
-	return fset, cli.CmdFunc(c.Run)
+	return "get", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Get) Synopsis() string {
+func (c *Get) Purpose() string {
 	return "Prints the value of a key in the database"
 }

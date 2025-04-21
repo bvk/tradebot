@@ -13,12 +13,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type List struct {
@@ -108,15 +108,15 @@ func (c *List) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *List) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.keyRe, "key-regexp", "", "regular expression to pick keys")
 	fset.StringVar(&c.dataType, "data-type", "state", "one of state|status")
 	fset.StringVar(&c.printTemplate, "print-template", "", "text/template to print the value")
-	return fset, cli.CmdFunc(c.Run)
+	return "list", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *List) Synopsis() string {
+func (c *List) Purpose() string {
 	return "Lists buy-sell loop jobs under a keyspace"
 }

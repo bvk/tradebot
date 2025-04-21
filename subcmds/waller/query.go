@@ -9,9 +9,9 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/waller"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/cli"
 )
 
 var aprs = []float64{5, 10, 20, 30}
@@ -47,18 +47,18 @@ func (c *Query) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Query) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Query) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("query", flag.ContinueOnError)
 	c.spec.SetFlags(fset)
 	fset.BoolVar(&c.printPairs, "print-pairs", false, "when true, prints buy-sell points")
-	return fset, cli.CmdFunc(c.run)
+	return "query", fset, cli.CmdFunc(c.run)
 }
 
-func (c *Query) Synopsis() string {
+func (c *Query) Purpose() string {
 	return "Print summary for a waller job"
 }
 
-func (c *Query) CommandHelp() string {
+func (c *Query) Description() string {
 	return `
 
 Command "query" prints basic summary for a hypothetical waller job. This command

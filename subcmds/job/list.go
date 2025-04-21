@@ -10,18 +10,18 @@ import (
 	"text/tabwriter"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type List struct {
 	cmdutil.ClientFlags
 }
 
-func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("list", flag.ContinueOnError)
+func (c *List) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.ClientFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "list", fset, cli.CmdFunc(c.run)
 }
 
 func (c *List) run(ctx context.Context, args []string) error {
@@ -44,6 +44,6 @@ func (c *List) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *List) Synopsis() string {
+func (c *List) Purpose() string {
 	return "Prints trading job ids"
 }

@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type List struct {
@@ -30,14 +30,14 @@ type List struct {
 	productID string
 }
 
-func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *List) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.productID, "product-id", "", "product id")
 	fset.StringVar(&c.beginDate, "begin-date", "", "date of start day in YYYY-MM-DD format")
 	fset.StringVar(&c.endDate, "end-date", "", "date of stop day in YYYY-MM-DD format")
 	fset.StringVar(&c.dataType, "data-type", "", "one of orders|candles")
-	return fset, cli.CmdFunc(c.run)
+	return "list", fset, cli.CmdFunc(c.run)
 }
 
 func (c *List) run(ctx context.Context, args []string) error {

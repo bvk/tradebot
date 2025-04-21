@@ -14,10 +14,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type List struct {
@@ -32,18 +32,18 @@ type List struct {
 	inOrder, descend bool
 }
 
-func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("list", flag.ContinueOnError)
+func (c *List) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.keyRe, "key-regexp", "", "regular expression to pick keys")
 	fset.StringVar(&c.valueType, "value-type", "", "gob type name for the values")
 	fset.StringVar(&c.printTemplate, "print-template", "", "text/template to print the value")
 	fset.BoolVar(&c.inOrder, "in-order", false, "when true, prints in ascending order")
 	fset.BoolVar(&c.descend, "descend", false, "when true, prints in descending order")
-	return fset, cli.CmdFunc(c.Run)
+	return "list", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *List) Synopsis() string {
+func (c *List) Purpose() string {
 	return "Prints keys and values in the database"
 }
 

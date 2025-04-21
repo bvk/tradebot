@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/pushover"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv/kvmemdb"
+	"github.com/visvasity/cli"
 )
 
 type Setup struct {
@@ -27,19 +27,19 @@ type Setup struct {
 	skipTesting bool
 }
 
-func (c *Setup) Synopsis() string {
+func (c *Setup) Purpose() string {
 	return "Setup prints and/or configures tradebot daemon"
 }
 
-func (c *Setup) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Setup) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.BoolVar(&c.skipTesting, "skip-testing", false, "don't test the parameters")
-	return fset, cli.CmdFunc(c.run)
+	return "setup", fset, cli.CmdFunc(c.run)
 }
 
-func (c *Setup) CommandHelp() string {
+func (c *Setup) Description() string {
 	return `
 
 Command "setup" helps users configure Coinbase API keys and notification keys

@@ -11,19 +11,19 @@ import (
 	"os"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Resume struct {
 	cmdutil.DBFlags
 }
 
-func (c *Resume) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("resume", flag.ContinueOnError)
+func (c *Resume) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "resume", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Resume) run(ctx context.Context, args []string) error {
@@ -58,6 +58,6 @@ func (c *Resume) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Resume) Synopsis() string {
+func (c *Resume) Purpose() string {
 	return "Resumes a trading job"
 }

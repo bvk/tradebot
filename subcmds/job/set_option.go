@@ -12,22 +12,22 @@ import (
 	"strings"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type SetOption struct {
 	cmdutil.DBFlags
 }
 
-func (c *SetOption) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *SetOption) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("set-option", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "set-option", fset, cli.CmdFunc(c.run)
 }
 
-func (c *SetOption) Synopsis() string {
+func (c *SetOption) Purpose() string {
 	return "Update a trading job options"
 }
 

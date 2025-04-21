@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/namer"
@@ -21,6 +20,7 @@ import (
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/bvkgo/kv/kvmemdb"
+	"github.com/visvasity/cli"
 )
 
 type Export struct {
@@ -29,11 +29,11 @@ type Export struct {
 	outfile string
 }
 
-func (c *Export) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("export", flag.ContinueOnError)
+func (c *Export) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.outfile, "output", "", "Output file name for the exported data.")
-	return fset, cli.CmdFunc(c.run)
+	return "export", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Export) run(ctx context.Context, args []string) error {
@@ -140,6 +140,6 @@ func (c *Export) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Export) Synopsis() string {
+func (c *Export) Purpose() string {
 	return "Saves a trader job state into a file."
 }

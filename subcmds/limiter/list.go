@@ -11,10 +11,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type List struct {
@@ -62,13 +62,13 @@ func (c *List) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *List) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *List) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.keyspace, "keyspace", limiter.DefaultKeyspace, "keyspace prefix in the db")
-	return fset, cli.CmdFunc(c.Run)
+	return "list", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *List) Synopsis() string {
+func (c *List) Purpose() string {
 	return "Lists limit buy/sell jobs under a keyspace"
 }

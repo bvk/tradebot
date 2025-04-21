@@ -19,7 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
@@ -29,6 +28,7 @@ import (
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
+	"github.com/visvasity/cli"
 	"github.com/visvasity/sglog"
 )
 
@@ -50,7 +50,7 @@ type Run struct {
 	dataDir     string
 }
 
-func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("run", flag.ContinueOnError)
 	c.ServerFlags.SetFlags(fset)
 	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
@@ -63,14 +63,14 @@ func (c *Run) Command() (*flag.FlagSet, cli.CmdFunc) {
 	fset.DurationVar(&c.maxHttpClientTimeout, "max-http-client-timeout", 30*time.Second, "default max timeout for http requests")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
-	return fset, cli.CmdFunc(c.run)
+	return "run", fset, cli.CmdFunc(c.run)
 }
 
-func (c *Run) Synopsis() string {
+func (c *Run) Purpose() string {
 	return "Runs tradebot in foreground or background"
 }
 
-func (c *Run) CommandHelp() string {
+func (c *Run) Description() string {
 	return `
 
 Command "run" starts the tradebot service. Tradebot service scans the database

@@ -7,8 +7,8 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Delete struct {
@@ -41,12 +41,12 @@ func (c *Delete) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Delete) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("delete", flag.ContinueOnError)
+func (c *Delete) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.Run)
+	return "delete", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Delete) Synopsis() string {
+func (c *Delete) Purpose() string {
 	return "Deletes a key in the database"
 }

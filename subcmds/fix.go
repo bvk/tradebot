@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
+	"github.com/visvasity/cli"
 )
 
 type Fix struct {
@@ -23,15 +23,15 @@ type Fix struct {
 	dataDir     string
 }
 
-func (c *Fix) Synopsis() string {
+func (c *Fix) Purpose() string {
 	return "Fix runs the Fix api on all trades"
 }
 
-func (c *Fix) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Fix) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("fix", flag.ContinueOnError)
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
-	return fset, cli.CmdFunc(c.run)
+	return "fix", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Fix) run(ctx context.Context, args []string) error {

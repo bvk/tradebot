@@ -13,9 +13,9 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Edit struct {
@@ -120,15 +120,15 @@ func (c *Edit) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Edit) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("edit", flag.ContinueOnError)
+func (c *Edit) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.valueType, "value-type", "", "when non-empty unmarshals to the selected type")
 	fset.StringVar(&c.editor, "editor", "vi", "default editor")
 	fset.BoolVar(&c.create, "create", false, "when true, key will be created if it doesn't exist")
-	return fset, cli.CmdFunc(c.Run)
+	return "edit", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Edit) Synopsis() string {
+func (c *Edit) Purpose() string {
 	return "Create or Edit a key-value pair in the database"
 }
