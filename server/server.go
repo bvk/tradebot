@@ -92,7 +92,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		if opts.NoFetchCandles {
 			cbopts.FetchCandlesInterval = -1
 		}
-		client, err := coinbase.New(newctx, db, secrets.Coinbase.Key, secrets.Coinbase.Secret, cbopts)
+		client, err := coinbase.New(newctx, db, secrets.Coinbase.KID, secrets.Coinbase.PEM, cbopts)
 		if err != nil {
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}

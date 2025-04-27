@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,7 +29,8 @@ type Message struct {
 	Channel    string   `json:"channel"`
 	APIKey     string   `json:"api_key"`
 	Timestamp  string   `json:"timestamp"`
-	Signature  string   `json:"signature"`
+
+	JWT string `json:"jwt"`
 
 	Sequence int64 `json:"sequence_num,number"`
 
@@ -108,7 +108,7 @@ func (w *Websocket) dial(ctx context.Context) (*websocket.Conn, error) {
 	var dialer websocket.Dialer
 	conn, _, err := dialer.DialContext(ctx, "wss://"+w.client.opts.WebsocketHostname, nil)
 	if err != nil {
-		slog.ErrorContext(ctx, "could not dial to websocket feed", "error", err)
+		slog.Error("could not dial to websocket feed", "err", err)
 		return nil, err
 	}
 	return conn, nil
@@ -221,11 +221,13 @@ func readMessage(ctx context.Context, conn *websocket.Conn) (*Message, error) {
 		return nil, context.Cause(ctx)
 	}
 	if err != nil {
+		slog.Error("could not read websocket message", "err", err)
 		return nil, err
 	}
 
 	m := new(Message)
 	if err := json.Unmarshal(msg, m); err != nil {
+		slog.Error("could not unmarshal websocket message", "err", err)
 		return nil, err
 	}
 
@@ -234,39 +236,41 @@ func readMessage(ctx context.Context, conn *websocket.Conn) (*Message, error) {
 	// }
 
 	if m.Type == "error" {
-		log.Printf("received a websocket error message: %#v", *m)
+		slog.Warn(fmt.Sprintf("received a websocket error message: %#v", *m))
 		return nil, fmt.Errorf(m.Message)
 	}
 	return m, nil
 }
 
 func (c *Client) subscribeMsg(channel string, products []string) *Message {
+	jwt, err := c.signJWT("")
+	if err != nil {
+		slog.Error("could not create jwt token for websocket (ignored)", "err", err)
+	}
 	submsg := &Message{
 		Type:       "subscribe",
 		ProductIDs: products,
 		Channel:    channel,
 		APIKey:     c.key,
 		Timestamp:  fmt.Sprintf("%d", c.Now().Unix()),
-		Signature:  "",
+		JWT:        jwt,
 	}
-	subdata := fmt.Sprintf("%s%s%s", submsg.Timestamp, submsg.Channel, strings.Join(submsg.ProductIDs, ","))
-	signature := c.sign(subdata)
-	submsg.Signature = signature
 	return submsg
 }
 
 func (c *Client) unsubscribeMsg(channel string, products []string) *Message {
+	jwt, err := c.signJWT("")
+	if err != nil {
+		slog.Error("could not create jwt token for websocket (ignored)", "err", err)
+	}
 	unsubmsg := &Message{
 		Type:       "unsubscribe",
 		ProductIDs: products,
 		Channel:    channel,
 		APIKey:     c.key,
 		Timestamp:  fmt.Sprintf("%d", c.Now().Unix()),
-		Signature:  "",
+		JWT:        jwt,
 	}
-	unsubdata := fmt.Sprintf("%s%s%s", unsubmsg.Timestamp, unsubmsg.Channel, strings.Join(unsubmsg.ProductIDs, ","))
-	signature := c.sign(unsubdata)
-	unsubmsg.Signature = signature
 	return unsubmsg
 }
 
@@ -286,7 +290,7 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 	dispatch := func(ctx context.Context) error {
 		conn, err := w.dial(ctx)
 		if err != nil {
-			log.Printf("could not open new websocket (will retry): %v", err)
+			slog.Warn(fmt.Sprintf("could not open new websocket (will retry): %v", err))
 			return err
 		}
 		defer conn.Close()
@@ -299,17 +303,17 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 				clone, subs, unsubs := w.diff(chanProductsMap)
 				for ch, ps := range unsubs {
 					if err := conn.WriteJSON(w.client.unsubscribeMsg(ch, ps)); err != nil {
-						log.Printf("could not unsubscribe %v products from channel %s: %v", ps, ch, err)
+						slog.Error("could not unsubscribe products from channel", "channel", ch, "products", ps, "err", err)
 						return err
 					}
-					log.Printf("unsubscribed from channel %s for products %v", ch, ps)
+					slog.Debug(fmt.Sprintf("unsubscribed from channel %s for products %v", ch, ps))
 				}
 				for ch, ps := range subs {
 					if err := conn.WriteJSON(w.client.subscribeMsg(ch, ps)); err != nil {
-						log.Printf("could not subscribe to channel %s for products %v: %v", ch, ps, err)
+						slog.Error("could not subscribe to channel", "channel", ch, "products", ps, "err", err)
 						return err
 					}
-					log.Printf("subscribed to channel %s for products %v", ch, ps)
+					slog.Debug(fmt.Sprintf("subscribed to channel %s for products %v", ch, ps))
 				}
 				oldChannels := keys(chanProductsMap)
 				chanProductsMap = clone
@@ -323,7 +327,7 @@ func (c *Client) GetMessages(channel string, products []string, handler MessageH
 			msg, err := readMessage(ctx, conn)
 			if err != nil {
 				if ctx.Err() == nil {
-					log.Printf("closing the websocket connection to channels %v: %v", channels, err)
+					slog.Error("closing the websocket connection to channels", "channels", channels, "err", err)
 				}
 				return err
 			}

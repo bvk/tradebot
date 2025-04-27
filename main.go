@@ -66,6 +66,7 @@ func main() {
 		new(waller.Get),
 		new(waller.Query),
 		new(waller.Upgrade),
+		new(waller.Simulate),
 	}
 
 	exchangeCmds := []cli.Command{
@@ -82,6 +83,7 @@ func main() {
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
+		new(subcmds.Setup),
 		new(subcmds.IDGen),
 		cli.CommandGroup("fix", "Fix misc. metadata issues", fixCmds...),
 		cli.CommandGroup("job", "Control trader jobs", jobCmds...),

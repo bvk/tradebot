@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log/syslog"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -23,13 +23,13 @@ import (
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
-	"github.com/bvk/tradebot/logdir"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
+	"github.com/visvasity/sglog"
 )
 
 type Run struct {
@@ -84,8 +84,8 @@ JSON format. A example secrets file format is given below:
 
     {
         "coinbase":{
-            "key":"111111111",
-            "secret":"2222222222"
+            "kid":"organizations/org-uuid/apiKeys/key-uuid",
+            "pem":"-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIBXCw....7smegg==\n-----END EC PRIVATE KEY-----\n"
         }
     }
 
@@ -160,27 +160,11 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		return false, nil
 	}
 
-	logger, err := logdir.New(dataDir, "tradebot")
-	if err != nil {
-		return fmt.Errorf("could not create logger: %w", err)
-	}
-
-	outputs := []io.Writer{logger, os.Stderr}
 	if c.background {
 		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
 			return err
 		}
-
-		syslogger, err := syslog.New(syslog.LOG_INFO, "tradebot")
-		if err != nil {
-			return fmt.Errorf("could not create syslog: %w", err)
-		}
-		outputs = []io.Writer{logger, syslogger}
 	}
-
-	log.SetOutput(io.MultiWriter(outputs...))
-	log.SetFlags(log.Flags() | log.Lmicroseconds)
-	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
 
 	lockPath := filepath.Join(dataDir, "tradebot.lock")
 	flock, err := lockfile.New(lockPath)
@@ -209,6 +193,18 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		}
 	}
 	defer flock.Unlock()
+
+	log.SetFlags(log.Lshortfile)
+	backend := sglog.NewBackend(&sglog.Options{
+		LogFileHeader:        true,
+		LogDirs:              []string{dataDir},
+		LogFileMaxSize:       100 * 1024 * 1024,
+		LogFileReuseDuration: time.Hour,
+	})
+	defer backend.Close()
+
+	slog.SetDefault(slog.New(backend.Handler()))
+	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
 
 	// Start HTTP server.
 	s, err := httputil.New(nil /* opts */)

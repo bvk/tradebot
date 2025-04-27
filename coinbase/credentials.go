@@ -3,6 +3,6 @@
 package coinbase
 
 type Credentials struct {
-	Key    string
-	Secret string
+	KID string `json:"kid"`
+	PEM string `json:"pem"`
 }
