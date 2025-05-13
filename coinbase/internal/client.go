@@ -152,6 +152,9 @@ func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Dur
 		start := time.Now()
 		resp, err := http.Get("https://api.exchange.coinbase.com/time")
 		stop := time.Now()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
 
 		latency := stop.Sub(start)
 		if latency > maxLatency {
