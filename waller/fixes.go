@@ -5,6 +5,8 @@ package waller
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/bvk/tradebot/looper"
 	"github.com/shopspring/decimal"
@@ -23,5 +25,20 @@ func FixCancelOffset(ctx context.Context, w *Waller, offset decimal.Decimal) err
 			return fmt.Errorf("could not fix cancel offset for looper %q: %w", l.UID(), err)
 		}
 	}
+	return nil
+}
+
+// SwitchToUSD converts a waller job that is originally using USDC base type to
+// USD. Job must be PAUSED before we can apply this change.
+func SwitchToUSD(ctx context.Context, w *Waller) error {
+	if !strings.HasSuffix(w.productID, "-USDC") {
+		return fmt.Errorf("waller product %q is not using USDC: %w", w.productID, os.ErrInvalid)
+	}
+	for _, loop := range w.loopers {
+		if err := looper.SwitchToUSD(ctx, loop); err != nil {
+			return err
+		}
+	}
+	w.productID = strings.TrimSuffix(w.productID, "-USDC") + "-USD"
 	return nil
 }

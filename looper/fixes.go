@@ -5,6 +5,8 @@ package looper
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/bvk/tradebot/limiter"
 	"github.com/shopspring/decimal"
@@ -26,5 +28,25 @@ func FixCancelOffset(ctx context.Context, l *Looper, offset decimal.Decimal) err
 			return fmt.Errorf("could not fix cancel offset for limit sell %q: %w", s.UID(), err)
 		}
 	}
+	return nil
+}
+
+// SwitchToUSD converts a looper that is originally using USDC base type to
+// USD. Job must be PAUSED before we can apply this change.
+func SwitchToUSD(ctx context.Context, l *Looper) error {
+	if !strings.HasSuffix(l.productID, "-USDC") {
+		return fmt.Errorf("looper product %q is not using USDC: %w", l.productID, os.ErrInvalid)
+	}
+	for _, b := range l.buys {
+		if err := limiter.SwitchToUSD(ctx, b); err != nil {
+			return err
+		}
+	}
+	for _, s := range l.sells {
+		if err := limiter.SwitchToUSD(ctx, s); err != nil {
+			return err
+		}
+	}
+	l.productID = strings.TrimSuffix(l.productID, "-USDC") + "-USD"
 	return nil
 }
