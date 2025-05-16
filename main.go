@@ -34,6 +34,7 @@ func main() {
 		new(fix.CancelOffset),
 		new(fix.DedupLimiterIDs),
 		new(fix.ResolveOrders),
+		new(fix.SwitchToUSD),
 	}
 
 	jobCmds := []cli.Command{
