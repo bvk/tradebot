@@ -18,7 +18,7 @@ func TestProductCandles(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ex, err := New(ctx, kvmemdb.New(), testingKey, testingSecret, SubcommandOptions())
+	ex, err := New(ctx, kvmemdb.New(), testingKID, testingPEM, SubcommandOptions())
 	if err != nil {
 		t.Fatal(err)
 	}

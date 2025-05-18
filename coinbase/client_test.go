@@ -12,12 +12,12 @@ import (
 )
 
 var (
-	testingKey    string
-	testingSecret string
+	testingKID string
+	testingPEM string
 )
 
 func checkCredentials() bool {
-	if len(testingKey) != 0 && len(testingSecret) != 0 {
+	if len(testingKID) != 0 && len(testingPEM) != 0 {
 		return true
 	}
 	data, err := os.ReadFile("coinbase-creds.json")
@@ -28,9 +28,9 @@ func checkCredentials() bool {
 	if err := json.Unmarshal(data, s); err != nil {
 		return false
 	}
-	testingKey = s.Key
-	testingSecret = s.Secret
-	return len(testingKey) != 0 && len(testingSecret) != 0
+	testingKID = s.KID
+	testingPEM = s.PEM
+	return len(testingKID) != 0 && len(testingPEM) != 0
 }
 
 func TestClient(t *testing.T) {
@@ -40,7 +40,7 @@ func TestClient(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	exch, err := New(ctx, kvmemdb.New(), testingKey, testingSecret, SubcommandOptions())
+	exch, err := New(ctx, kvmemdb.New(), testingKID, testingPEM, SubcommandOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
