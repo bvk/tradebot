@@ -100,6 +100,22 @@ func (c *Client) GetBalances(ctx context.Context) (*GetBalancesResponse, error) 
 	return resp, nil
 }
 
+func (c *Client) GetUserInfo(ctx context.Context) (*GetUsersInfoResponse, error) {
+	url := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/exchange/v1/users/info",
+	}
+	resp := new(GetUsersInfoResponse)
+	if err := postJSON(ctx, c, url, nil, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not retrieve user info", "url", url, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 func getJSON[PT *T, T any](ctx context.Context, c *Client, url *url.URL, result PT) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
@@ -198,14 +214,13 @@ func postJSON[PT *T, T any](ctx context.Context, c *Client, url *url.URL, reques
 	}
 
 	var body io.Reader = resp.Body
-	/////
-	// data, err := ioutil.ReadAll(resp.Body)
-	// if err != nil {
-	// 	return err
-	// }
-	// slog.Info("response body", "data", data)
-	// body = bytes.NewReader(data)
-	/////
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	slog.Info("response body", "data", data)
+	body = bytes.NewReader(data)
+
 	if err := json.NewDecoder(body).Decode(resultPtr); err != nil {
 		slog.Error("could not decode response to json", "err", err)
 		return err

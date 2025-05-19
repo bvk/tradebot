@@ -71,4 +71,10 @@ func TestClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("GetBalances: %#v", balances)
+
+	uinfos, err := c.GetUserInfo(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("GetUsersInfo: %#v", uinfos)
 }

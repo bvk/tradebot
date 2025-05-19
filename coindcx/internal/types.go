@@ -92,3 +92,13 @@ type UserBalance struct {
 	Balance       decimal.Decimal `json:"balance"`
 	LockedBalance decimal.Decimal `json:"locked_balance"`
 }
+
+type GetUsersInfoResponse UserInfo
+
+type UserInfo struct {
+	ID           string `json:"coindcx_id"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
+	MobileNumber string `json:"mobile_number"`
+	Email        string `json:"email"`
+}
