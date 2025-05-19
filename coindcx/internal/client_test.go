@@ -59,4 +59,16 @@ func TestClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("ListMarkets: %#v", markets)
+
+	mdetails, err := c.ListMarketDetails(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("ListMarketDetails: %#v", mdetails)
+
+	balances, err := c.GetBalances(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("GetBalances: %#v", balances)
 }
