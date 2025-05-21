@@ -70,6 +70,14 @@ func TestClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js1, _ := json.MarshalIndent(exinfo, "", "  ")
-	t.Logf("%s", js1)
+	t.Logf("%#v", exinfo)
+
+	funds, err := c.GetFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", funds)
+
+	js, _ := json.MarshalIndent(funds, "", "  ")
+	t.Logf("%s", js)
 }

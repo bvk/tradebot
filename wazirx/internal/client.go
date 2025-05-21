@@ -4,14 +4,20 @@ package internal
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -157,6 +163,7 @@ func (c *Client) Now() exchange.RemoteTime {
 	return exchange.RemoteTime{Time: time.Now().Add(time.Duration(-c.timeAdjustment.Load()))}
 }
 
+// GetExchangeInfo returns basic exchange information.
 func (c *Client) GetExchangeInfo(ctx context.Context) (*GetExchangeInfoResponse, error) {
 	url := &url.URL{
 		Scheme: "https",
@@ -172,6 +179,40 @@ func (c *Client) GetExchangeInfo(ctx context.Context) (*GetExchangeInfoResponse,
 	}
 	return resp, nil
 }
+
+// GetFunds returns user account balances for all asset types.
+func (c *Client) GetFunds(ctx context.Context) (*GetFundsResponse, error) {
+	url := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/sapi/v1/funds",
+	}
+	resp := new(GetFundsResponse)
+	if err := sgetJSON(ctx, c, url, nil, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get funds", "url", url, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
+// NOTE: This API is defined, but is not supported.
+// func (c *Client) GetFundDetails(ctx context.Context) (*GetFundDetailsResponse, error) {
+// 	url := &url.URL{
+// 		Scheme: "https",
+// 		Host:   c.opts.RestHostname,
+// 		Path:   "/sapi/v1/sub_account/accounts",
+// 	}
+// 	resp := new(GetFundDetailsResponse)
+// 	if err := sgetJSON(ctx, c, url, nil, resp); err != nil {
+// 		if !errors.Is(err, context.Canceled) {
+// 			slog.Error("could not get fund details", "url", url, "err", err)
+// 		}
+// 		return nil, err
+// 	}
+// 	return resp, nil
+// }
 
 func getJSON[PT *T, T any](ctx context.Context, c *Client, url *url.URL, result PT) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
@@ -210,6 +251,214 @@ func getJSON[PT *T, T any](ctx context.Context, c *Client, url *url.URL, result 
 	// body = bytes.NewReader(data)
 
 	if err := json.NewDecoder(body).Decode(result); err != nil {
+		slog.Error("could not decode response to json", "err", err)
+		return err
+	}
+	return nil
+}
+
+func sgetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, values url.Values, resultPtr PT) error {
+	// Add timestamp item with up-to-date time.
+	if values == nil {
+		values = make(url.Values)
+	}
+	if values.Has("timestamp") {
+		return fmt.Errorf("timestamp key should not be set: %w", os.ErrInvalid)
+	}
+	now := c.Now()
+	values.Add("timestamp", fmt.Sprintf("%d", now.Time.UnixMilli()))
+	input := values.Encode()
+
+	// Compute the signature and attach it to the values.
+	if values.Has("signature") {
+		return fmt.Errorf("signature key should not be set: %w", os.ErrInvalid)
+	}
+	hash := hmac.New(sha256.New, []byte(c.secret))
+	hash.Write([]byte(input))
+	signature := hash.Sum(nil)
+	input += fmt.Sprintf("&signature=%x", signature)
+
+	log.Printf("key=%q", c.key)
+	log.Printf("secret=%q", c.secret)
+	log.Printf("input=%q", input)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addrURL.String(), strings.NewReader(input))
+	if err != nil {
+		slog.Error("could not create http post request with context", "url", addrURL, "err", err)
+		return err
+	}
+
+	req.Header.Add("X-API-KEY", c.key)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	s := time.Now()
+	resp, err := c.client.Do(req)
+	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
+		slog.Warn(fmt.Sprintf("post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
+	}
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not perform http post request", "url", addrURL, "err", err)
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	sleep := func(d time.Duration) error {
+		sctx, scancel := context.WithTimeout(ctx, d)
+		<-sctx.Done()
+		scancel()
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("http post returned unsuccessful status code", "status-code", resp.StatusCode)
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			log.Printf("server response was %s", body)
+		}
+
+		if resp.StatusCode == http.StatusBadGateway {
+			if err := sleep(time.Second); err != nil {
+				return err
+			}
+			return sgetJSON(ctx, c, addrURL, values, resultPtr)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
+			timeout := time.Second
+			if x := resp.Header.Get("Retry-After"); len(x) != 0 {
+				if v, err := strconv.Atoi(x); err == nil {
+					timeout = time.Duration(v) * time.Second
+				}
+			}
+
+			if err := sleep(timeout); err != nil {
+				return err
+			}
+			return sgetJSON(ctx, c, addrURL, values, resultPtr)
+		}
+
+		slog.Error("http POST is unsuccessful", "status", resp.StatusCode)
+		return fmt.Errorf("http POST returned %d", resp.StatusCode)
+	}
+
+	var body io.Reader = resp.Body
+	/////
+	// data, err := ioutil.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return err
+	// }
+	// slog.Info("response body", "data", data)
+	// body = bytes.NewReader(data)
+	/////
+	if err := json.NewDecoder(body).Decode(resultPtr); err != nil {
+		slog.Error("could not decode response to json", "err", err)
+		return err
+	}
+	return nil
+}
+
+func postJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, values url.Values, resultPtr PT) error {
+	// Add timestamp item with up-to-date time.
+	if values == nil {
+		values = make(url.Values)
+	}
+	if values.Has("timestamp") {
+		return fmt.Errorf("timestamp key should not be set: %w", os.ErrInvalid)
+	}
+	now := c.Now()
+	values.Add("timestamp", fmt.Sprintf("%d", now.Time.UnixMilli()))
+	input := values.Encode()
+
+	// Compute the signature and attach it to the values.
+	if values.Has("signature") {
+		return fmt.Errorf("signature key should not be set: %w", os.ErrInvalid)
+	}
+	hash := hmac.New(sha256.New, []byte(c.secret))
+	hash.Write([]byte(input))
+	signature := hash.Sum(nil)
+	input += fmt.Sprintf("&signature=%x", signature)
+
+	log.Printf("key=%q", c.key)
+	log.Printf("secret=%q", c.secret)
+	log.Printf("input=%q", input)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addrURL.String(), strings.NewReader(input))
+	if err != nil {
+		slog.Error("could not create http post request with context", "url", addrURL, "err", err)
+		return err
+	}
+
+	req.Header.Add("X-API-KEY", c.key)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	s := time.Now()
+	resp, err := c.client.Do(req)
+	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
+		slog.Warn(fmt.Sprintf("post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
+	}
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not perform http post request", "url", addrURL, "err", err)
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	sleep := func(d time.Duration) error {
+		sctx, scancel := context.WithTimeout(ctx, d)
+		<-sctx.Done()
+		scancel()
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("http post returned unsuccessful status code", "status-code", resp.StatusCode)
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			log.Printf("server response was %s", body)
+		}
+
+		if resp.StatusCode == http.StatusBadGateway {
+			if err := sleep(time.Second); err != nil {
+				return err
+			}
+			return postJSON(ctx, c, addrURL, values, resultPtr)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
+			timeout := time.Second
+			if x := resp.Header.Get("Retry-After"); len(x) != 0 {
+				if v, err := strconv.Atoi(x); err == nil {
+					timeout = time.Duration(v) * time.Second
+				}
+			}
+
+			if err := sleep(timeout); err != nil {
+				return err
+			}
+			return postJSON(ctx, c, addrURL, values, resultPtr)
+		}
+
+		slog.Error("http POST is unsuccessful", "status", resp.StatusCode)
+		return fmt.Errorf("http POST returned %d", resp.StatusCode)
+	}
+
+	var body io.Reader = resp.Body
+	/////
+	// data, err := ioutil.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return err
+	// }
+	// slog.Info("response body", "data", data)
+	// body = bytes.NewReader(data)
+	/////
+	if err := json.NewDecoder(body).Decode(resultPtr); err != nil {
 		slog.Error("could not decode response to json", "err", err)
 		return err
 	}
