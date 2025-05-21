@@ -60,3 +60,19 @@ type MarketInfo struct {
 
 	TimePeriod int64 `json:"period"`
 }
+
+type GetBalancesResponse struct {
+	Code int `json:"code"`
+
+	Message string `json:"message"`
+
+	Data []*Balance `json:"data"`
+}
+
+type Balance struct {
+	Currency string `json:"ccy"`
+
+	Available decimal.Decimal `json:"available"`
+
+	Frozen decimal.Decimal `json:"frozen"`
+}
