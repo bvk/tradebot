@@ -5,11 +5,13 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +38,7 @@ type Client struct {
 	timeAdjustment atomic.Int64
 }
 
+// New creates a client object that can perform operations on WazirX exchange.
 func New(ctx context.Context, key, secret string, opts *Options) (*Client, error) {
 	if opts == nil {
 		opts = new(Options)
@@ -147,4 +150,68 @@ func getServerTime(ctx context.Context, opts *Options) (exchange.RemoteTime, err
 	stime.Add(latency / 2)
 
 	return exchange.RemoteTime{Time: stime}, nil
+}
+
+// Now returns current server-time.
+func (c *Client) Now() exchange.RemoteTime {
+	return exchange.RemoteTime{Time: time.Now().Add(time.Duration(-c.timeAdjustment.Load()))}
+}
+
+func (c *Client) GetExchangeInfo(ctx context.Context) (*GetExchangeInfoResponse, error) {
+	url := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/sapi/v1/exchangeInfo",
+	}
+	resp := new(GetExchangeInfoResponse)
+	if err := getJSON(ctx, c, url, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get exchange info details", "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
+func getJSON[PT *T, T any](ctx context.Context, c *Client, url *url.URL, result PT) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
+	if err != nil {
+		slog.Error("could not create http get request with context", "url", url, "err", err)
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not do http client request", "err", err)
+		}
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusBadGateway {
+			slog.Warn(fmt.Sprintf("get request returned with status code 429 - too many requests (retrying after timeout)"))
+			time.Sleep(time.Second)
+			return getJSON(ctx, c, url, result)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			slog.Warn(fmt.Sprintf("get request returned with status code 429 - too many requests (retrying)"))
+			return getJSON(ctx, c, url, result)
+		}
+		slog.Error("http GET is unsuccessful", "status", resp.StatusCode, "url", url.String())
+		return fmt.Errorf("http GET returned %d", resp.StatusCode)
+	}
+	var body io.Reader = resp.Body
+
+	// data, err := io.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return err
+	// }
+	// log.Printf("response body: %s", data)
+	// body = bytes.NewReader(data)
+
+	if err := json.NewDecoder(body).Decode(result); err != nil {
+		slog.Error("could not decode response to json", "err", err)
+		return err
+	}
+	return nil
 }

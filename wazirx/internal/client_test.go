@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"testing"
-	"time"
 )
 
 var (
@@ -39,10 +38,10 @@ func checkCredentials() bool {
 }
 
 func TestClient(t *testing.T) {
-	// if !checkCredentials() {
-	// 	t.Skip("no credentials")
-	// 	return
-	// }
+	if !checkCredentials() {
+		t.Skip("no credentials")
+		return
+	}
 
 	// Set custom logging backend to capture debug messages if necessary.
 	{
@@ -67,5 +66,10 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(5 * time.Second)
+	exinfo, err := c.GetExchangeInfo(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js1, _ := json.MarshalIndent(exinfo, "", "  ")
+	t.Logf("%s", js1)
 }
