@@ -3,11 +3,16 @@
 package internal
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 )
 
 func TestClient(t *testing.T) {
-	c, err := New()
+	ctx := context.Background()
+
+	opts := &Options{}
+	c, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,4 +21,13 @@ func TestClient(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
+
+	mstatus, err := c.GetMarketStatus(ctx, "BTCUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", mstatus)
+
+	jsdata, _ := json.MarshalIndent(mstatus, "", "  ")
+	t.Logf("%s", jsdata)
 }

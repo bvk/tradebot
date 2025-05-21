@@ -2,7 +2,10 @@
 
 package internal
 
-import "net/url"
+import (
+	"net/url"
+	"time"
+)
 
 var (
 	RestURL = url.URL{
@@ -19,17 +22,13 @@ var (
 )
 
 type Options struct {
-	// URLs for the REST and WebSocket service endpoints.
-	RestURL      string
-	WebsocketURL string
+	// Timeout to use for the HTTP requests.
+	HttpClientTimeout time.Duration
 }
 
 func (v *Options) setDefaults() {
-	if v.RestURL == "" {
-		v.RestURL = RestURL.String()
-	}
-	if v.WebsocketURL == "" {
-		v.WebsocketURL = WebsocketURL.String()
+	if v.HttpClientTimeout == 0 {
+		v.HttpClientTimeout = 5 * time.Second
 	}
 }
 
