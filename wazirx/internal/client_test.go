@@ -4,10 +4,15 @@ package internal
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"log/slog"
 	"os"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -78,6 +83,35 @@ func TestClient(t *testing.T) {
 	}
 	t.Logf("%#v", funds)
 
-	js, _ := json.MarshalIndent(funds, "", "  ")
+	bchinr, err := c.GetSymbol24(ctx, "bchinr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", bchinr)
+
+	createReq := &CreateOrderRequest{
+		ClientOrderID: uuid.New().String(),
+		Symbol:        "bchinr",
+		Side:          "BUY",
+		Price:         decimal.NewFromInt(300 * 85),
+		Quantity:      decimal.NewFromFloat(0.001),
+	}
+	order, err := c.CreateOrder(ctx, createReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", order)
+
+	js, _ := json.MarshalIndent(order, "", "  ")
 	t.Logf("%s", js)
+}
+
+func TestHMAC(t *testing.T) {
+	if !checkCredentials() {
+		t.Skip("no credentials")
+		return
+	}
+	hash := hmac.New(sha256.New, []byte(testingSecret))
+	hash.Write([]byte("hello"))
+	t.Logf("%x", hash.Sum(nil))
 }

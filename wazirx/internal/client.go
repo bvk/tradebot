@@ -214,6 +214,54 @@ func (c *Client) GetFunds(ctx context.Context) (*GetFundsResponse, error) {
 // 	return resp, nil
 // }
 
+func (c *Client) GetSymbol24(ctx context.Context, symbol string) (*GetSymbol24Response, error) {
+	values := make(url.Values)
+	values.Add("symbol", symbol)
+	addrURL := &url.URL{
+		Scheme:   "https",
+		Host:     c.opts.RestHostname,
+		Path:     "/sapi/v1/ticker/24hr",
+		RawQuery: values.Encode(),
+	}
+	resp := new(GetSymbol24Response)
+	if err := getJSON(ctx, c, addrURL, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get symbol 24hr response", "symbol", symbol, "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) CreateOrder(ctx context.Context, request *CreateOrderRequest) (*CreateOrderResponse, error) {
+	if err := request.Check(); err != nil {
+		return nil, err
+	}
+
+	addrURL := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/sapi/v1/order",
+	}
+
+	values := make(url.Values)
+	values.Add("symbol", request.Symbol)
+	values.Add("type", "limit") // FIXME: Always a limit order?
+	values.Add("clientOrderId", request.ClientOrderID)
+	values.Add("side", strings.ToLower(request.Side))
+	values.Add("quantity", request.Quantity.String())
+	values.Add("price", request.Price.String())
+
+	resp := new(CreateOrderResponse)
+	if err := postJSON(ctx, c, addrURL, values, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not create order", "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 func getJSON[PT *T, T any](ctx context.Context, c *Client, url *url.URL, result PT) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
@@ -278,13 +326,9 @@ func sgetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, va
 	signature := hash.Sum(nil)
 	input += fmt.Sprintf("&signature=%x", signature)
 
-	log.Printf("key=%q", c.key)
-	log.Printf("secret=%q", c.secret)
-	log.Printf("input=%q", input)
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addrURL.String(), strings.NewReader(input))
 	if err != nil {
-		slog.Error("could not create http post request with context", "url", addrURL, "err", err)
+		slog.Error("could not create http get request with context", "url", addrURL, "err", err)
 		return err
 	}
 
@@ -294,11 +338,11 @@ func sgetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, va
 	s := time.Now()
 	resp, err := c.client.Do(req)
 	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
-		slog.Warn(fmt.Sprintf("post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
+		slog.Warn(fmt.Sprintf("get request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
 	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not perform http post request", "url", addrURL, "err", err)
+			slog.Error("could not perform http get request", "url", addrURL, "err", err)
 		}
 		return err
 	}
@@ -315,7 +359,7 @@ func sgetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, va
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("http post returned unsuccessful status code", "status-code", resp.StatusCode)
+		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode)
 		if body, err := io.ReadAll(resp.Body); err == nil {
 			log.Printf("server response was %s", body)
 		}
@@ -341,8 +385,8 @@ func sgetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, va
 			return sgetJSON(ctx, c, addrURL, values, resultPtr)
 		}
 
-		slog.Error("http POST is unsuccessful", "status", resp.StatusCode)
-		return fmt.Errorf("http POST returned %d", resp.StatusCode)
+		slog.Error("http GET is unsuccessful", "status", resp.StatusCode)
+		return fmt.Errorf("http GET returned %d", resp.StatusCode)
 	}
 
 	var body io.Reader = resp.Body
@@ -381,10 +425,6 @@ func postJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, va
 	hash.Write([]byte(input))
 	signature := hash.Sum(nil)
 	input += fmt.Sprintf("&signature=%x", signature)
-
-	log.Printf("key=%q", c.key)
-	log.Printf("secret=%q", c.secret)
-	log.Printf("input=%q", input)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addrURL.String(), strings.NewReader(input))
 	if err != nil {
