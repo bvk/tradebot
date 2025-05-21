@@ -55,20 +55,36 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) GetMarketStatus(ctx context.Context, market string) (*GetMarketStatusResponse, error) {
+func (c *Client) GetMarkets(ctx context.Context) (*GetMarketsResponse, error) {
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/spot/market"),
+	}
+	resp := new(GetMarketsResponse)
+	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get market status", "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) GetMarketInfo(ctx context.Context, market string) (*GetMarketInfoResponse, error) {
 	values := make(url.Values)
 	values.Set("market", market)
 
 	addrURL := &url.URL{
 		Scheme:   RestURL.Scheme,
 		Host:     RestURL.Host,
-		Path:     path.Join(RestURL.Path, "/spot/market"),
+		Path:     path.Join(RestURL.Path, "/spot/ticker"),
 		RawQuery: values.Encode(),
 	}
-	resp := new(GetMarketStatusResponse)
+	resp := new(GetMarketInfoResponse)
 	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not get market status", "url", addrURL, "err", err)
+			slog.Error("could not get market ticker information", "url", addrURL, "err", err)
 		}
 		return nil, err
 	}

@@ -4,7 +4,7 @@ package internal
 
 import "github.com/shopspring/decimal"
 
-type GetMarketStatusResponse struct {
+type GetMarketsResponse struct {
 	Code int `json:"code"`
 
 	Message string `json:"message"`
@@ -31,4 +31,32 @@ type MarketStatus struct {
 
 	QuoteCurrency  string `json:"quote_ccy"`
 	QuotePrecision int    `json:"quote_ccy_precision"`
+}
+
+type GetMarketInfoResponse struct {
+	Code int `json:"code"`
+
+	Message string `json:"message"`
+
+	Data []*MarketInfo `json:"data"`
+}
+
+type MarketInfo struct {
+	Market string `json:"market"`
+
+	LastPrice decimal.Decimal `json:"last"`
+
+	OpenPrice  decimal.Decimal `json:"open"`
+	ClosePrice decimal.Decimal `json:"close"`
+
+	HighPrice decimal.Decimal `json:"high"`
+	LowPrice  decimal.Decimal `json:"low"`
+
+	FilledVolume decimal.Decimal `json:"volume"`
+	FilledValue  decimal.Decimal `json:"value"`
+
+	SoldVolume   decimal.Decimal `json:"volume_sell"`
+	BoughtVolume decimal.Decimal `json:"volume_buy"`
+
+	TimePeriod int64 `json:"period"`
 }

@@ -22,12 +22,18 @@ func TestClient(t *testing.T) {
 		}
 	}()
 
-	mstatus, err := c.GetMarketStatus(ctx, "BTCUSDT")
+	markets, err := c.GetMarkets(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%#v", mstatus)
+	t.Logf("%#v", markets)
 
-	jsdata, _ := json.MarshalIndent(mstatus, "", "  ")
+	minfo, err := c.GetMarketInfo(ctx, "BCHUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", minfo)
+
+	jsdata, _ := json.MarshalIndent(minfo, "", "  ")
 	t.Logf("%s", jsdata)
 }
