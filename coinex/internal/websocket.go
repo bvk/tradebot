@@ -4,19 +4,26 @@ package internal
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"os"
+	"slices"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/syncmap"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -121,7 +128,17 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 		return err
 	}
 
-	// TODO: Re-subscribe to all channels.
+	// Subscribe for state.update messages on markets.
+	var markets []string
+	for m, _ := range c.marketDealUpdateMap.Range {
+		markets = append(markets, m)
+	}
+	if len(markets) > 0 {
+		if err := c.websocketMarketListSubscribe(ctx, "deals.subscribe", markets); err != nil {
+			slog.Error("could not resubscribe for market deal updates", "markets", markets, "err", err)
+			return err
+		}
+	}
 
 	for ctx.Err() == nil {
 		if err := c.websocketPing(ctx); err != nil {
@@ -283,60 +300,99 @@ func (c *Client) websocketServerTime(ctx context.Context) (exchange.RemoteTime, 
 }
 
 func (c *Client) websocketSign(ctx context.Context) error {
-	return nil // TODO
+	type Params struct {
+		Key       string `json:"access_id"`
+		Signature string `json:"signed_str"`
+		Timestamp int64  `json:"timestamp"`
+	}
+
+	now := time.Now().UnixMilli()
+	timestamp := strconv.FormatInt(now, 10)
+	hash := hmac.New(sha256.New, []byte(c.secret))
+	io.WriteString(hash, timestamp)
+	signature := hash.Sum(nil)
+
+	p := &Params{
+		Key:       c.key,
+		Timestamp: now,
+		Signature: hex.EncodeToString(signature),
+	}
+	params, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	jsresp, err := c.websocketCall(ctx, "server.time", json.RawMessage(params))
+	if err != nil {
+		slog.Error("could not authenticate with websocket", "err", err)
+		return err
+	}
+	log.Printf("sign-response: %s", jsresp)
+	return nil
 }
 
-// func (c *Client) Subscribe(ctx context.Context, market string) error {
-// 	type Params struct {
-// 		MarketList []string `json:"market_list"`
-// 	}
-// 	p := &Params{
-// 		MarketList: []string{market},
-// 	}
-// 	jsdata, err := json.Marshal(p)
-// 	if err != nil {
-// 		return err
-// 	}
+func (c *Client) websocketMarketListSubscribe(ctx context.Context, method string, markets []string) error {
+	type Params struct {
+		MarketList []string `json:"market_list"`
+	}
+	p := &Params{
+		MarketList: markets,
+	}
+	params, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
 
-// 	msg := &WriteMessage{
-// 		Method: "index.subscribe",
-// 		ID:     1,
-// 		Params: json.RawMessage(jsdata),
-// 	}
-// 	select {
-// 	case <-ctx.Done():
-// 		return context.Cause(ctx)
-// 	case c.websocketSendCh <- msg:
-// 		return nil
-// 	}
-// }
+	if resp, err := c.websocketCall(ctx, method, params); err != nil {
+		log.Printf("subscribe with market list request failed: response=%s", resp)
+		slog.Error("could not subscribe with market list", "method", method, "markets", markets)
+		return err
+	}
+	return nil
+}
 
-// func (c *Client) Unsubscribe(ctx context.Context, market string) error {
-// 	type Params struct {
-// 		MarketList []string `json:"market_list"`
-// 	}
-// 	p := &Params{
-// 		MarketList: []string{market},
-// 	}
-// 	jsdata, err := json.Marshal(p)
-// 	if err != nil {
-// 		return err
-// 	}
+func (c *Client) websocketMarketListUnsubscribe(ctx context.Context, method string, markets []string) error {
+	type Params struct {
+		MarketList []string `json:"market_list"`
+	}
+	p := &Params{
+		MarketList: markets,
+	}
+	params, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
 
-// 	msg := &WriteMessage{
-// 		Method: "index.unsubscribe",
-// 		ID:     1,
-// 		Params: json.RawMessage(jsdata),
-// 	}
-// 	select {
-// 	case <-ctx.Done():
-// 		return context.Cause(ctx)
-// 	case c.websocketSendCh <- msg:
-// 		return nil
-// 	}
-// }
+	if resp, err := c.websocketCall(ctx, method, params); err != nil {
+		log.Printf("unsubscribe with market list request failed: response=%s", resp)
+		slog.Error("could not unsubscribe with market list", "method", method, "markets", markets)
+		return err
+	}
+	return nil
+}
 
-func (c *Client) onIndexUpdate(ctx context.Context, notice *WebsocketNotice) error {
-	log.Printf("method=%s data=%s", notice.Method, notice.Data)
+func (c *Client) onDealUpdate(ctx context.Context, notice *WebsocketNotice) error {
+	type Data struct {
+		Market   string        `json:"market"`
+		DealList []*DealUpdate `json:"deal_list"`
+	}
+	var data Data
+	if err := json.Unmarshal([]byte(notice.Data), &data); err != nil {
+		slog.Error("could not unmarshal deal.update data", "err", err)
+		log.Printf("deal.update notice data=%s", notice.Data)
+		return err
+	}
+
+	latest := slices.MaxFunc(data.DealList, func(a, b *DealUpdate) int {
+		return cmp.Compare(a.CreatedAtUnixMilli, b.CreatedAtUnixMilli)
+	})
+
+	if topic, ok := c.marketDealUpdateMap.Load(data.Market); ok {
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case topic.SendCh() <- latest:
+			log.Printf("market=%s timestamp=%d price=%v", data.Market, latest.CreatedAtUnixMilli, latest.Price)
+		}
+	}
 	return nil
 }

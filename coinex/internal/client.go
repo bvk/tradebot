@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/syncmap"
+
+	"github.com/bvkgo/topic"
 )
 
 type WebsocketNoticeHandler func(context.Context, *WebsocketNotice) error
@@ -37,6 +39,8 @@ type Client struct {
 	client http.Client
 
 	key, secret string
+
+	marketDealUpdateMap syncmap.Map[string, *topic.Topic[*DealUpdate]]
 
 	websocketHandlerMap map[string]WebsocketNoticeHandler
 
@@ -67,7 +71,7 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		websocketHandlerMap: make(map[string]WebsocketNoticeHandler),
 		websocketCallCh:     make(chan *websocketCall, 10),
 	}
-	c.websocketHandlerMap["index.update"] = c.onIndexUpdate
+	c.websocketHandlerMap["deals.update"] = c.onDealUpdate
 
 	c.wg.Add(1)
 	go c.goGetMessages(c.lifeCtx)
@@ -117,6 +121,7 @@ func (c *Client) GetMarketInfo(ctx context.Context, market string) (*GetMarketIn
 	return resp, nil
 }
 
+// GetBalances retrieves all funds information in spot accounts.
 func (c *Client) GetBalances(ctx context.Context) (*GetBalancesResponse, error) {
 	addrURL := &url.URL{
 		Scheme: RestURL.Scheme,
@@ -131,6 +136,33 @@ func (c *Client) GetBalances(ctx context.Context) (*GetBalancesResponse, error) 
 		return nil, err
 	}
 	return resp, nil
+}
+
+// WatchMarket subscribes to streaming updates for a market.
+func (c *Client) WatchMarket(ctx context.Context, market string) error {
+	if _, ok := c.marketDealUpdateMap.Load(market); ok {
+		return os.ErrExist
+	}
+	if err := c.websocketMarketListSubscribe(ctx, "deals.subscribe", []string{market}); err != nil {
+		return err
+	}
+	c.marketDealUpdateMap.LoadOrStore(market, topic.New[*DealUpdate]())
+	return nil
+}
+
+// UnwatchMarket unsubscribes from streaming updates for a market.
+func (c *Client) UnwatchMarket(ctx context.Context, market string) error {
+	old, ok := c.marketDealUpdateMap.Load(market)
+	if !ok {
+		return os.ErrNotExist
+	}
+	if err := c.websocketMarketListUnsubscribe(ctx, "deals.unsubscribe", []string{market}); err != nil {
+		return err
+	}
+	if ok := c.marketDealUpdateMap.CompareAndDelete(market, old); ok {
+		old.Close()
+	}
+	return nil
 }
 
 func (c *Client) do(ctx context.Context, method string, addrURL *url.URL, body string) (*http.Response, error) {

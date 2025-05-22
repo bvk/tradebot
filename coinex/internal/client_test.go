@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 var (
@@ -135,6 +136,10 @@ func TestWebsocket(t *testing.T) {
 	}
 	t.Logf("server-time: %v", stime)
 
+	if err := c.websocketSign(ctx); err != nil {
+		t.Fatal(err)
+	}
+
 	// Check for thread-safey in websocket-calls.
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -154,4 +159,16 @@ func TestWebsocket(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+
+	// Subscribe for market price updates.
+	if err := c.WatchMarket(ctx, "BTCUSDT"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := c.UnwatchMarket(ctx, "BTCUSDT"); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	time.Sleep(time.Second)
 }

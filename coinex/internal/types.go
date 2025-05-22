@@ -125,3 +125,13 @@ type websocketCall struct {
 	doneCh chan struct{} `json:"-"`
 	status error         `json:"-"`
 }
+
+type DealUpdate struct {
+	DealID int64 `json:"deal_id"`
+
+	Side   string          `json:"side"`
+	Price  decimal.Decimal `json:"price"`
+	Amount decimal.Decimal `json:"amount"`
+
+	CreatedAtUnixMilli int64 `json:"created_at"`
+}
