@@ -18,18 +18,30 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/bvk/tradebot/syncmap"
 )
+
+type WebsocketNoticeHandler func(context.Context, *WebsocketNotice) error
 
 type Client struct {
 	lifeCtx    context.Context
 	lifeCancel context.CancelCauseFunc
+
+	wg sync.WaitGroup
 
 	opts Options
 
 	client http.Client
 
 	key, secret string
+
+	websocketHandlerMap map[string]WebsocketNoticeHandler
+
+	websocketCallCh  chan *websocketCall
+	websocketCallMap syncmap.Map[int64, *websocketCall]
 }
 
 // New returns a new client instance.
@@ -52,13 +64,20 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		client: http.Client{
 			Timeout: opts.HttpClientTimeout,
 		},
+		websocketHandlerMap: make(map[string]WebsocketNoticeHandler),
+		websocketCallCh:     make(chan *websocketCall, 10),
 	}
+	c.websocketHandlerMap["index.update"] = c.onIndexUpdate
+
+	c.wg.Add(1)
+	go c.goGetMessages(c.lifeCtx)
 	return c, nil
 }
 
 // Close releases resources and destroys the client instance.
 func (c *Client) Close() error {
 	c.lifeCancel(os.ErrClosed)
+	c.wg.Wait()
 	return nil
 }
 

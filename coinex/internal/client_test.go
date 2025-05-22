@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 )
 
@@ -74,4 +75,83 @@ func TestClient(t *testing.T) {
 
 	jsdata, _ := json.MarshalIndent(balances, "", "  ")
 	t.Logf("%s", jsdata)
+}
+
+func TestJSONRawMessage(t *testing.T) {
+	v := `{
+    "id": 1,
+    "code": 0,
+    "data": {
+        "result": "pong"
+    },
+    "message": "OK"
+}`
+	var msg json.RawMessage
+	if err := json.Unmarshal([]byte(v), &msg); err != nil {
+		t.Fatal(err)
+	}
+	header := new(WebsocketHeader)
+	if err := json.Unmarshal([]byte(msg), header); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", header)
+
+	response := new(WebsocketResponse)
+	if err := json.Unmarshal([]byte(msg), response); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", response)
+
+	jsdata, _ := json.MarshalIndent(response, "", "  ")
+	t.Logf("%s", jsdata)
+}
+
+func TestWebsocket(t *testing.T) {
+	if !checkCredentials() {
+		t.Skip("no credentials")
+		return
+	}
+
+	ctx := context.Background()
+
+	opts := &Options{}
+	c, err := New(testingKey, testingSecret, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	if err := c.websocketPing(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	stime, err := c.websocketServerTime(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("server-time: %v", stime)
+
+	// Check for thread-safey in websocket-calls.
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			if i%2 == 0 {
+				if err := c.websocketPing(ctx); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if _, err := c.websocketServerTime(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }

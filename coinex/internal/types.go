@@ -2,7 +2,11 @@
 
 package internal
 
-import "github.com/shopspring/decimal"
+import (
+	"encoding/json"
+
+	"github.com/shopspring/decimal"
+)
 
 type GetMarketsResponse struct {
 	Code int `json:"code"`
@@ -75,4 +79,49 @@ type Balance struct {
 	Available decimal.Decimal `json:"available"`
 
 	Frozen decimal.Decimal `json:"frozen"`
+}
+
+type WebsocketHeader struct {
+	ID     *int64  `json:"id"`
+	Method *string `json:"method"`
+}
+
+func (v *WebsocketHeader) IsRequest() bool {
+	return v.ID != nil && v.Method != nil
+}
+
+func (v *WebsocketHeader) IsResponse() bool {
+	return v.ID != nil && v.Method == nil
+}
+
+func (v *WebsocketHeader) IsNotice() bool {
+	return v.ID == nil && v.Method != nil
+}
+
+type WebsocketResponse struct {
+	ID      int64  `json:"id"`
+	Code    int64  `json:"code"`
+	Message string `json:"message"`
+
+	Data json.RawMessage `json:"data"`
+}
+
+type WebsocketRequest struct {
+	ID     int64  `json:"id"`
+	Method string `json:"method"`
+
+	Params json.RawMessage `json:"params"`
+}
+
+type WebsocketNotice struct {
+	Method string          `json:"method"`
+	Data   json.RawMessage `json:"data"`
+}
+
+type websocketCall struct {
+	Request  WebsocketRequest
+	Response WebsocketResponse
+
+	doneCh chan struct{} `json:"-"`
+	status error         `json:"-"`
 }
