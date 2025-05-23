@@ -8,6 +8,14 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+type GenericResponse struct {
+	Code int `json:"code"`
+
+	Message string `json:"message"`
+
+	Data json.RawMessage `json:"data"`
+}
+
 type GetMarketsResponse struct {
 	Code int `json:"code"`
 
@@ -134,4 +142,58 @@ type DealUpdate struct {
 	Amount decimal.Decimal `json:"amount"`
 
 	CreatedAtUnixMilli int64 `json:"created_at"`
+}
+
+type CreateOrderRequest struct {
+	ClientOrderID string          `json:"client_id"`
+	Market        string          `json:"market"`
+	MarketType    string          `json:"market_type"`
+	Side          string          `json:"side"`
+	OrderType     string          `json:"type"`
+	Currency      string          `json:"ccy"`
+	Amount        decimal.Decimal `json:"amount"`
+	Price         decimal.Decimal `json:"price"`
+	IsHidden      bool            `json:"is_hide"`
+	STPMode       string          `json:"stp_mode"`
+}
+
+type CreateOrderResponse struct {
+	Code    int        `json:"code"`
+	Message string     `json:"message"`
+	Data    *FullOrder `json:"data"`
+}
+
+type FullOrder struct {
+	OrderID          int64           `json:"order_id"`
+	ClientOrderID    string          `json:"client_id"`
+	Market           string          `json:"market"`
+	MarketType       string          `json:"market_type"`
+	Side             string          `json:"side"`
+	OrderType        string          `json:"type"`
+	Currency         string          `json:"ccy"`
+	Amount           decimal.Decimal `json:"amount"`
+	Price            decimal.Decimal `json:"price"`
+	UnfilledAmount   decimal.Decimal `json:"unfilled_amount"`
+	FilledAmount     decimal.Decimal `json:"filled_amount"`
+	LastFilledAmount decimal.Decimal `json:"last_filled_amount"`
+	LastFilledPrice  decimal.Decimal `json:"last_filled_price"`
+	BaseFee          decimal.Decimal `json:"base_fee"`
+	QuoteFee         decimal.Decimal `json:"quote_fee"`
+	DiscountFee      decimal.Decimal `json:"discount_fee"`
+	MakerFeeRate     decimal.Decimal `json:"maker_fee_rate"`
+	TakerFeeRate     decimal.Decimal `json:"taker_fee_rate"`
+	CreatedAt        int64           `json:"created_at"`
+	UpdatedAt        int64           `json:"updated_at"`
+}
+
+type CancelOrderRequest struct {
+	OrderID    int64  `json:"order_id"`
+	Market     string `json:"market"`
+	MarketType string `json:"market_type"`
+}
+
+type CancelOrderResponse struct {
+	Code    int        `json:"code"`
+	Message string     `json:"message"`
+	Data    *FullOrder `json:"data"`
 }

@@ -101,6 +101,26 @@ func (c *Client) GetMarkets(ctx context.Context) (*GetMarketsResponse, error) {
 	return resp, nil
 }
 
+func (c *Client) GetMarket(ctx context.Context, market string) (*GetMarketsResponse, error) {
+	values := make(url.Values)
+	values.Set("market", market)
+
+	addrURL := &url.URL{
+		Scheme:   RestURL.Scheme,
+		Host:     RestURL.Host,
+		Path:     path.Join(RestURL.Path, "/spot/market"),
+		RawQuery: values.Encode(),
+	}
+	resp := new(GetMarketsResponse)
+	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get market status", "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (c *Client) GetMarketInfo(ctx context.Context, market string) (*GetMarketInfoResponse, error) {
 	values := make(url.Values)
 	values.Set("market", market)
@@ -138,6 +158,43 @@ func (c *Client) GetBalances(ctx context.Context) (*GetBalancesResponse, error) 
 	return resp, nil
 }
 
+func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*CreateOrderResponse, error) {
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/spot/order"),
+	}
+	resp := new(CreateOrderResponse)
+	if err := privatePostJSON(ctx, c, addrURL, req /* request */, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not create order", "market", req.Market, "side", req.Side, "price", req.Price, "size", req.Amount, "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) CancelOrder(ctx context.Context, market, marketType string, orderID int64) (*CancelOrderResponse, error) {
+	req := CancelOrderRequest{
+		Market:     market,
+		MarketType: marketType,
+		OrderID:    orderID,
+	}
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/spot/cancel-order"),
+	}
+	resp := new(CancelOrderResponse)
+	if err := privatePostJSON(ctx, c, addrURL, &req, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not cancel order", "orderID", orderID, "market", market, "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 // WatchMarket subscribes to streaming updates for a market.
 func (c *Client) WatchMarket(ctx context.Context, market string) error {
 	if _, ok := c.marketDealUpdateMap.Load(market); ok {
@@ -165,7 +222,7 @@ func (c *Client) UnwatchMarket(ctx context.Context, market string) error {
 	return nil
 }
 
-func (c *Client) do(ctx context.Context, method string, addrURL *url.URL, body string) (*http.Response, error) {
+func (c *Client) do(ctx context.Context, method string, addrURL *url.URL, body, contentType string) (*http.Response, error) {
 	var sb strings.Builder
 	sb.WriteString(method)
 	sb.WriteString(addrURL.Path)
@@ -191,6 +248,9 @@ func (c *Client) do(ctx context.Context, method string, addrURL *url.URL, body s
 		return nil, err
 	}
 
+	if len(contentType) != 0 {
+		req.Header.Add("Content-Type", contentType)
+	}
 	req.Header.Add("X-COINEX-KEY", c.key)
 	req.Header.Add("X-COINEX-SIGN", fmt.Sprintf("%x", signature))
 	req.Header.Add("X-COINEX-TIMESTAMP", timestamp)
@@ -286,13 +346,15 @@ func sleep(ctx context.Context, d time.Duration) error {
 
 func privateGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, request any, response PT) error {
 	var sb strings.Builder
+	contentType := ""
 	if request != nil {
 		if err := json.NewEncoder(&sb).Encode(request); err != nil {
 			return err
 		}
+		contentType = "application/json"
 	}
 
-	resp, err := c.do(ctx, http.MethodGet, addrURL, sb.String())
+	resp, err := c.do(ctx, http.MethodGet, addrURL, sb.String(), contentType)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not perform http get request", "url", addrURL, "err", err)
@@ -342,6 +404,76 @@ func privateGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.U
 	// body = bytes.NewReader(data)
 	/////
 	if err := json.NewDecoder(body).Decode(response); err != nil {
+		slog.Error("could not decode response to json", "err", err)
+		return err
+	}
+	return nil
+}
+
+func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, request any, response PT) error {
+	var sb strings.Builder
+	if request != nil {
+		if err := json.NewEncoder(&sb).Encode(request); err != nil {
+			return err
+		}
+	}
+
+	resp, err := c.do(ctx, http.MethodPost, addrURL, sb.String(), "application/json")
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not perform http get request", "url", addrURL, "err", err)
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode)
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			log.Printf("server response was %s", body)
+		}
+
+		if resp.StatusCode == http.StatusBadGateway {
+			if err := sleep(ctx, time.Second); err != nil {
+				return err
+			}
+			return privateGetJSON(ctx, c, addrURL, request, response)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
+			timeout := time.Second
+			if x := resp.Header.Get("Retry-After"); len(x) != 0 {
+				if v, err := strconv.Atoi(x); err == nil {
+					timeout = time.Duration(v) * time.Second
+				}
+			}
+
+			if err := sleep(ctx, timeout); err != nil {
+				return err
+			}
+			return privateGetJSON(ctx, c, addrURL, request, response)
+		}
+
+		slog.Error("http GET is unsuccessful", "status", resp.StatusCode)
+		return fmt.Errorf("http GET returned %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	// Parse into a generic response.
+	var genericResp GenericResponse
+	if err := json.Unmarshal(data, &genericResp); err != nil {
+		slog.Error("could not unmarshal into generic response", "response", string(data), "err", err)
+		return err
+	}
+	if genericResp.Code != 0 {
+		slog.Error("POST request failed", "url", addrURL, "body", sb.String(), "response", string(data), "err", err)
+		return fmt.Errorf("failed with code=%d message=%s", genericResp.Code, genericResp.Message)
+	}
+
+	if err := json.Unmarshal(data, response); err != nil {
 		slog.Error("could not decode response to json", "err", err)
 		return err
 	}

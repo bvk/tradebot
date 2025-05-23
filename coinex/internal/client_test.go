@@ -6,9 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -161,14 +165,57 @@ func TestWebsocket(t *testing.T) {
 	wg.Wait()
 
 	// Subscribe for market price updates.
-	if err := c.WatchMarket(ctx, "BTCUSDT"); err != nil {
+	if err := c.WatchMarket(ctx, "DOGEUSDT"); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
-		if err := c.UnwatchMarket(ctx, "BTCUSDT"); err != nil {
+		if err := c.UnwatchMarket(ctx, "DOGEUSDT"); err != nil {
 			t.Error(err)
 		}
 	}()
 
-	time.Sleep(time.Second)
+	mstatus, err := c.GetMarket(ctx, "DOGEUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", mstatus)
+
+	minfo, err := c.GetMarketInfo(ctx, "DOGEUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", minfo)
+
+	price := minfo.Data[0].LastPrice.Mul(decimal.NewFromFloat(0.09))
+	size := mstatus.Data[0].MinAmount
+
+	createReq := &CreateOrderRequest{
+		ClientOrderID: strings.ReplaceAll(uuid.New().String(), "-", ""),
+		Market:        "DOGEUSDT",
+		MarketType:    "SPOT",
+		Side:          "buy",
+		OrderType:     "limit",
+		Amount:        size,
+		Price:         price,
+	}
+	createResp, err := c.CreateOrder(ctx, createReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v", createResp)
+	defer func() {
+		cancelResp, err := c.CancelOrder(ctx, createReq.Market, createReq.MarketType, createResp.Data.OrderID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("cancel-response: %#v", cancelResp)
+
+		jsdata, _ := json.MarshalIndent(cancelResp, "", "  ")
+		t.Logf("%s", jsdata)
+	}()
+
+	jsdata, _ := json.MarshalIndent(createResp, "", "  ")
+	t.Logf("%s", jsdata)
+
+	time.Sleep(5 * time.Second)
 }
