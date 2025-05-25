@@ -54,7 +54,7 @@ func (v *Looper) readyWaitForBuy(ctx context.Context, rt *trader.Runtime) {
 	tickerCh, stopTickers := rt.Product.TickerCh()
 	defer stopTickers()
 
-	var tick *exchange.Ticker
+	var tick exchange.Ticker
 	for !v.isReady(tick) {
 		select {
 		case <-ctx.Done():
@@ -68,13 +68,14 @@ func (v *Looper) readyWaitForSell(ctx context.Context, rt *trader.Runtime) {
 	tickerCh, stopTickers := rt.Product.TickerCh()
 	defer stopTickers()
 
-	var tick *exchange.Ticker
+	var tick exchange.Ticker
 	for !v.isReady(tick) {
 		select {
 		case <-ctx.Done():
 			return
 		case tick = <-tickerCh:
-			if tick.Price.GreaterThanOrEqual(v.sellPoint.Price) {
+			price, _ := tick.PricePoint()
+			if price.GreaterThanOrEqual(v.sellPoint.Price) {
 				return
 			}
 		}
@@ -224,7 +225,7 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 		case <-ctx.Done():
 			return context.Cause(ctx)
 		case ticker := <-tickerCh:
-			curPrice = ticker.Price
+			curPrice, _ = ticker.PricePoint()
 		}
 	}
 	log.Printf("%s: adding new limit-buy buy-%06d at buy-price %s when current price is %s", v.uid, len(v.buys), v.buyPoint.Price.StringFixed(3), curPrice.StringFixed(3))

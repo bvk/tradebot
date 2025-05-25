@@ -38,9 +38,8 @@ type Order struct {
 	DoneReason string
 }
 
-type Ticker struct {
-	Timestamp RemoteTime
-	Price     decimal.Decimal
+type Ticker interface {
+	PricePoint() (decimal.Decimal, RemoteTime)
 }
 
 type Product interface {
@@ -50,7 +49,7 @@ type Product interface {
 	ExchangeName() string
 	BaseMinSize() decimal.Decimal
 
-	TickerCh() (ch <-chan *Ticker, stopf func())
+	TickerCh() (ch <-chan Ticker, stopf func())
 	OrderUpdatesCh() (ch <-chan *Order, stopf func())
 
 	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)

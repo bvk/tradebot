@@ -164,11 +164,12 @@ func (v *Looper) UnsoldValue() decimal.Decimal {
 }
 
 // isReady returns true if ticker price is inside the looper action range.
-func (v *Looper) isReady(ticker *exchange.Ticker) bool {
+func (v *Looper) isReady(ticker exchange.Ticker) bool {
 	if ticker == nil {
 		return false
 	}
-	return v.buyPoint.InRange(ticker.Price) || v.sellPoint.InRange(ticker.Price)
+	price, _ := ticker.PricePoint()
+	return v.buyPoint.InRange(price) || v.sellPoint.InRange(price)
 }
 
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {

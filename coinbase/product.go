@@ -23,9 +23,9 @@ type Product struct {
 
 	exchange *Exchange
 
-	lastTicker *exchange.Ticker
+	lastTicker *exchange.SimpleTicker
 
-	prodTickerTopic *topic.Topic[*exchange.Ticker]
+	prodTickerTopic *topic.Topic[exchange.Ticker]
 	prodOrderTopic  *topic.Topic[*exchange.Order]
 
 	productData *internal.GetProductResponse
@@ -47,7 +47,7 @@ func (ex *Exchange) OpenProduct(ctx context.Context, pid string) (_ exchange.Pro
 		client:          ex.client,
 		exchange:        ex,
 		productData:     product,
-		prodTickerTopic: topic.New[*exchange.Ticker](),
+		prodTickerTopic: topic.New[exchange.Ticker](),
 		prodOrderTopic:  topic.New[*exchange.Order](),
 		websocket:       ex.client.GetMessages("heartbeats", []string{pid}, ex.dispatchMessage),
 	}
@@ -75,7 +75,7 @@ func (p *Product) BaseMinSize() decimal.Decimal {
 	return p.productData.BaseMinSize.Decimal
 }
 
-func (p *Product) TickerCh() (<-chan *exchange.Ticker, func()) {
+func (p *Product) TickerCh() (<-chan exchange.Ticker, func()) {
 	sub, ch, _ := p.prodTickerTopic.Subscribe(1, true /* includeRecent */)
 	return ch, sub.Unsubscribe
 }
@@ -196,12 +196,12 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) er
 }
 
 func (p *Product) handleTickerEvent(timestamp time.Time, event *internal.TickerEvent) {
-	if p.lastTicker != nil && timestamp.Before(p.lastTicker.Timestamp.Time) {
+	if p.lastTicker != nil && timestamp.Before(p.lastTicker.ServerTime.Time) {
 		return
 	}
-	p.lastTicker = &exchange.Ticker{
-		Timestamp: exchange.RemoteTime{Time: timestamp},
-		Price:     event.Price.Decimal,
+	p.lastTicker = &exchange.SimpleTicker{
+		ServerTime: exchange.RemoteTime{Time: timestamp},
+		Price:      event.Price.Decimal,
 	}
 	p.prodTickerTopic.Send(p.lastTicker)
 }

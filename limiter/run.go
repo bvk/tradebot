@@ -107,6 +107,8 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 
 		case ticker := <-tickerCh:
+			tickerPrice, _ := ticker.PricePoint()
+
 			// We should pause this job when hold option is set, effectively pausing
 			// the job. We should cancel active order if any.
 			if v.holdOpt.Load() {
@@ -135,12 +137,12 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 
 			// Do not create orders when we need to wait for ticker side.
-			if activeOrderID == "" && !v.isTickerSideReady(ticker.Price) {
+			if activeOrderID == "" && !v.isTickerSideReady(tickerPrice) {
 				continue
 			}
 
 			if v.IsSell() {
-				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
+				if tickerPrice.LessThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
@@ -149,7 +151,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						activeOrderID = ""
 					}
 				}
-				if ticker.Price.GreaterThan(v.point.Cancel) {
+				if tickerPrice.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
 						id, err := v.create(localCtx, rt.Product)
 						if err != nil {
@@ -163,7 +165,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 
 			if v.IsBuy() {
-				if ticker.Price.GreaterThanOrEqual(v.point.Cancel) {
+				if tickerPrice.GreaterThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
@@ -172,7 +174,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						activeOrderID = ""
 					}
 				}
-				if ticker.Price.LessThan(v.point.Cancel) {
+				if tickerPrice.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
 						id, err := v.create(localCtx, rt.Product)
 						if err != nil {
