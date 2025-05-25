@@ -11,7 +11,7 @@ import (
 )
 
 func Equal(a, b *Order) bool {
-	return a.OrderID == b.OrderID &&
+	return a.ServerOrderID == b.ServerOrderID &&
 		a.ClientOrderID == b.ClientOrderID &&
 		a.Side == b.Side &&
 		a.CreateTime.Time.Equal(b.CreateTime.Time) &&
@@ -24,7 +24,7 @@ func Equal(a, b *Order) bool {
 }
 
 func Merge(known, update *Order) *Order {
-	if known.OrderID != update.OrderID {
+	if known.ServerOrderID != update.ServerOrderID {
 		return known
 	}
 
@@ -72,8 +72,8 @@ func Merge(known, update *Order) *Order {
 }
 
 func (v *Order) String() string {
-	return fmt.Sprintf("{ID: %s ClientID %s Side %s Price %s Size %s Fee %s Status %s CreatedAt %s}",
-		v.OrderID, v.ClientOrderID, v.Side, v.FilledPrice.StringFixed(3), v.FilledSize.StringFixed(3), v.Fee.StringFixed(3), v.Status, v.CreateTime.Time.Format(time.DateTime))
+	return fmt.Sprintf("{OrderID: %s ClientID %s Side %s Price %s Size %s Fee %s Status %s CreatedAt %s}",
+		v.ServerOrderID, v.ClientOrderID, v.Side, v.FilledPrice.StringFixed(3), v.FilledSize.StringFixed(3), v.Fee.StringFixed(3), v.Status, v.CreateTime.Time.Format(time.DateTime))
 }
 
 func FilledSize(vs []*gobs.Order) decimal.Decimal {

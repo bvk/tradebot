@@ -55,7 +55,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 	var activeOrderID exchange.OrderID
 	if nlive != 0 {
-		activeOrderID = live[0].OrderID
+		activeOrderID = live[0].ServerOrderID
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
 
@@ -101,7 +101,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 		case order := <-orderUpdatesCh:
 			dirty++
 			v.updateOrderMap(order)
-			if order.Done && order.OrderID == activeOrderID {
+			if order.Done && order.ServerOrderID == activeOrderID {
 				log.Printf("%s:%s: limit order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
 			}
@@ -249,7 +249,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	}
 
 	v.orderMap.Store(orderID, &exchange.Order{
-		OrderID:       orderID,
+		ServerOrderID: orderID,
 		ClientOrderID: clientOrderID.String(),
 		Side:          v.point.Side(),
 	})

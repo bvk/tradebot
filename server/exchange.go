@@ -24,7 +24,7 @@ func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 	}
 	resp := &api.ExchangeGetOrderResponse{
 		Order: &gobs.Order{
-			ServerOrderID: string(order.OrderID),
+			ServerOrderID: string(order.ServerOrderID),
 			ClientOrderID: order.ClientOrderID,
 			Side:          order.Side,
 			Status:        order.Status,

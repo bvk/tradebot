@@ -147,7 +147,7 @@ func (v *Limiter) Actions() []*gobs.Action {
 	for _, order := range v.dupOrderMap() {
 		if order.Done && !order.FilledSize.IsZero() {
 			gorder := &gobs.Order{
-				ServerOrderID: string(order.OrderID),
+				ServerOrderID: string(order.ServerOrderID),
 				ClientOrderID: order.ClientOrderID,
 				CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
 				FinishTime:    gobs.RemoteTime{Time: order.FinishTime.Time},
@@ -238,8 +238,8 @@ func (v *Limiter) compactOrderMap() {
 }
 
 func (v *Limiter) updateOrderMap(order *exchange.Order) {
-	if _, ok := v.orderMap.Load(order.OrderID); ok {
-		v.orderMap.Store(order.OrderID, order)
+	if _, ok := v.orderMap.Load(order.ServerOrderID); ok {
+		v.orderMap.Store(order.ServerOrderID, order)
 	}
 }
 
@@ -262,7 +262,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	}
 	for k, v := range v.dupOrderMap() {
 		order := &gobs.Order{
-			ServerOrderID: string(v.OrderID),
+			ServerOrderID: string(v.ServerOrderID),
 			ClientOrderID: v.ClientOrderID,
 			CreateTime:    gobs.RemoteTime{Time: v.CreateTime.Time},
 			FinishTime:    gobs.RemoteTime{Time: v.FinishTime.Time},
@@ -334,7 +334,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
 		order := &exchange.Order{
-			OrderID:       exchange.OrderID(vv.ServerOrderID),
+			ServerOrderID: exchange.OrderID(vv.ServerOrderID),
 			ClientOrderID: vv.ClientOrderID,
 			CreateTime:    exchange.RemoteTime{Time: vv.CreateTime.Time},
 			FinishTime:    exchange.RemoteTime{Time: vv.FinishTime.Time},

@@ -100,7 +100,7 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 	// check if this is a retry request for the clientOrderID.
 	if order, ok := p.exchange.recreateOldOrder(clientOrderID); ok {
 		p.prodOrderTopic.Send(order)
-		return order.OrderID, nil
+		return order.ServerOrderID, nil
 	}
 
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
@@ -138,7 +138,7 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 	// check if this is a retry request for the clientOrderID.
 	if order, ok := p.exchange.recreateOldOrder(clientOrderID); ok {
 		p.prodOrderTopic.Send(order)
-		return order.OrderID, nil
+		return order.ServerOrderID, nil
 	}
 
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))

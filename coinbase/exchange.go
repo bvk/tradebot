@@ -279,7 +279,7 @@ func (ex *Exchange) dispatchOrder(productID string, order *exchange.Order) {
 		slog.Error("relay request with empty client order id is ignored")
 		return
 	}
-	if len(order.OrderID) == 0 {
+	if len(order.ServerOrderID) == 0 {
 		slog.Error("unexpected relay request with empty server order id is ignored")
 		return
 	}
@@ -376,7 +376,7 @@ func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.Order, boo
 	if !ok {
 		return nil, false
 	}
-	log.Printf("recreate order request for already used client-id %s is short-circuited to return old server order id %s", clientOrderID, old.OrderID)
+	log.Printf("recreate order request for already used client-id %s is short-circuited to return old server order id %s", clientOrderID, old.ServerOrderID)
 	return old, true
 }
 

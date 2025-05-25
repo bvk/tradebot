@@ -41,7 +41,7 @@ func gobOrderFromOrder(v *internal.Order) *gobs.Order {
 func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {
 	order := &exchange.Order{
 		ClientOrderID: v.ClientOrderID,
-		OrderID:       exchange.OrderID(v.OrderID),
+		ServerOrderID: exchange.OrderID(v.OrderID),
 		CreateTime:    exchange.RemoteTime{Time: v.CreatedTime.Time},
 		FinishTime:    exchange.RemoteTime{Time: v.LastFillTime.Time},
 		Side:          v.Side,
@@ -59,7 +59,7 @@ func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {
 
 func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.Order {
 	order := &exchange.Order{
-		OrderID:       exchange.OrderID(event.OrderID),
+		ServerOrderID: exchange.OrderID(event.OrderID),
 		ClientOrderID: event.ClientOrderID,
 		CreateTime:    exchange.RemoteTime{Time: event.CreatedTime.Time},
 		Side:          event.OrderSide,

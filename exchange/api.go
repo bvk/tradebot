@@ -13,7 +13,7 @@ import (
 type OrderID string
 
 type Order struct {
-	OrderID OrderID
+	ServerOrderID OrderID
 
 	ClientOrderID string
 
