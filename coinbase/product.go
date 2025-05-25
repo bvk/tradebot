@@ -26,7 +26,7 @@ type Product struct {
 	lastTicker *exchange.SimpleTicker
 
 	prodTickerTopic *topic.Topic[exchange.Ticker]
-	prodOrderTopic  *topic.Topic[*exchange.Order]
+	prodOrderTopic  *topic.Topic[*exchange.SimpleOrder]
 
 	productData *internal.GetProductResponse
 
@@ -48,7 +48,7 @@ func (ex *Exchange) OpenProduct(ctx context.Context, pid string) (_ exchange.Pro
 		exchange:        ex,
 		productData:     product,
 		prodTickerTopic: topic.New[exchange.Ticker](),
-		prodOrderTopic:  topic.New[*exchange.Order](),
+		prodOrderTopic:  topic.New[*exchange.SimpleOrder](),
 		websocket:       ex.client.GetMessages("heartbeats", []string{pid}, ex.dispatchMessage),
 	}
 	p.websocket.Subscribe("ticker", []string{pid})
@@ -80,12 +80,12 @@ func (p *Product) TickerCh() (<-chan exchange.Ticker, func()) {
 	return ch, sub.Unsubscribe
 }
 
-func (p *Product) OrderUpdatesCh() (<-chan *exchange.Order, func()) {
+func (p *Product) OrderUpdatesCh() (<-chan *exchange.SimpleOrder, func()) {
 	sub, ch, _ := p.prodOrderTopic.Subscribe(0, true /* includeRecent */)
 	return ch, sub.Unsubscribe
 }
 
-func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.Order, error) {
+func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.SimpleOrder, error) {
 	return p.exchange.GetOrder(ctx, serverOrderID)
 }
 
@@ -206,7 +206,7 @@ func (p *Product) handleTickerEvent(timestamp time.Time, event *internal.TickerE
 	p.prodTickerTopic.Send(p.lastTicker)
 }
 
-func (p *Product) handleOrder(order *exchange.Order) {
+func (p *Product) handleOrder(order *exchange.SimpleOrder) {
 	// We don't want to expose PENDING state outside this package.
 	if slices.Contains(readyStatuses, order.Status) {
 		p.prodOrderTopic.Send(order)

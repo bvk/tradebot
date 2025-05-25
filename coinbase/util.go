@@ -38,8 +38,8 @@ func gobOrderFromOrder(v *internal.Order) *gobs.Order {
 	return order
 }
 
-func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {
-	order := &exchange.Order{
+func exchangeOrderFromOrder(v *internal.Order) *exchange.SimpleOrder {
+	order := &exchange.SimpleOrder{
 		ClientOrderID: v.ClientOrderID,
 		ServerOrderID: exchange.OrderID(v.OrderID),
 		CreateTime:    exchange.RemoteTime{Time: v.CreatedTime.Time},
@@ -57,8 +57,8 @@ func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {
 	return order
 }
 
-func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.Order {
-	order := &exchange.Order{
+func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.SimpleOrder {
+	order := &exchange.SimpleOrder{
 		ServerOrderID: exchange.OrderID(event.OrderID),
 		ClientOrderID: event.ClientOrderID,
 		CreateTime:    exchange.RemoteTime{Time: event.CreatedTime.Time},

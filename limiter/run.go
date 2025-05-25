@@ -40,7 +40,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 	// Check if any of the orders in the orderMap are still active on the
 	// exchange.
-	var live []*exchange.Order
+	var live []*exchange.SimpleOrder
 	for _, order := range v.dupOrderMap() {
 		if !order.Done {
 			live = append(live, order)
@@ -248,7 +248,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		return "", err
 	}
 
-	v.orderMap.Store(orderID, &exchange.Order{
+	v.orderMap.Store(orderID, &exchange.SimpleOrder{
 		ServerOrderID: orderID,
 		ClientOrderID: clientOrderID.String(),
 		Side:          v.point.Side(),

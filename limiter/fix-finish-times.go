@@ -105,7 +105,7 @@ func asyncUpdateFinishTime(v *Limiter) {
 
 func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) error {
 	var status error
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+	v.orderMap.Range(func(id exchange.OrderID, order *exchange.SimpleOrder) bool {
 		if order.FilledSize.IsZero() {
 			return true
 		}

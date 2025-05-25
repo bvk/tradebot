@@ -42,7 +42,7 @@ type Limiter struct {
 
 	// orderMap holds all orders created by the limiter. It is used by Run and
 	// Save methods, so it needs to be thread-safe.
-	orderMap syncmap.Map[exchange.OrderID, *exchange.Order]
+	orderMap syncmap.Map[exchange.OrderID, *exchange.SimpleOrder]
 
 	optionMap map[string]string
 
@@ -121,9 +121,9 @@ func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
 }
 
-func (v *Limiter) dupOrderMap() map[exchange.OrderID]*exchange.Order {
-	dup := make(map[exchange.OrderID]*exchange.Order)
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+func (v *Limiter) dupOrderMap() map[exchange.OrderID]*exchange.SimpleOrder {
+	dup := make(map[exchange.OrderID]*exchange.SimpleOrder)
+	v.orderMap.Range(func(id exchange.OrderID, order *exchange.SimpleOrder) bool {
 		dup[id] = order
 		return true
 	})
@@ -229,7 +229,7 @@ func (v *Limiter) PendingValue() decimal.Decimal {
 }
 
 func (v *Limiter) compactOrderMap() {
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+	v.orderMap.Range(func(id exchange.OrderID, order *exchange.SimpleOrder) bool {
 		if order.Done && order.FilledSize.IsZero() {
 			v.orderMap.Delete(id)
 		}
@@ -237,7 +237,7 @@ func (v *Limiter) compactOrderMap() {
 	})
 }
 
-func (v *Limiter) updateOrderMap(order *exchange.Order) {
+func (v *Limiter) updateOrderMap(order *exchange.SimpleOrder) {
 	if _, ok := v.orderMap.Load(order.ServerOrderID); ok {
 		v.orderMap.Store(order.ServerOrderID, order)
 	}
@@ -333,7 +333,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		},
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
-		order := &exchange.Order{
+		order := &exchange.SimpleOrder{
 			ServerOrderID: exchange.OrderID(vv.ServerOrderID),
 			ClientOrderID: vv.ClientOrderID,
 			CreateTime:    exchange.RemoteTime{Time: vv.CreateTime.Time},

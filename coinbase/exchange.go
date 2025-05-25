@@ -31,7 +31,7 @@ type Exchange struct {
 
 	// clientOrderIDMap holds client-order-id to exchange.Order mapping for all
 	// known orders. TODO: We should cleanup the oldest orders.
-	clientOrderIDMap syncmap.Map[string, *exchange.Order]
+	clientOrderIDMap syncmap.Map[string, *exchange.SimpleOrder]
 
 	productMap syncmap.Map[string, *Product]
 
@@ -274,7 +274,7 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 
 // dispatchOrder relays the order fetched from coinbase for any reason to the
 // appropriate product for side-channel handling.
-func (ex *Exchange) dispatchOrder(productID string, order *exchange.Order) {
+func (ex *Exchange) dispatchOrder(productID string, order *exchange.SimpleOrder) {
 	if len(order.ClientOrderID) == 0 {
 		slog.Error("relay request with empty client order id is ignored")
 		return
@@ -371,7 +371,7 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 	return resp, err
 }
 
-func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.Order, bool) {
+func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.SimpleOrder, bool) {
 	old, ok := ex.clientOrderIDMap.Load(clientOrderID)
 	if !ok {
 		return nil, false
@@ -380,7 +380,7 @@ func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.Order, boo
 	return old, true
 }
 
-func (ex *Exchange) GetOrder(ctx context.Context, orderID exchange.OrderID) (*exchange.Order, error) {
+func (ex *Exchange) GetOrder(ctx context.Context, orderID exchange.OrderID) (*exchange.SimpleOrder, error) {
 	if v, err := ex.datastore.GetOrder(ctx, string(orderID)); err == nil {
 		return exchangeOrderFromOrder(v), nil
 	}
@@ -471,8 +471,8 @@ func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status st
 	return result, nil
 }
 
-func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status string) ([]*exchange.Order, error) {
-	var orders []*exchange.Order
+func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status string) ([]*exchange.SimpleOrder, error) {
+	var orders []*exchange.SimpleOrder
 	rorders, err := ex.listRawOrders(ctx, from, status)
 	if err != nil {
 		return nil, fmt.Errorf("could not list raw orders: %w", err)
