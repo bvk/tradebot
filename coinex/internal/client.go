@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log"
 	"log/slog"
 	"net/http"
@@ -156,6 +157,92 @@ func (c *Client) GetBalances(ctx context.Context) ([]*Balance, error) {
 		return nil, err
 	}
 	return resp.Data, nil
+}
+
+func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp *error) iter.Seq[*Order] {
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/spot/finished-order"),
+	}
+
+	values := make(url.Values)
+	values.Set("market_type", "SPOT")
+	if market != "" {
+		values.Set("market", market)
+	}
+	if side != "" {
+		values.Set("side", side)
+	}
+
+	return func(yield func(*Order) bool) {
+		for page := 1; *errp == nil; page++ {
+			values.Set("page", strconv.FormatInt(int64(page), 10))
+			addrURL.RawQuery = values.Encode()
+
+			resp := new(ListFilledOrdersResponse)
+			if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
+				if !errors.Is(err, context.Canceled) {
+					slog.Error("could not get filled orders", "page", page, "url", addrURL, "err", err)
+				}
+				*errp = err
+				return
+			}
+
+			for _, order := range resp.Data {
+				if !yield(order) {
+					return
+				}
+			}
+
+			if resp.Pagination == nil || resp.Pagination.HasNext == false {
+				return
+			}
+		}
+	}
+}
+
+func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, errp *error) iter.Seq[*Order] {
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/spot/pending-order"),
+	}
+
+	values := make(url.Values)
+	values.Set("market_type", "SPOT")
+	if market != "" {
+		values.Set("market", market)
+	}
+	if side != "" {
+		values.Set("side", side)
+	}
+
+	return func(yield func(*Order) bool) {
+		for page := 1; *errp == nil; page++ {
+			values.Set("page", strconv.FormatInt(int64(page), 10))
+			addrURL.RawQuery = values.Encode()
+
+			resp := new(ListFilledOrdersResponse)
+			if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
+				if !errors.Is(err, context.Canceled) {
+					slog.Error("could not get unfilled orders", "page", page, "url", addrURL, "err", err)
+				}
+				*errp = err
+				return
+			}
+
+			for _, order := range resp.Data {
+				if !yield(order) {
+					return
+				}
+			}
+
+			if resp.Pagination == nil || resp.Pagination.HasNext == false {
+				return
+			}
+		}
+	}
 }
 
 func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Order, error) {

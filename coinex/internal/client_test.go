@@ -78,6 +78,15 @@ func TestClient(t *testing.T) {
 	}
 	t.Logf("%#v", balances)
 
+	for order := range c.ListFilledOrders(ctx, "", "", &err) {
+		cat := time.UnixMilli(order.CreatedAt)
+		uat := time.UnixMilli(order.UpdatedAt)
+		t.Logf("create=%s market=%s side=%s size=%v price=%v finish=%s", cat.Format(time.RFC3339), order.Market, order.Side, order.FilledAmount, order.Price, uat.Format(time.RFC3339))
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	jsdata, _ := json.MarshalIndent(balances, "", "  ")
 	t.Logf("%s", jsdata)
 }

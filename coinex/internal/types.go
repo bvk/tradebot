@@ -203,3 +203,14 @@ type GetOrderResponse struct {
 	Message string `json:"message"`
 	Data    *Order `json:"data"`
 }
+
+type ListFilledOrdersResponse struct {
+	Code    int      `json:"code"`
+	Message string   `json:"message"`
+	Data    []*Order `json:"data"`
+
+	Pagination *struct {
+		Total   int  `json:"total"`
+		HasNext bool `json:"has_next"`
+	} `json:"pagination"`
+}
