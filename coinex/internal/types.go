@@ -197,3 +197,9 @@ type CancelOrderResponse struct {
 	Message string     `json:"message"`
 	Data    *FullOrder `json:"data"`
 }
+
+type GetOrderResponse struct {
+	Code    int        `json:"code"`
+	Message string     `json:"message"`
+	Data    *FullOrder `json:"data"`
+}

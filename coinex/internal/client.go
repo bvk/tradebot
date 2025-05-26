@@ -174,6 +174,27 @@ func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Cre
 	return resp, nil
 }
 
+func (c *Client) GetOrder(ctx context.Context, market string, orderID int64) (*GetOrderResponse, error) {
+	values := make(url.Values)
+	values.Set("market", market)
+	values.Set("order_id", strconv.FormatInt(orderID, 10))
+
+	addrURL := &url.URL{
+		Scheme:   RestURL.Scheme,
+		Host:     RestURL.Host,
+		Path:     path.Join(RestURL.Path, "/spot/order-status"),
+		RawQuery: values.Encode(),
+	}
+	resp := new(GetOrderResponse)
+	if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get market ticker information", "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (c *Client) CancelOrder(ctx context.Context, market, marketType string, orderID int64) (*CancelOrderResponse, error) {
 	req := CancelOrderRequest{
 		Market:     market,

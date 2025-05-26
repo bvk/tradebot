@@ -189,6 +189,8 @@ func TestWebsocket(t *testing.T) {
 	price := minfo.Data[0].LastPrice.Mul(decimal.NewFromFloat(0.09))
 	size := mstatus.Data[0].MinAmount
 
+	// TODO: Get funds and verify that we can place this order.
+
 	createReq := &CreateOrderRequest{
 		ClientOrderID: strings.ReplaceAll(uuid.New().String(), "-", ""),
 		Market:        "DOGEUSDT",
@@ -214,7 +216,14 @@ func TestWebsocket(t *testing.T) {
 		t.Logf("%s", jsdata)
 	}()
 
-	jsdata, _ := json.MarshalIndent(createResp, "", "  ")
+	getResp, err := c.GetOrder(ctx, createReq.Market, createResp.Data.OrderID)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	t.Logf("get-order-response: %#v", getResp)
+
+	jsdata, _ := json.MarshalIndent(getResp, "", "  ")
 	t.Logf("%s", jsdata)
 
 	time.Sleep(5 * time.Second)
