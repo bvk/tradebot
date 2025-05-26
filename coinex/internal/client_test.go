@@ -186,8 +186,8 @@ func TestWebsocket(t *testing.T) {
 	}
 	t.Logf("%#v", minfo)
 
-	price := minfo.Data[0].LastPrice.Mul(decimal.NewFromFloat(0.09))
-	size := mstatus.Data[0].MinAmount
+	price := minfo.LastPrice.Mul(decimal.NewFromFloat(0.09))
+	size := mstatus.MinAmount
 
 	// TODO: Get funds and verify that we can place this order.
 
@@ -206,7 +206,7 @@ func TestWebsocket(t *testing.T) {
 	}
 	t.Logf("%#v", createResp)
 	defer func() {
-		cancelResp, err := c.CancelOrder(ctx, createReq.Market, createReq.MarketType, createResp.Data.OrderID)
+		cancelResp, err := c.CancelOrder(ctx, createReq.Market, createReq.MarketType, createResp.OrderID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -216,7 +216,7 @@ func TestWebsocket(t *testing.T) {
 		t.Logf("%s", jsdata)
 	}()
 
-	getResp, err := c.GetOrder(ctx, createReq.Market, createResp.Data.OrderID)
+	getResp, err := c.GetOrder(ctx, createReq.Market, createResp.OrderID)
 	if err != nil {
 		t.Error(err)
 		return

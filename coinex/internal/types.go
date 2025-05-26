@@ -158,12 +158,12 @@ type CreateOrderRequest struct {
 }
 
 type CreateOrderResponse struct {
-	Code    int        `json:"code"`
-	Message string     `json:"message"`
-	Data    *FullOrder `json:"data"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    *Order `json:"data"`
 }
 
-type FullOrder struct {
+type Order struct {
 	OrderID          int64           `json:"order_id"`
 	ClientOrderID    string          `json:"client_id"`
 	Market           string          `json:"market"`
@@ -193,13 +193,13 @@ type CancelOrderRequest struct {
 }
 
 type CancelOrderResponse struct {
-	Code    int        `json:"code"`
-	Message string     `json:"message"`
-	Data    *FullOrder `json:"data"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    *Order `json:"data"`
 }
 
 type GetOrderResponse struct {
-	Code    int        `json:"code"`
-	Message string     `json:"message"`
-	Data    *FullOrder `json:"data"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    *Order `json:"data"`
 }
