@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,7 +33,10 @@ func (c *Client) goGetMessages(ctx context.Context) {
 
 	for i := 0; ctx.Err() == nil; i = max(i+1, 5) {
 		if err := c.getMessages(ctx); err != nil {
-			slog.Warn("could not get messages over websocket (may retry)", "err", err)
+			if !errors.Is(err, os.ErrClosed) {
+				slog.Warn("could not get messages over websocket (may retry)", "err", err)
+			}
+			// FIXME: Following needs reset logic as well.
 			if err := sleep(ctx, time.Second<<i); err != nil {
 				return
 			}
@@ -86,7 +90,9 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 		for ctx.Err() == nil {
 			msg, err := c.readMessage(ctx, conn)
 			if err != nil {
-				slog.Error("could not read websocket message", "err", err)
+				if !errors.Is(err, os.ErrClosed) {
+					slog.Error("could not read websocket message", "err", err)
+				}
 				cancel(err)
 				return
 			}
@@ -122,6 +128,10 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 		}
 	}()
 
+	if err := c.websocketPing(ctx); err != nil {
+		return err
+	}
+
 	// Resend a sign message, resubscribe to all channels, etc. and send ping
 	// messages periodically to keep the websocket alive.
 	if err := c.websocketSign(ctx); err != nil {
@@ -136,6 +146,9 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 	if len(markets) > 0 {
 		if err := c.websocketMarketListSubscribe(ctx, "deals.subscribe", markets); err != nil {
 			slog.Error("could not resubscribe for market deal updates", "markets", markets, "err", err)
+			return err
+		}
+		if err := c.websocketMarketListSubscribe(ctx, "order.subscribe", markets); err != nil {
 			return err
 		}
 	}
@@ -267,6 +280,7 @@ func (c *Client) websocketCall(ctx context.Context, method string, params json.R
 		if call.Response.Code != 0 {
 			return nil, fmt.Errorf("method %q failed: code=%d message=%q", method, call.Response.Code, call.Response.Message)
 		}
+		// log.Printf("call=%s input=%s output=%s", method, call.Request, call.Response.Data)
 		return call.Response.Data, nil
 	}
 }
@@ -321,7 +335,7 @@ func (c *Client) websocketSign(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	jsresp, err := c.websocketCall(ctx, "server.time", json.RawMessage(params))
+	jsresp, err := c.websocketCall(ctx, "server.sign", json.RawMessage(params))
 	if err != nil {
 		slog.Error("could not authenticate with websocket", "err", err)
 		return err
@@ -383,16 +397,29 @@ func (c *Client) onDealUpdate(ctx context.Context, notice *WebsocketNotice) erro
 	}
 
 	latest := slices.MaxFunc(data.DealList, func(a, b *DealUpdate) int {
-		return cmp.Compare(a.CreatedAtUnixMilli, b.CreatedAtUnixMilli)
+		return cmp.Compare(a.CreatedAt, b.CreatedAt)
 	})
 
 	if topic, ok := c.marketDealUpdateMap.Load(data.Market); ok {
-		select {
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		case topic.SendCh() <- latest:
-			log.Printf("market=%s timestamp=%d price=%v", data.Market, latest.CreatedAtUnixMilli, latest.Price)
-		}
+		topic.Send(latest)
+	}
+	return nil
+}
+
+func (c *Client) onOrderUpdate(ctx context.Context, notice *WebsocketNotice) error {
+	update := new(OrderUpdate)
+	if err := json.Unmarshal([]byte(notice.Data), &update); err != nil {
+		slog.Error("could not unmarshal order.update data", "err", err)
+		log.Printf("order.update notice data=%s", notice.Data)
+		return err
+	}
+	if update.Event == "finish" {
+		update.Order.hasFinishEvent = true
+	}
+
+	c.getMarketTopic(update.Order.Market).Send(update.Order)
+	if update.Order.hasFinishEvent && !update.Order.FilledAmount.IsZero() {
+		c.refreshOrdersTopic.Send(update.Order)
 	}
 	return nil
 }

@@ -4,7 +4,9 @@ package internal
 
 import (
 	"encoding/json"
+	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/shopspring/decimal"
 )
 
@@ -141,7 +143,11 @@ type DealUpdate struct {
 	Price  decimal.Decimal `json:"price"`
 	Amount decimal.Decimal `json:"amount"`
 
-	CreatedAtUnixMilli int64 `json:"created_at"`
+	CreatedAt int64 `json:"created_at"`
+}
+
+func (v *DealUpdate) PricePoint() (decimal.Decimal, exchange.RemoteTime) {
+	return v.Price, exchange.RemoteTime{Time: time.UnixMilli(v.CreatedAt)}
 }
 
 type CreateOrderRequest struct {
@@ -161,29 +167,6 @@ type CreateOrderResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    *Order `json:"data"`
-}
-
-type Order struct {
-	OrderID          int64           `json:"order_id"`
-	ClientOrderID    string          `json:"client_id"`
-	Market           string          `json:"market"`
-	MarketType       string          `json:"market_type"`
-	Side             string          `json:"side"`
-	OrderType        string          `json:"type"`
-	Currency         string          `json:"ccy"`
-	Amount           decimal.Decimal `json:"amount"`
-	Price            decimal.Decimal `json:"price"`
-	UnfilledAmount   decimal.Decimal `json:"unfilled_amount"`
-	FilledAmount     decimal.Decimal `json:"filled_amount"`
-	LastFilledAmount decimal.Decimal `json:"last_filled_amount"`
-	LastFilledPrice  decimal.Decimal `json:"last_filled_price"`
-	BaseFee          decimal.Decimal `json:"base_fee"`
-	QuoteFee         decimal.Decimal `json:"quote_fee"`
-	DiscountFee      decimal.Decimal `json:"discount_fee"`
-	MakerFeeRate     decimal.Decimal `json:"maker_fee_rate"`
-	TakerFeeRate     decimal.Decimal `json:"taker_fee_rate"`
-	CreatedAt        int64           `json:"created_at"`
-	UpdatedAt        int64           `json:"updated_at"`
 }
 
 type CancelOrderRequest struct {
@@ -213,4 +196,9 @@ type ListFilledOrdersResponse struct {
 		Total   int  `json:"total"`
 		HasNext bool `json:"has_next"`
 	} `json:"pagination"`
+}
+
+type OrderUpdate struct {
+	Event string `json:"event"`
+	Order *Order `json:"order"`
 }

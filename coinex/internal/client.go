@@ -24,7 +24,7 @@ import (
 
 	"github.com/bvk/tradebot/syncmap"
 
-	"github.com/bvkgo/topic"
+	"github.com/visvasity/topic"
 )
 
 type WebsocketNoticeHandler func(context.Context, *WebsocketNotice) error
@@ -41,7 +41,10 @@ type Client struct {
 
 	key, secret string
 
-	marketDealUpdateMap syncmap.Map[string, *topic.Topic[*DealUpdate]]
+	refreshOrdersTopic *topic.Topic[*Order]
+
+	marketDealUpdateMap  syncmap.Map[string, *topic.Topic[*DealUpdate]]
+	marketOrderUpdateMap syncmap.Map[string, *topic.Topic[*Order]]
 
 	websocketHandlerMap map[string]WebsocketNoticeHandler
 
@@ -71,11 +74,16 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		},
 		websocketHandlerMap: make(map[string]WebsocketNoticeHandler),
 		websocketCallCh:     make(chan *websocketCall, 10),
+		refreshOrdersTopic:  topic.New[*Order](),
 	}
 	c.websocketHandlerMap["deals.update"] = c.onDealUpdate
+	c.websocketHandlerMap["order.update"] = c.onOrderUpdate
 
 	c.wg.Add(1)
 	go c.goGetMessages(c.lifeCtx)
+
+	c.wg.Add(1)
+	go c.goRefreshOrders(c.lifeCtx)
 	return c, nil
 }
 
@@ -84,6 +92,14 @@ func (c *Client) Close() error {
 	c.lifeCancel(os.ErrClosed)
 	c.wg.Wait()
 	return nil
+}
+
+func (c *Client) getMarketTopic(market string) *topic.Topic[*Order] {
+	tp, ok := c.marketOrderUpdateMap.Load(market)
+	if !ok {
+		tp, _ = c.marketOrderUpdateMap.LoadOrStore(market, topic.New[*Order]())
+	}
+	return tp
 }
 
 func (c *Client) GetMarkets(ctx context.Context) ([]*MarketStatus, error) {
@@ -190,6 +206,7 @@ func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp
 			}
 
 			for _, order := range resp.Data {
+				c.getMarketTopic(order.Market).Send(order)
 				if !yield(order) {
 					return
 				}
@@ -233,6 +250,7 @@ func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, er
 			}
 
 			for _, order := range resp.Data {
+				c.getMarketTopic(order.Market).Send(order)
 				if !yield(order) {
 					return
 				}
@@ -246,6 +264,9 @@ func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, er
 }
 
 func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Order, error) {
+	if req.MarketType != "SPOT" {
+		return nil, fmt.Errorf("market type must be SPOT: %w", os.ErrInvalid)
+	}
 	addrURL := &url.URL{
 		Scheme: RestURL.Scheme,
 		Host:   RestURL.Host,
@@ -258,6 +279,7 @@ func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Ord
 		}
 		return nil, err
 	}
+	c.getMarketTopic(req.Market).Send(resp.Data)
 	return resp.Data, nil
 }
 
@@ -279,13 +301,14 @@ func (c *Client) GetOrder(ctx context.Context, market string, orderID int64) (*O
 		}
 		return nil, err
 	}
+	c.getMarketTopic(market).Send(resp.Data)
 	return resp.Data, nil
 }
 
-func (c *Client) CancelOrder(ctx context.Context, market, marketType string, orderID int64) (*Order, error) {
+func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) (*Order, error) {
 	req := CancelOrderRequest{
 		Market:     market,
-		MarketType: marketType,
+		MarketType: "SPOT",
 		OrderID:    orderID,
 	}
 	addrURL := &url.URL{
@@ -300,6 +323,14 @@ func (c *Client) CancelOrder(ctx context.Context, market, marketType string, ord
 		}
 		return nil, err
 	}
+	// CoinEx does not save zero-filled canceled orders, so we won't be able to
+	// query/refresh them.
+	if resp.Data.FilledAmount.IsZero() {
+		resp.Data.OrderStatus = "canceled"
+	} else {
+		c.refreshOrdersTopic.Send(resp.Data)
+	}
+	c.getMarketTopic(market).Send(resp.Data)
 	return resp.Data, nil
 }
 
@@ -309,6 +340,9 @@ func (c *Client) WatchMarket(ctx context.Context, market string) error {
 		return os.ErrExist
 	}
 	if err := c.websocketMarketListSubscribe(ctx, "deals.subscribe", []string{market}); err != nil {
+		return err
+	}
+	if err := c.websocketMarketListSubscribe(ctx, "order.subscribe", []string{market}); err != nil {
 		return err
 	}
 	c.marketDealUpdateMap.LoadOrStore(market, topic.New[*DealUpdate]())

@@ -81,7 +81,7 @@ func TestClient(t *testing.T) {
 	for order := range c.ListFilledOrders(ctx, "", "", &err) {
 		cat := time.UnixMilli(order.CreatedAt)
 		uat := time.UnixMilli(order.UpdatedAt)
-		t.Logf("create=%s market=%s side=%s size=%v price=%v finish=%s", cat.Format(time.RFC3339), order.Market, order.Side, order.FilledAmount, order.Price, uat.Format(time.RFC3339))
+		t.Logf("create=%s market=%s side=%s size=%v price=%v finish=%s", cat.Format(time.RFC3339), order.Market, order.OrderSide, order.FilledAmount, order.OrderPrice, uat.Format(time.RFC3339))
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestWebsocket(t *testing.T) {
 	}
 	t.Logf("%#v", createResp)
 	defer func() {
-		cancelResp, err := c.CancelOrder(ctx, createReq.Market, createReq.MarketType, createResp.OrderID)
+		cancelResp, err := c.CancelOrder(ctx, createReq.Market, createResp.OrderID)
 		if err != nil {
 			t.Fatal(err)
 		}
