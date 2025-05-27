@@ -1,6 +1,6 @@
 // Copyright (c) 2025 BVK Chaitanya
 
-package internal
+package coinex
 
 import (
 	"net/url"

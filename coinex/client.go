@@ -1,6 +1,6 @@
 // Copyright (c) 2025 BVK Chaitanya
 
-package internal
+package coinex
 
 import (
 	"context"
@@ -22,12 +22,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/coinex/internal"
 	"github.com/bvk/tradebot/syncmap"
 
 	"github.com/visvasity/topic"
 )
 
-type WebsocketNoticeHandler func(context.Context, *WebsocketNotice) error
+type websocketNoticeHandler func(context.Context, *internal.WebsocketNotice) error
 
 type Client struct {
 	lifeCtx    context.Context
@@ -41,15 +42,15 @@ type Client struct {
 
 	key, secret string
 
-	refreshOrdersTopic *topic.Topic[*Order]
+	refreshOrdersTopic *topic.Topic[*internal.Order]
 
-	marketDealUpdateMap  syncmap.Map[string, *topic.Topic[*DealUpdate]]
-	marketOrderUpdateMap syncmap.Map[string, *topic.Topic[*Order]]
+	marketDealUpdateMap  syncmap.Map[string, *topic.Topic[*internal.DealUpdate]]
+	marketOrderUpdateMap syncmap.Map[string, *topic.Topic[*internal.Order]]
 
-	websocketHandlerMap map[string]WebsocketNoticeHandler
+	websocketHandlerMap map[string]websocketNoticeHandler
 
-	websocketCallCh  chan *websocketCall
-	websocketCallMap syncmap.Map[int64, *websocketCall]
+	websocketCallCh  chan *internal.WebsocketCall
+	websocketCallMap syncmap.Map[int64, *internal.WebsocketCall]
 }
 
 // New returns a new client instance.
@@ -72,9 +73,9 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		client: http.Client{
 			Timeout: opts.HttpClientTimeout,
 		},
-		websocketHandlerMap: make(map[string]WebsocketNoticeHandler),
-		websocketCallCh:     make(chan *websocketCall, 10),
-		refreshOrdersTopic:  topic.New[*Order](),
+		websocketHandlerMap: make(map[string]websocketNoticeHandler),
+		websocketCallCh:     make(chan *internal.WebsocketCall, 10),
+		refreshOrdersTopic:  topic.New[*internal.Order](),
 	}
 	c.websocketHandlerMap["deals.update"] = c.onDealUpdate
 	c.websocketHandlerMap["order.update"] = c.onOrderUpdate
@@ -94,21 +95,21 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) getMarketTopic(market string) *topic.Topic[*Order] {
+func (c *Client) getMarketOrdersTopic(market string) *topic.Topic[*internal.Order] {
 	tp, ok := c.marketOrderUpdateMap.Load(market)
 	if !ok {
-		tp, _ = c.marketOrderUpdateMap.LoadOrStore(market, topic.New[*Order]())
+		tp, _ = c.marketOrderUpdateMap.LoadOrStore(market, topic.New[*internal.Order]())
 	}
 	return tp
 }
 
-func (c *Client) GetMarkets(ctx context.Context) ([]*MarketStatus, error) {
+func (c *Client) GetMarkets(ctx context.Context) ([]*internal.MarketStatus, error) {
 	addrURL := &url.URL{
 		Scheme: RestURL.Scheme,
 		Host:   RestURL.Host,
 		Path:   path.Join(RestURL.Path, "/spot/market"),
 	}
-	resp := new(GetMarketsResponse)
+	resp := new(internal.GetMarketsResponse)
 	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market status", "url", addrURL, "err", err)
@@ -118,7 +119,7 @@ func (c *Client) GetMarkets(ctx context.Context) ([]*MarketStatus, error) {
 	return resp.Data, nil
 }
 
-func (c *Client) GetMarket(ctx context.Context, market string) (*MarketStatus, error) {
+func (c *Client) GetMarket(ctx context.Context, market string) (*internal.MarketStatus, error) {
 	values := make(url.Values)
 	values.Set("market", market)
 
@@ -128,7 +129,7 @@ func (c *Client) GetMarket(ctx context.Context, market string) (*MarketStatus, e
 		Path:     path.Join(RestURL.Path, "/spot/market"),
 		RawQuery: values.Encode(),
 	}
-	resp := new(GetMarketsResponse)
+	resp := new(internal.GetMarketsResponse)
 	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market status", "url", addrURL, "err", err)
@@ -138,7 +139,7 @@ func (c *Client) GetMarket(ctx context.Context, market string) (*MarketStatus, e
 	return resp.Data[0], nil
 }
 
-func (c *Client) GetMarketInfo(ctx context.Context, market string) (*MarketInfo, error) {
+func (c *Client) GetMarketInfo(ctx context.Context, market string) (*internal.MarketInfo, error) {
 	values := make(url.Values)
 	values.Set("market", market)
 
@@ -148,7 +149,7 @@ func (c *Client) GetMarketInfo(ctx context.Context, market string) (*MarketInfo,
 		Path:     path.Join(RestURL.Path, "/spot/ticker"),
 		RawQuery: values.Encode(),
 	}
-	resp := new(GetMarketInfoResponse)
+	resp := new(internal.GetMarketInfoResponse)
 	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market ticker information", "url", addrURL, "err", err)
@@ -159,13 +160,13 @@ func (c *Client) GetMarketInfo(ctx context.Context, market string) (*MarketInfo,
 }
 
 // GetBalances retrieves all funds information in spot accounts.
-func (c *Client) GetBalances(ctx context.Context) ([]*Balance, error) {
+func (c *Client) GetBalances(ctx context.Context) ([]*internal.Balance, error) {
 	addrURL := &url.URL{
 		Scheme: RestURL.Scheme,
 		Host:   RestURL.Host,
 		Path:   path.Join(RestURL.Path, "/assets/spot/balance"),
 	}
-	resp := new(GetBalancesResponse)
+	resp := new(internal.GetBalancesResponse)
 	if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get asset balances", "url", addrURL, "err", err)
@@ -175,7 +176,7 @@ func (c *Client) GetBalances(ctx context.Context) ([]*Balance, error) {
 	return resp.Data, nil
 }
 
-func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp *error) iter.Seq[*Order] {
+func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp *error) iter.Seq[*internal.Order] {
 	addrURL := &url.URL{
 		Scheme: RestURL.Scheme,
 		Host:   RestURL.Host,
@@ -191,12 +192,12 @@ func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp
 		values.Set("side", side)
 	}
 
-	return func(yield func(*Order) bool) {
+	return func(yield func(*internal.Order) bool) {
 		for page := 1; *errp == nil; page++ {
 			values.Set("page", strconv.FormatInt(int64(page), 10))
 			addrURL.RawQuery = values.Encode()
 
-			resp := new(ListFilledOrdersResponse)
+			resp := new(internal.ListFilledOrdersResponse)
 			if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
 				if !errors.Is(err, context.Canceled) {
 					slog.Error("could not get filled orders", "page", page, "url", addrURL, "err", err)
@@ -206,7 +207,7 @@ func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp
 			}
 
 			for _, order := range resp.Data {
-				c.getMarketTopic(order.Market).Send(order)
+				c.getMarketOrdersTopic(order.Market).Send(order)
 				if !yield(order) {
 					return
 				}
@@ -219,7 +220,7 @@ func (c *Client) ListFilledOrders(ctx context.Context, market, side string, errp
 	}
 }
 
-func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, errp *error) iter.Seq[*Order] {
+func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, errp *error) iter.Seq[*internal.Order] {
 	addrURL := &url.URL{
 		Scheme: RestURL.Scheme,
 		Host:   RestURL.Host,
@@ -235,12 +236,12 @@ func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, er
 		values.Set("side", side)
 	}
 
-	return func(yield func(*Order) bool) {
+	return func(yield func(*internal.Order) bool) {
 		for page := 1; *errp == nil; page++ {
 			values.Set("page", strconv.FormatInt(int64(page), 10))
 			addrURL.RawQuery = values.Encode()
 
-			resp := new(ListFilledOrdersResponse)
+			resp := new(internal.ListFilledOrdersResponse)
 			if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
 				if !errors.Is(err, context.Canceled) {
 					slog.Error("could not get unfilled orders", "page", page, "url", addrURL, "err", err)
@@ -250,7 +251,7 @@ func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, er
 			}
 
 			for _, order := range resp.Data {
-				c.getMarketTopic(order.Market).Send(order)
+				c.getMarketOrdersTopic(order.Market).Send(order)
 				if !yield(order) {
 					return
 				}
@@ -263,7 +264,7 @@ func (c *Client) ListUnfilledOrders(ctx context.Context, market, side string, er
 	}
 }
 
-func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Order, error) {
+func (c *Client) CreateOrder(ctx context.Context, req *internal.CreateOrderRequest) (*internal.Order, error) {
 	if req.MarketType != "SPOT" {
 		return nil, fmt.Errorf("market type must be SPOT: %w", os.ErrInvalid)
 	}
@@ -272,18 +273,18 @@ func (c *Client) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Ord
 		Host:   RestURL.Host,
 		Path:   path.Join(RestURL.Path, "/spot/order"),
 	}
-	resp := new(CreateOrderResponse)
+	resp := new(internal.CreateOrderResponse)
 	if err := privatePostJSON(ctx, c, addrURL, req /* request */, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not create order", "market", req.Market, "side", req.Side, "price", req.Price, "size", req.Amount, "url", addrURL, "err", err)
 		}
 		return nil, err
 	}
-	c.getMarketTopic(req.Market).Send(resp.Data)
+	c.getMarketOrdersTopic(req.Market).Send(resp.Data)
 	return resp.Data, nil
 }
 
-func (c *Client) GetOrder(ctx context.Context, market string, orderID int64) (*Order, error) {
+func (c *Client) GetOrder(ctx context.Context, market string, orderID int64) (*internal.Order, error) {
 	values := make(url.Values)
 	values.Set("market", market)
 	values.Set("order_id", strconv.FormatInt(orderID, 10))
@@ -294,19 +295,19 @@ func (c *Client) GetOrder(ctx context.Context, market string, orderID int64) (*O
 		Path:     path.Join(RestURL.Path, "/spot/order-status"),
 		RawQuery: values.Encode(),
 	}
-	resp := new(GetOrderResponse)
+	resp := new(internal.GetOrderResponse)
 	if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market ticker information", "url", addrURL, "err", err)
 		}
 		return nil, err
 	}
-	c.getMarketTopic(market).Send(resp.Data)
+	c.getMarketOrdersTopic(market).Send(resp.Data)
 	return resp.Data, nil
 }
 
-func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) (*Order, error) {
-	req := CancelOrderRequest{
+func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) (*internal.Order, error) {
+	req := internal.CancelOrderRequest{
 		Market:     market,
 		MarketType: "SPOT",
 		OrderID:    orderID,
@@ -316,7 +317,7 @@ func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) 
 		Host:   RestURL.Host,
 		Path:   path.Join(RestURL.Path, "/spot/cancel-order"),
 	}
-	resp := new(CancelOrderResponse)
+	resp := new(internal.CancelOrderResponse)
 	if err := privatePostJSON(ctx, c, addrURL, &req, resp); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not cancel order", "orderID", orderID, "market", market, "url", addrURL, "err", err)
@@ -330,7 +331,7 @@ func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) 
 	} else {
 		c.refreshOrdersTopic.Send(resp.Data)
 	}
-	c.getMarketTopic(market).Send(resp.Data)
+	c.getMarketOrdersTopic(market).Send(resp.Data)
 	return resp.Data, nil
 }
 
@@ -345,7 +346,7 @@ func (c *Client) WatchMarket(ctx context.Context, market string) error {
 	if err := c.websocketMarketListSubscribe(ctx, "order.subscribe", []string{market}); err != nil {
 		return err
 	}
-	c.marketDealUpdateMap.LoadOrStore(market, topic.New[*DealUpdate]())
+	c.marketDealUpdateMap.LoadOrStore(market, topic.New[*internal.DealUpdate]())
 	return nil
 }
 
@@ -465,7 +466,7 @@ func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL,
 		return err
 	}
 	// Parse into a generic response.
-	var genericResp GenericResponse
+	var genericResp internal.GenericResponse
 	if err := json.Unmarshal(data, &genericResp); err != nil {
 		slog.Error("could not unmarshal into generic response", "response", string(data), "err", err)
 		return err
@@ -547,7 +548,7 @@ func privateGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.U
 		return err
 	}
 	// Parse into a generic response.
-	var genericResp GenericResponse
+	var genericResp internal.GenericResponse
 	if err := json.Unmarshal(data, &genericResp); err != nil {
 		slog.Error("could not unmarshal into generic response", "response", string(data), "err", err)
 		return err
@@ -617,7 +618,7 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 		return err
 	}
 	// Parse into a generic response.
-	var genericResp GenericResponse
+	var genericResp internal.GenericResponse
 	if err := json.Unmarshal(data, &genericResp); err != nil {
 		slog.Error("could not unmarshal into generic response", "response", string(data), "err", err)
 		return err
@@ -632,4 +633,40 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 		return err
 	}
 	return nil
+}
+
+func (c *Client) goRefreshOrders(ctx context.Context) {
+	defer c.wg.Done()
+
+	receiver, err := c.refreshOrdersTopic.Subscribe(0, true)
+	if err != nil {
+		slog.Error("could not subscribe to refreshOrdersTopic (unexpected)", "err", err)
+		return
+	}
+	defer receiver.Unsubscribe()
+
+	stopf := context.AfterFunc(ctx, receiver.Unsubscribe)
+	defer stopf()
+
+	for ctx.Err() == nil {
+		order, err := receiver.Receive()
+		if err != nil {
+			continue
+		}
+
+		fresh, err := c.GetOrder(ctx, order.Market, order.OrderID)
+		if err != nil {
+			if !errors.Is(err, context.Cause(ctx)) {
+				slog.Warn("could not query order (will retry)", "market", order.Market, "orderID", order.OrderID, "err", err)
+				time.AfterFunc(time.Second, func() {
+					c.refreshOrdersTopic.Send(order)
+				}) // Schedule a retry.
+			}
+			continue
+		}
+		// Publish the order as an update.
+		if topic, ok := c.marketOrderUpdateMap.Load(order.Market); ok {
+			topic.Send(fresh)
+		}
+	}
 }

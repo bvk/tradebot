@@ -1,6 +1,6 @@
 // Copyright (c) 2025 BVK Chaitanya
 
-package internal
+package coinex
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bvk/tradebot/coinex/internal"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
@@ -104,13 +105,13 @@ func TestJSONRawMessage(t *testing.T) {
 	if err := json.Unmarshal([]byte(v), &msg); err != nil {
 		t.Fatal(err)
 	}
-	header := new(WebsocketHeader)
+	header := new(internal.WebsocketHeader)
 	if err := json.Unmarshal([]byte(msg), header); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("%#v", header)
 
-	response := new(WebsocketResponse)
+	response := new(internal.WebsocketResponse)
 	if err := json.Unmarshal([]byte(msg), response); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +201,7 @@ func TestWebsocket(t *testing.T) {
 
 	// TODO: Get funds and verify that we can place this order.
 
-	createReq := &CreateOrderRequest{
+	createReq := &internal.CreateOrderRequest{
 		ClientOrderID: strings.ReplaceAll(uuid.New().String(), "-", ""),
 		Market:        "DOGEUSDT",
 		MarketType:    "SPOT",

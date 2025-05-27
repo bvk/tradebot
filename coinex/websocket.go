@@ -1,6 +1,6 @@
 // Copyright (c) 2025 BVK Chaitanya
 
-package internal
+package coinex
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/coinex/internal"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/syncmap"
 
@@ -46,16 +47,16 @@ func (c *Client) goGetMessages(ctx context.Context) {
 
 func (c *Client) getMessages(ctx context.Context) (status error) {
 	// Reinitialize the websocket call map.
-	c.websocketCallMap = syncmap.Map[int64, *websocketCall]{}
+	c.websocketCallMap = syncmap.Map[int64, *internal.WebsocketCall]{}
 	defer func() {
 		// Cancel all existing calls with an error.
 		for _, call := range c.websocketCallMap.Range {
 			if status != nil {
-				call.status = status
+				call.Status = status
 			} else {
-				call.status = os.ErrClosed
+				call.Status = os.ErrClosed
 			}
-			close(call.doneCh)
+			close(call.DoneCh)
 		}
 	}()
 
@@ -211,7 +212,7 @@ func (c *Client) readMessage(ctx context.Context, conn *websocket.Conn) (json.Ra
 }
 
 func (c *Client) handleMessage(ctx context.Context, msg json.RawMessage) error {
-	var header WebsocketHeader
+	var header internal.WebsocketHeader
 	if err := json.Unmarshal([]byte(msg), &header); err != nil {
 		slog.Error("could not unmarshal webosocket message header", "msg", string(msg), "err", err)
 		return err
@@ -229,11 +230,11 @@ func (c *Client) handleMessage(ctx context.Context, msg json.RawMessage) error {
 		}
 		if err := json.Unmarshal([]byte(msg), &call.Response); err != nil {
 			slog.Error("could not unmarshal websocket response", "msg", string(msg), "err", err)
-			call.status = err
-			close(call.doneCh)
+			call.Status = err
+			close(call.DoneCh)
 			return err
 		}
-		close(call.doneCh)
+		close(call.DoneCh)
 
 	case header.IsNotice():
 		handler, ok := c.websocketHandlerMap[*header.Method]
@@ -241,7 +242,7 @@ func (c *Client) handleMessage(ctx context.Context, msg json.RawMessage) error {
 			slog.Warn("could not find notice handler for incoming method (ignored)", "method", *header.Method, "msg", string(msg))
 			return nil
 		}
-		notice := new(WebsocketNotice)
+		notice := new(internal.WebsocketNotice)
 		if err := json.Unmarshal([]byte(msg), notice); err != nil {
 			slog.Error("could not unmarshal weboscket notice", "msg", string(msg), "err", err)
 			return err
@@ -256,9 +257,9 @@ func (c *Client) handleMessage(ctx context.Context, msg json.RawMessage) error {
 }
 
 func (c *Client) websocketCall(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
-	call := websocketCall{
-		doneCh: make(chan struct{}),
-		Request: WebsocketRequest{
+	call := internal.WebsocketCall{
+		DoneCh: make(chan struct{}),
+		Request: internal.WebsocketRequest{
 			Method: method,
 			Params: params,
 		},
@@ -273,9 +274,9 @@ func (c *Client) websocketCall(ctx context.Context, method string, params json.R
 	select {
 	case <-ctx.Done():
 		return nil, context.Cause(ctx)
-	case <-call.doneCh:
-		if call.status != nil {
-			return nil, call.status
+	case <-call.DoneCh:
+		if call.Status != nil {
+			return nil, call.Status
 		}
 		if call.Response.Code != 0 {
 			return nil, fmt.Errorf("method %q failed: code=%d message=%q", method, call.Response.Code, call.Response.Message)
@@ -384,10 +385,10 @@ func (c *Client) websocketMarketListUnsubscribe(ctx context.Context, method stri
 	return nil
 }
 
-func (c *Client) onDealUpdate(ctx context.Context, notice *WebsocketNotice) error {
+func (c *Client) onDealUpdate(ctx context.Context, notice *internal.WebsocketNotice) error {
 	type Data struct {
-		Market   string        `json:"market"`
-		DealList []*DealUpdate `json:"deal_list"`
+		Market   string                 `json:"market"`
+		DealList []*internal.DealUpdate `json:"deal_list"`
 	}
 	var data Data
 	if err := json.Unmarshal([]byte(notice.Data), &data); err != nil {
@@ -396,7 +397,7 @@ func (c *Client) onDealUpdate(ctx context.Context, notice *WebsocketNotice) erro
 		return err
 	}
 
-	latest := slices.MaxFunc(data.DealList, func(a, b *DealUpdate) int {
+	latest := slices.MaxFunc(data.DealList, func(a, b *internal.DealUpdate) int {
 		return cmp.Compare(a.CreatedAt, b.CreatedAt)
 	})
 
@@ -406,19 +407,19 @@ func (c *Client) onDealUpdate(ctx context.Context, notice *WebsocketNotice) erro
 	return nil
 }
 
-func (c *Client) onOrderUpdate(ctx context.Context, notice *WebsocketNotice) error {
-	update := new(OrderUpdate)
+func (c *Client) onOrderUpdate(ctx context.Context, notice *internal.WebsocketNotice) error {
+	update := new(internal.OrderUpdate)
 	if err := json.Unmarshal([]byte(notice.Data), &update); err != nil {
 		slog.Error("could not unmarshal order.update data", "err", err)
 		log.Printf("order.update notice data=%s", notice.Data)
 		return err
 	}
 	if update.Event == "finish" {
-		update.Order.hasFinishEvent = true
+		update.Order.HasFinishEvent = true
 	}
 
-	c.getMarketTopic(update.Order.Market).Send(update.Order)
-	if update.Order.hasFinishEvent && !update.Order.FilledAmount.IsZero() {
+	c.getMarketOrdersTopic(update.Order.Market).Send(update.Order)
+	if update.Order.HasFinishEvent && !update.Order.FilledAmount.IsZero() {
 		c.refreshOrdersTopic.Send(update.Order)
 	}
 	return nil

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
@@ -128,12 +128,12 @@ type WebsocketNotice struct {
 	Data   json.RawMessage `json:"data"`
 }
 
-type websocketCall struct {
+type WebsocketCall struct {
 	Request  WebsocketRequest
 	Response WebsocketResponse
 
-	doneCh chan struct{} `json:"-"`
-	status error         `json:"-"`
+	DoneCh chan struct{} `json:"-"`
+	Status error         `json:"-"`
 }
 
 type DealUpdate struct {
@@ -146,8 +146,8 @@ type DealUpdate struct {
 	CreatedAt int64 `json:"created_at"`
 }
 
-func (v *DealUpdate) PricePoint() (decimal.Decimal, exchange.RemoteTime) {
-	return v.Price, exchange.RemoteTime{Time: time.UnixMilli(v.CreatedAt)}
+func (v *DealUpdate) PricePoint() (decimal.Decimal, gobs.RemoteTime) {
+	return v.Price, gobs.RemoteTime{Time: time.UnixMilli(v.CreatedAt)}
 }
 
 type CreateOrderRequest struct {

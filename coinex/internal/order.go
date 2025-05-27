@@ -3,16 +3,14 @@
 package internal
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
@@ -40,7 +38,7 @@ type Order struct {
 	UpdatedAt        int64           `json:"updated_at"`
 	OrderStatus      string          `json:"status"`
 
-	hasFinishEvent bool `json:"-"`
+	HasFinishEvent bool `json:"-"`
 }
 
 func (v *Order) ServerOrderID() exchange.OrderID {
@@ -55,12 +53,12 @@ func (v *Order) Side() string {
 	return strings.ToUpper(v.OrderSide)
 }
 
-func (v *Order) CreateTime() exchange.RemoteTime {
-	return exchange.RemoteTime{Time: time.UnixMilli(v.CreatedAt)}
+func (v *Order) CreateTime() gobs.RemoteTime {
+	return gobs.RemoteTime{Time: time.UnixMilli(v.CreatedAt)}
 }
 
-func (v *Order) UpdateTime() exchange.RemoteTime {
-	return exchange.RemoteTime{Time: time.UnixMilli(v.UpdatedAt)}
+func (v *Order) UpdateTime() gobs.RemoteTime {
+	return gobs.RemoteTime{Time: time.UnixMilli(v.UpdatedAt)}
 }
 
 func (v *Order) FilledSize() decimal.Decimal {
@@ -149,8 +147,8 @@ func (v *Order) AddUpdate(other *Order) error {
 	if !v.IsDone() && other.IsDone() {
 		v.OrderStatus = other.OrderStatus
 	}
-	if !v.hasFinishEvent && other.hasFinishEvent {
-		v.hasFinishEvent = true
+	if !v.HasFinishEvent && other.HasFinishEvent {
+		v.HasFinishEvent = true
 	}
 	return nil
 }
@@ -160,40 +158,4 @@ func (v *Order) IsDone() bool {
 		return true
 	}
 	return false
-}
-
-func (c *Client) goRefreshOrders(ctx context.Context) {
-	defer c.wg.Done()
-
-	receiver, err := c.refreshOrdersTopic.Subscribe(0, true)
-	if err != nil {
-		slog.Error("could not subscribe to refreshOrdersTopic (unexpected)", "err", err)
-		return
-	}
-	defer receiver.Unsubscribe()
-
-	stopf := context.AfterFunc(ctx, receiver.Unsubscribe)
-	defer stopf()
-
-	for ctx.Err() == nil {
-		order, err := receiver.Receive()
-		if err != nil {
-			continue
-		}
-
-		fresh, err := c.GetOrder(ctx, order.Market, order.OrderID)
-		if err != nil {
-			if !errors.Is(err, context.Cause(ctx)) {
-				slog.Warn("could not query order (will retry)", "market", order.Market, "orderID", order.OrderID, "err", err)
-				time.AfterFunc(time.Second, func() {
-					c.refreshOrdersTopic.Send(order)
-				}) // Schedule a retry.
-			}
-			continue
-		}
-		// Publish the order as an update.
-		if topic, ok := c.marketOrderUpdateMap.Load(order.Market); ok {
-			topic.Send(fresh)
-		}
-	}
 }
