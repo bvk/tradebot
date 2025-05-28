@@ -355,7 +355,7 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
 	}
 
-	product, err := exch.OpenProduct(s.cg.Context(), productID)
+	product, err := exch.OpenSpotProduct(s.cg.Context(), productID)
 	if err != nil {
 		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
 	}

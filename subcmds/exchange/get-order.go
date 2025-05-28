@@ -17,12 +17,15 @@ type GetOrder struct {
 	cmdutil.ClientFlags
 
 	name string
+
+	product string
 }
 
 func (c *GetOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-order", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	fset.StringVar(&c.name, "name", "coinbase", "name of the exchange")
+	fset.StringVar(&c.product, "product", "", "name of the exchange product")
 	return "get-order", fset, cli.CmdFunc(c.run)
 }
 
@@ -36,9 +39,14 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.ExchangeGetOrderRequest{
-		Name:    c.name,
-		OrderID: args[0],
+		ExchangeName: c.name,
+		ProductID:    c.product,
+		OrderID:      args[0],
 	}
+	if err := req.Check(); err != nil {
+		return err
+	}
+
 	resp, err := cmdutil.Post[api.ExchangeGetOrderResponse](ctx, &c.ClientFlags, api.ExchangeGetOrderPath, req)
 	if err != nil {
 		return fmt.Errorf("POST request to get-order failed: %w", err)

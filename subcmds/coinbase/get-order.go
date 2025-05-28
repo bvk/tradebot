@@ -58,7 +58,7 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	defer cb.Close()
 
 	for ii, id := range args {
-		order, err := cb.GetOrder(ctx, exchange.OrderID(id))
+		order, err := cb.GetOrder(ctx, "" /* productID */, exchange.OrderID(id))
 		if err != nil {
 			return err
 		}

@@ -363,7 +363,7 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 				stop = true
 			case <-time.After(time.Second):
 				slog.Warn(fmt.Sprintf("client order id %s created with server order id %s  (%s) in %s is not ready in time (forcing a fetch)", req.ClientOrderID, resp.OrderID, req.Side, req.ProductID))
-				ex.GetOrder(ctx, exchange.OrderID(resp.OrderID))
+				ex.GetOrder(ctx, "" /* productID */, exchange.OrderID(resp.OrderID))
 			}
 		}
 	}
@@ -380,7 +380,7 @@ func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.SimpleOrde
 	return old, true
 }
 
-func (ex *Exchange) GetOrder(ctx context.Context, orderID exchange.OrderID) (*exchange.SimpleOrder, error) {
+func (ex *Exchange) GetOrder(ctx context.Context, _ string, orderID exchange.OrderID) (*exchange.SimpleOrder, error) {
 	if v, err := ex.datastore.GetOrder(ctx, string(orderID)); err == nil {
 		return exchangeOrderFromOrder(v), nil
 	}
@@ -501,7 +501,9 @@ func (ex *Exchange) listRawAccounts(ctx context.Context) ([]*internal.Account, e
 	return accounts, nil
 }
 
-func (ex *Exchange) GetProduct(ctx context.Context, productID string) (*gobs.Product, error) {
+func (ex *Exchange) GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error) {
+	productID := fmt.Sprintf("%s-%s", strings.ToUpper(base), strings.ToUpper(quote))
+
 	resp, err := ex.client.GetProduct(ctx, productID)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch product %q info: %w", productID, err)

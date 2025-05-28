@@ -40,10 +40,9 @@ type Exchange interface {
 
 	ExchangeName() string
 
-	OpenProduct(ctx context.Context, productID string) (Product, error)
+	OpenSpotProduct(ctx context.Context, productID string) (Product, error)
 
-	GetProduct(ctx context.Context, id string) (*gobs.Product, error)
-	GetOrder(ctx context.Context, id OrderID) (*SimpleOrder, error)
+	GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error)
 
-	IsDone(status string) bool
+	GetOrder(ctx context.Context, productID string, orderID OrderID) (*SimpleOrder, error)
 }

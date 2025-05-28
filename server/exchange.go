@@ -14,11 +14,14 @@ import (
 )
 
 func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrderRequest) (*api.ExchangeGetOrderResponse, error) {
-	ex, ok := s.exchangeMap[strings.ToLower(req.Name)]
-	if !ok {
-		return nil, fmt.Errorf("no exchange with name %q: %w", req.Name, os.ErrNotExist)
+	if err := req.Check(); err != nil {
+		return nil, err
 	}
-	order, err := ex.GetOrder(ctx, exchange.OrderID(req.OrderID))
+	ex, ok := s.exchangeMap[strings.ToLower(req.ExchangeName)]
+	if !ok {
+		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
+	}
+	order, err := ex.GetOrder(ctx, req.ProductID, exchange.OrderID(req.OrderID))
 	if err != nil {
 		return &api.ExchangeGetOrderResponse{Error: err.Error()}, nil
 	}
@@ -45,7 +48,7 @@ func (s *Server) doGetProduct(ctx context.Context, req *api.ExchangeGetProductRe
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
 	}
-	product, err := ex.GetProduct(ctx, req.ProductID)
+	product, err := ex.GetSpotProduct(ctx, req.Base, req.Quote)
 	if err != nil {
 		return &api.ExchangeGetProductResponse{Error: err.Error()}, nil
 	}

@@ -33,7 +33,7 @@ type Product struct {
 	websocket *internal.Websocket
 }
 
-func (ex *Exchange) OpenProduct(ctx context.Context, pid string) (_ exchange.Product, status error) {
+func (ex *Exchange) OpenSpotProduct(ctx context.Context, pid string) (_ exchange.Product, status error) {
 	if p, ok := ex.productMap.Load(pid); ok {
 		return p, nil
 	}
@@ -86,7 +86,7 @@ func (p *Product) OrderUpdatesCh() (<-chan *exchange.SimpleOrder, func()) {
 }
 
 func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.SimpleOrder, error) {
-	return p.exchange.GetOrder(ctx, serverOrderID)
+	return p.exchange.GetOrder(ctx, "" /* productID */, serverOrderID)
 }
 
 func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
@@ -185,7 +185,7 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) er
 	// Schedule a Get for the canceled order so that a notification is generated.
 	var get func(context.Context)
 	get = func(ctx context.Context) {
-		if _, err := p.exchange.GetOrder(ctx, serverOrderID); err != nil {
+		if _, err := p.exchange.GetOrder(ctx, "" /* productID */, serverOrderID); err != nil {
 			log.Printf("could not fetch canceled order %s for notification processing (rescheduled): %v", serverOrderID, err)
 			p.client.AfterDurationFunc(time.Second, get)
 			return
