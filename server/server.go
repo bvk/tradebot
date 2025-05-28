@@ -19,6 +19,7 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
@@ -96,6 +97,21 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}
 		exchangeMap["coinbase"] = client
+	}
+
+	if secrets.CoinEx != nil {
+		opts := &coinex.Options{
+			HttpClientTimeout: opts.MaxHttpClientTimeout,
+		}
+		exchange, err := coinex.NewExchange(newctx, secrets.CoinEx.Key, secrets.CoinEx.Secret, opts)
+		if err != nil {
+			return nil, fmt.Errorf("could not create coinex exchange: %w", err)
+		}
+		exchangeMap["coinex"] = exchange
+	}
+
+	if len(exchangeMap) == 0 {
+		return nil, fmt.Errorf("no credentials found for any supported exchange")
 	}
 
 	var pushoverClient *pushover.Client
