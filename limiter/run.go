@@ -4,6 +4,7 @@ package limiter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/topic"
 )
 
 func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
@@ -64,11 +66,27 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 	localCtx := context.Background()
 
-	tickerCh, stopTickers := rt.Product.TickerCh()
-	defer stopTickers()
+	priceUpdates, err := rt.Product.GetPriceUpdates()
+	if err != nil {
+		return err
+	}
+	defer priceUpdates.Close()
 
-	orderUpdatesCh, stopUpdates := rt.Product.OrderUpdatesCh()
-	defer stopUpdates()
+	tickerCh, err := topic.ReceiveCh(priceUpdates)
+	if err != nil {
+		return err
+	}
+
+	orderUpdates, err := rt.Product.GetOrderUpdates()
+	if err != nil {
+		return err
+	}
+	defer orderUpdates.Close()
+
+	orderUpdatesCh, err := topic.ReceiveCh(orderUpdates)
+	if err != nil {
+		return err
+	}
 
 	for p := v.PendingSize(); !p.IsZero(); p = v.PendingSize() {
 		select {
@@ -96,10 +114,15 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 			flushCh = time.After(time.Minute)
 
-		case order := <-orderUpdatesCh:
+		case update := <-orderUpdatesCh:
 			dirty++
-			v.updateOrderMap(order)
-			if order.Done && order.ServerOrderID == activeOrderID {
+			order, err := v.updateOrderMap(update)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+			if order != nil && order.IsDone() && order.ServerOrderID == activeOrderID {
 				log.Printf("%s:%s: limit order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
 			}

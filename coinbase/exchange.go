@@ -322,6 +322,7 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 		}
 		for _, event := range msg.Events {
 			for _, ticker := range event.Tickers {
+				ticker.Timestamp = gobs.RemoteTime{Time: timestamp}
 				if p, ok := ex.productMap.Load(ticker.ProductID); ok {
 					p.handleTickerEvent(timestamp, ticker)
 				}

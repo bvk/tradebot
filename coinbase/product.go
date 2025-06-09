@@ -14,8 +14,8 @@ import (
 
 	"github.com/bvk/tradebot/coinbase/internal"
 	"github.com/bvk/tradebot/exchange"
-	"github.com/bvkgo/topic"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/topic"
 )
 
 type Product struct {
@@ -25,8 +25,8 @@ type Product struct {
 
 	lastTicker *exchange.SimpleTicker
 
-	prodTickerTopic *topic.Topic[exchange.Ticker]
-	prodOrderTopic  *topic.Topic[*exchange.SimpleOrder]
+	prodTickerTopic *topic.Topic[*internal.TickerEvent]
+	prodOrderTopic  *topic.Topic[exchange.OrderUpdate]
 
 	productData *internal.GetProductResponse
 
@@ -47,8 +47,8 @@ func (ex *Exchange) OpenSpotProduct(ctx context.Context, pid string) (_ exchange
 		client:          ex.client,
 		exchange:        ex,
 		productData:     product,
-		prodTickerTopic: topic.New[exchange.Ticker](),
-		prodOrderTopic:  topic.New[*exchange.SimpleOrder](),
+		prodTickerTopic: topic.New[*internal.TickerEvent](),
+		prodOrderTopic:  topic.New[exchange.OrderUpdate](),
 		websocket:       ex.client.GetMessages("heartbeats", []string{pid}, ex.dispatchMessage),
 	}
 	p.websocket.Subscribe("ticker", []string{pid})
@@ -75,14 +75,13 @@ func (p *Product) BaseMinSize() decimal.Decimal {
 	return p.productData.BaseMinSize.Decimal
 }
 
-func (p *Product) TickerCh() (<-chan exchange.Ticker, func()) {
-	sub, ch, _ := p.prodTickerTopic.Subscribe(1, true /* includeRecent */)
-	return ch, sub.Unsubscribe
+func (p *Product) GetPriceUpdates() (*topic.Receiver[exchange.PriceUpdate], error) {
+	convert := func(v *internal.TickerEvent) exchange.PriceUpdate { return v }
+	return topic.SubscribeFunc(p.prodTickerTopic, convert, 1, true /* includeLast */)
 }
 
-func (p *Product) OrderUpdatesCh() (<-chan *exchange.SimpleOrder, func()) {
-	sub, ch, _ := p.prodOrderTopic.Subscribe(0, true /* includeRecent */)
-	return ch, sub.Unsubscribe
+func (p *Product) GetOrderUpdates() (*topic.Receiver[exchange.OrderUpdate], error) {
+	return topic.Subscribe(p.prodOrderTopic, 1, true /* includeLast */)
 }
 
 func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.SimpleOrder, error) {
@@ -199,11 +198,7 @@ func (p *Product) handleTickerEvent(timestamp time.Time, event *internal.TickerE
 	if p.lastTicker != nil && timestamp.Before(p.lastTicker.ServerTime.Time) {
 		return
 	}
-	p.lastTicker = &exchange.SimpleTicker{
-		ServerTime: exchange.RemoteTime{Time: timestamp},
-		Price:      event.Price.Decimal,
-	}
-	p.prodTickerTopic.Send(p.lastTicker)
+	p.prodTickerTopic.Send(event)
 }
 
 func (p *Product) handleOrder(order *exchange.SimpleOrder) {

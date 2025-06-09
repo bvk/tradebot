@@ -32,7 +32,7 @@ require (
 	github.com/google/flatbuffers v23.5.26+incompatible // indirect
 	github.com/klauspost/compress v1.17.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/visvasity/topic v0.0.0-20250523150311-3f106d46ecb0 // indirect
+	github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.15.0 // indirect
 	golang.org/x/net v0.18.0 // indirect

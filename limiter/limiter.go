@@ -8,6 +8,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log/slog"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -242,10 +243,14 @@ func (v *Limiter) compactOrderMap() {
 	})
 }
 
-func (v *Limiter) updateOrderMap(order *exchange.SimpleOrder) {
-	if _, ok := v.orderMap.Load(order.ServerOrderID); ok {
-		v.orderMap.Store(order.ServerOrderID, order)
+func (v *Limiter) updateOrderMap(update exchange.OrderUpdate) (*exchange.SimpleOrder, error) {
+	if current, ok := v.orderMap.Load(exchange.OrderID(update.ServerID())); ok {
+		if err := current.AddUpdate(update); err != nil {
+			return nil, err
+		}
+		return current, nil
 	}
+	return nil, os.ErrNotExist
 }
 
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {

@@ -8,12 +8,34 @@ import (
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/topic"
 )
 
 type OrderID string
 
-type Ticker interface {
-	PricePoint() (decimal.Decimal, RemoteTime)
+type Order interface {
+	ServerID() string
+	ClientID() string
+	OrderSide() string
+}
+
+type PriceUpdate interface {
+	PricePoint() (decimal.Decimal, gobs.RemoteTime)
+}
+
+type OrderUpdate interface {
+	ServerID() string
+	ClientID() string
+
+	CreatedAt() gobs.RemoteTime
+	UpdatedAt() gobs.RemoteTime
+
+	ExecutedFee() decimal.Decimal
+	ExecutedSize() decimal.Decimal
+	ExecutedValue() decimal.Decimal
+
+	IsDone() bool
+	OrderStatus() string
 }
 
 type Product interface {
@@ -23,8 +45,8 @@ type Product interface {
 	ExchangeName() string
 	BaseMinSize() decimal.Decimal
 
-	TickerCh() (ch <-chan Ticker, stopf func())
-	OrderUpdatesCh() (ch <-chan *SimpleOrder, stopf func())
+	GetPriceUpdates() (*topic.Receiver[PriceUpdate], error)
+	GetOrderUpdates() (*topic.Receiver[OrderUpdate], error)
 
 	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
 	LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)

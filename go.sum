@@ -95,6 +95,8 @@ github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7 h1:61Dshk1FM5vmKl3
 github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7/go.mod h1:tbXJl3NRnZVv5ArHRSZeLW1nGJTofo3MxWTFBPQxcRM=
 github.com/visvasity/topic v0.0.0-20250523150311-3f106d46ecb0 h1:253j4ihgRhgXxmiJmbM8nmp0glC6gTSYBiW+OBibHhs=
 github.com/visvasity/topic v0.0.0-20250523150311-3f106d46ecb0/go.mod h1:NyOYwkR2EadMlApKwhsVEWvIEIMJJMmsy9pwH2YAy28=
+github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71 h1:hAQJQrKhXaQ7BliKysI+8fxiPKzOrJgCXCSJiBKmE0w=
+github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71/go.mod h1:NyOYwkR2EadMlApKwhsVEWvIEIMJJMmsy9pwH2YAy28=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opencensus.io v0.24.0 h1:y73uSU6J157QMP2kn2r30vwW1A2W2WFwSCGnAVxeaD0=

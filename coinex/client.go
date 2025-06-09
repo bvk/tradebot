@@ -647,14 +647,14 @@ func (c *Client) goRefreshOrders(ctx context.Context) {
 		}
 	}()
 
-	receiver, err := c.refreshOrdersTopic.Subscribe(0, true)
+	receiver, err := topic.Subscribe(c.refreshOrdersTopic, 0, true)
 	if err != nil {
 		slog.Error("could not subscribe to refreshOrdersTopic (unexpected)", "err", err)
 		return
 	}
-	defer receiver.Unsubscribe()
+	defer receiver.Close()
 
-	stopf := context.AfterFunc(ctx, receiver.Unsubscribe)
+	stopf := context.AfterFunc(ctx, receiver.Close)
 	defer stopf()
 
 	for ctx.Err() == nil {

@@ -16,7 +16,9 @@ import (
 
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/gorilla/websocket"
+	"github.com/shopspring/decimal"
 )
 
 type Message struct {
@@ -63,6 +65,14 @@ type TickerEvent struct {
 	Low52W      exchange.NullDecimal `json:"low_52_w"`
 	High52W     exchange.NullDecimal `json:"high_52_w"`
 	PricePct24H exchange.NullDecimal `json:"price_percent_chg_24_h"`
+
+	Timestamp gobs.RemoteTime `json:"-"`
+}
+
+var _ exchange.PriceUpdate = &TickerEvent{}
+
+func (v *TickerEvent) PricePoint() (decimal.Decimal, gobs.RemoteTime) {
+	return v.Price.Decimal, v.Timestamp
 }
 
 type OrderEvent struct {
