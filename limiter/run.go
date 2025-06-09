@@ -174,7 +174,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						activeOrderID = ""
 					}
 				}
-				if tickerPrice.LessThan(v.point.Cancel) {
+				if tickerPrice.GreaterThanOrEqual(v.point.Price) && tickerPrice.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
 						id, err := v.create(localCtx, rt.Product)
 						if err != nil {

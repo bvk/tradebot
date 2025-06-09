@@ -9,7 +9,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
@@ -48,38 +47,6 @@ func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 		}
 	}
 	return nil
-}
-
-func (v *Looper) readyWaitForBuy(ctx context.Context, rt *trader.Runtime) {
-	tickerCh, stopTickers := rt.Product.TickerCh()
-	defer stopTickers()
-
-	var tick exchange.Ticker
-	for !v.isReady(tick) {
-		select {
-		case <-ctx.Done():
-			return
-		case tick = <-tickerCh:
-		}
-	}
-}
-
-func (v *Looper) readyWaitForSell(ctx context.Context, rt *trader.Runtime) {
-	tickerCh, stopTickers := rt.Product.TickerCh()
-	defer stopTickers()
-
-	var tick exchange.Ticker
-	for !v.isReady(tick) {
-		select {
-		case <-ctx.Done():
-			return
-		case tick = <-tickerCh:
-			price, _ := tick.PricePoint()
-			if price.GreaterThanOrEqual(v.sellPoint.Price) {
-				return
-			}
-		}
-	}
 }
 
 func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
@@ -150,7 +117,6 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			return context.Cause(ctx)
 
 		case "BUY":
-			v.readyWaitForBuy(ctx, rt)
 			log.Printf("%s: current holding size is %s-%s=%s (starting a buy)", v.uid, bought, sold, holdings)
 
 			if len(v.buys) == 0 || v.buys[len(v.buys)-1].PendingSize().IsZero() {
@@ -178,7 +144,6 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 		case "SELL":
 			// Start a sell if holding amount is greater than sell size.
 			if action == "SELL" {
-				v.readyWaitForSell(ctx, rt)
 				log.Printf("%s: current holding size is %s-%s=%s (starting a sell)", v.uid, bought, sold, holdings)
 
 				if len(v.sells) == 0 || v.sells[len(v.sells)-1].PendingSize().IsZero() {
@@ -215,20 +180,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 }
 
 func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
-	// Wait for the ticker to go above the buy point price.
-	tickerCh, stopTickers := rt.Product.TickerCh()
-	defer stopTickers()
-
-	var curPrice decimal.Decimal
-	for curPrice.IsZero() || curPrice.LessThanOrEqual(v.buyPoint.Price) {
-		select {
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		case ticker := <-tickerCh:
-			curPrice, _ = ticker.PricePoint()
-		}
-	}
-	log.Printf("%s: adding new limit-buy buy-%06d at buy-price %s when current price is %s", v.uid, len(v.buys), v.buyPoint.Price.StringFixed(3), curPrice.StringFixed(3))
+	log.Printf("%s: adding new limit-buy buy-%06d at buy-price %s", v.uid, len(v.buys), v.buyPoint.Price.StringFixed(3))
 
 	uid := path.Join(v.uid, fmt.Sprintf("buy-%06d", len(v.buys)))
 	b, err := limiter.New(uid, v.exchangeName, v.productID, &v.buyPoint)
