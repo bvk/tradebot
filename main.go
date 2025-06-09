@@ -5,7 +5,9 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
+	"runtime/debug"
 
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/coinbase"
@@ -20,6 +22,14 @@ import (
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
 	dbCmds := []cli.Command{
 		new(db.Get),
 		new(db.Set),

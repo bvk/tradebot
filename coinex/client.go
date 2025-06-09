@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -637,6 +638,14 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 
 func (c *Client) goRefreshOrders(ctx context.Context) {
 	defer c.wg.Done()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
 
 	receiver, err := c.refreshOrdersTopic.Subscribe(0, true)
 	if err != nil {

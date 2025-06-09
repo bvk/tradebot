@@ -4,7 +4,9 @@ package ctxutil
 
 import (
 	"context"
+	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -34,6 +36,14 @@ func (cg *CloseGroup) Context() context.Context {
 }
 
 func (cg *CloseGroup) Go(f func(ctx context.Context)) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
 	cg.once.Do(cg.init)
 
 	cg.wg.Add(1)

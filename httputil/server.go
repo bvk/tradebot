@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -113,6 +114,14 @@ func (s *Server) StartUnix(ctx context.Context, addr *net.UnixAddr) (id int64, s
 
 	s.wg.Add(1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("CAUGHT PANIC", "panic", r)
+				slog.Error(string(debug.Stack()))
+				panic(r)
+			}
+		}()
+
 		for s.ctx.Err() == nil {
 			if err := server.Serve(l); err != nil {
 				if !errors.Is(err, http.ErrServerClosed) {

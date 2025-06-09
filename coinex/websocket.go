@@ -17,6 +17,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"sync"
@@ -31,6 +32,14 @@ import (
 
 func (c *Client) goGetMessages(ctx context.Context) {
 	defer c.wg.Done()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
 
 	for i := 0; ctx.Err() == nil; i = max(i+1, 5) {
 		if err := c.getMessages(ctx); err != nil {
@@ -88,6 +97,14 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 	go func() {
 		defer wg.Done()
 
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("CAUGHT PANIC", "panic", r)
+				slog.Error(string(debug.Stack()))
+				panic(r)
+			}
+		}()
+
 		for ctx.Err() == nil {
 			msg, err := c.readMessage(ctx, conn)
 			if err != nil {
@@ -108,6 +125,14 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("CAUGHT PANIC", "panic", r)
+				slog.Error(string(debug.Stack()))
+				panic(r)
+			}
+		}()
 
 		id := int64(0)
 		for ctx.Err() == nil {
