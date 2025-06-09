@@ -42,6 +42,7 @@ type Run struct {
 	restart         bool
 	shutdownTimeout time.Duration
 
+	logDebug             bool
 	noPprof              bool
 	noResume             bool
 	noFetchCandles       bool
@@ -58,6 +59,7 @@ func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
 	fset.BoolVar(&c.restart, "restart", false, "when true, kills any old instance")
 	fset.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "max timeout for shutdown when restarting")
+	fset.BoolVar(&c.logDebug, "log-debug", false, "when true, debug messages are logged")
 	fset.BoolVar(&c.noPprof, "no-pprof", false, "when true net/http/pprof handler is not registered")
 	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
 	fset.BoolVar(&c.noFetchCandles, "no-fetch-candles", true, "when true, candle data is not saved in the datastore")
@@ -224,6 +226,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	slog.SetDefault(slog.New(backend.Handler()))
 	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
 
+	if c.logDebug {
+		backend.SetLevel(slog.LevelDebug)
+	}
+
 	// Start HTTP server.
 	s, err := httputil.New(nil /* opts */)
 	if err != nil {
@@ -244,6 +250,14 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		s.AddHandler("/debug/pprof/block", pprof.Handler("block"))
 		s.AddHandler("/debug/pprof/mutex", pprof.Handler("mutex"))
 	}
+	s.AddHandler("/debug/logging/on", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		backend.SetLevel(slog.LevelDebug)
+		slog.Info("debug logging is turned on by the user through REST endpoint")
+	}))
+	s.AddHandler("/debug/logging/off", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		slog.Info("debug logging is turned off by the user through REST endpoint")
+		backend.SetLevel(slog.LevelInfo)
+	}))
 
 	// Open the database.
 	bopts := badger.DefaultOptions(dataDir)
