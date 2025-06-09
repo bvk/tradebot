@@ -83,7 +83,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		}
 	}()
 
-	var coinbaseClient *coinbase.Exchange
 	if secrets.Coinbase != nil {
 		cbopts := &coinbase.Options{
 			MaxFetchTimeLatency: opts.MaxFetchTimeLatency,
@@ -96,9 +95,8 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		if err != nil {
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}
-		coinbaseClient = client
+		exchangeMap["coinbase"] = client
 	}
-	exchangeMap["coinbase"] = coinbaseClient
 
 	var pushoverClient *pushover.Client
 	if secrets.Pushover != nil {
