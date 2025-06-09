@@ -37,6 +37,8 @@ type Run struct {
 
 	background bool
 
+	waitforHostPort string
+
 	restart         bool
 	shutdownTimeout time.Duration
 
@@ -63,6 +65,7 @@ func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.DurationVar(&c.maxHttpClientTimeout, "max-http-client-timeout", 30*time.Second, "default max timeout for http requests")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
+	fset.StringVar(&c.waitforHostPort, "waitfor-host-port", "", "startup waits till host:port becomes reachable")
 	return "run", fset, cli.CmdFunc(c.run)
 }
 
@@ -164,6 +167,21 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
 			return err
 		}
+	}
+
+	if err := c.waitforGlobalUnicastIP(ctx); err != nil {
+		return err
+	}
+	if len(c.waitforHostPort) > 0 {
+		if err := c.waitforDial(ctx, c.waitforHostPort); err != nil {
+			return err
+		}
+	}
+	if err := c.waitforDial(ctx, "api.coinex.com:443"); err != nil {
+		return err
+	}
+	if err := c.waitforDial(ctx, "api.coinbase.com:443"); err != nil {
+		return err
 	}
 
 	lockPath := filepath.Join(dataDir, "tradebot.lock")
@@ -285,4 +303,71 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 func isGoodKey(k string) bool {
 	return path.IsAbs(k) && k == path.Clean(k)
+}
+
+func (c *Run) waitforDial(ctx context.Context, hostport string) error {
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return fmt.Errorf("invalid wait-for-hostport value: %w", err)
+	}
+	addr := net.JoinHostPort(host, port)
+
+	for ctx.Err() == nil {
+		dctx, dcancel := context.WithTimeout(ctx, time.Second)
+		var d net.Dialer
+		conn, err := d.DialContext(dctx, "tcp", addr)
+		dcancel()
+
+		if err == nil {
+			slog.Info("connect to target is successful", "target", addr)
+			conn.Close()
+			return nil
+		}
+
+		slog.Info("sleeping to retry checking for target is reachable", "target", addr)
+		ctxutil.Sleep(ctx, time.Second)
+	}
+	return context.Cause(ctx)
+}
+
+func (c *Run) waitforGlobalUnicastIP(ctx context.Context) error {
+	for ctx.Err() == nil {
+		ifaces, err := net.Interfaces()
+		if err != nil {
+			return err
+		}
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 {
+				slog.Debug("interface is skipped cause it is down", "iface", iface.Name, "flags", iface.Flags)
+				continue
+			}
+			addrs, err := iface.Addrs()
+			if err != nil {
+				return err
+			}
+			for _, addr := range addrs {
+				ip, _, err := net.ParseCIDR(addr.String())
+				if err != nil {
+					continue
+				}
+				if ip.IsLoopback() {
+					slog.Debug("loopback ip is skipped", "iface", iface.Name, "addr", addr)
+					continue
+				}
+				if !ip.IsGlobalUnicast() {
+					slog.Debug("non-global-unicast ip is skipped", "iface", iface.Name, "addr", addr)
+					continue
+				}
+				if !ip.Equal(ip.To4()) {
+					slog.Debug("non-ip-v4 ip is skipped", "iface", iface.Name, "addr", addr)
+					continue
+				}
+				slog.Info("at least one global unicast ip is found", "iface", iface.Name, "ip", ip)
+				return nil
+			}
+		}
+		slog.Info("sleeping to retry checking for global unicast ip")
+		ctxutil.Sleep(ctx, time.Second)
+	}
+	return context.Cause(ctx)
 }
