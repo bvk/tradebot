@@ -13,7 +13,8 @@ type LimiterStateV2 struct {
 	ClientIDOffset   uint64
 	TradePoint       Point
 	ServerIDOrderMap map[string]*Order
-	Options          map[string]string
+
+	Options map[string]string // Deprecated
 }
 
 func (v *LimiterState) Upgrade() {
