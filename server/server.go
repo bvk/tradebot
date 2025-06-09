@@ -167,6 +167,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 
 	t.handlerMap[api.ExchangeGetOrderPath] = httpPostJSONHandler(t.doExchangeGetOrder)
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
+	t.handlerMap[api.ExchangeUpdateProductPath] = httpPostJSONHandler(t.doExchangeUpdateProduct)
 
 	for _, ex := range t.exchangeMap {
 		limiter.RunBackgroundTasks(&t.cg, t.db, ex)

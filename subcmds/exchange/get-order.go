@@ -24,7 +24,7 @@ type GetOrder struct {
 func (c *GetOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-order", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
-	fset.StringVar(&c.name, "name", "coinbase", "name of the exchange")
+	fset.StringVar(&c.name, "exchange", "coinbase", "name of the exchange")
 	fset.StringVar(&c.product, "product", "", "name of the exchange product")
 	return "get-order", fset, cli.CmdFunc(c.run)
 }
