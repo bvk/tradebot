@@ -8,6 +8,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
+	"log/slog"
 	"path"
 	"slices"
 	"sort"
@@ -81,6 +82,10 @@ func (v *Looper) check() error {
 
 func (v *Looper) String() string {
 	return "looper:" + v.uid
+}
+
+func (v *Looper) LogValue() slog.Value {
+	return slog.StringValue(v.uid)
 }
 
 func (v *Looper) UID() string {

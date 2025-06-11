@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log/slog"
 	"path"
 	"sort"
 	"strings"
@@ -95,6 +96,10 @@ func (v *Limiter) check() error {
 
 func (v *Limiter) String() string {
 	return "limiter:" + v.uid
+}
+
+func (v *Limiter) LogValue() slog.Value {
+	return slog.StringValue(v.uid)
 }
 
 func (v *Limiter) UID() string {
