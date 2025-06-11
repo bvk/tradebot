@@ -48,18 +48,36 @@ func (cg *CloseGroup) Go(f func(ctx context.Context)) {
 
 	cg.wg.Add(1)
 	go func() {
+		defer cg.wg.Done()
+
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("CAUGHT PANIC", "panic", r)
+				slog.Error(string(debug.Stack()))
+				panic(r)
+			}
+		}()
+
 		f(cg.closeCtx)
-		cg.wg.Done()
 	}()
 }
 
 func (cg *CloseGroup) AfterDurationFunc(d time.Duration, f func(context.Context)) {
 	cg.wg.Add(1)
 	go func() {
+		defer cg.wg.Done()
+
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("CAUGHT PANIC", "panic", r)
+				slog.Error(string(debug.Stack()))
+				panic(r)
+			}
+		}()
+
 		Sleep(cg.closeCtx, d)
 		if cg.closeCtx.Err() == nil {
 			f(cg.closeCtx)
 		}
-		cg.wg.Done()
 	}()
 }

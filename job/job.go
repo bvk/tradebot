@@ -7,7 +7,9 @@ package job
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync"
 )
 
@@ -114,6 +116,14 @@ func (j *Job) Cancel() {
 
 func (j *Job) goRun(ctx context.Context) {
 	defer j.wg.Done()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
 
 	err := j.f(ctx)
 

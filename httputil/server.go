@@ -114,6 +114,8 @@ func (s *Server) StartUnix(ctx context.Context, addr *net.UnixAddr) (id int64, s
 
 	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
+
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("CAUGHT PANIC", "panic", r)
@@ -129,7 +131,6 @@ func (s *Server) StartUnix(ctx context.Context, addr *net.UnixAddr) (id int64, s
 				}
 			}
 		}
-		s.wg.Done()
 	}()
 
 	transport := &http.Transport{
