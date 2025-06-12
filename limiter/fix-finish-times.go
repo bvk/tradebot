@@ -121,8 +121,8 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) 
 			status = err
 			return false
 		}
-		order.FinishTime = v.FinishTime
-		log.Printf("fixed non-existent finish time for just finished order %s to %s", id, v.FinishTime.Time)
+		order.FinishTime = v.FinishedAt()
+		log.Printf("fixed non-existent finish time for just finished order %s to %s", id, v.FinishedAt())
 		return true
 	})
 	return status
@@ -160,12 +160,12 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchang
 		if err != nil {
 			return err
 		}
-		if v.FinishTime.Time.IsZero() {
+		if v.FinishedAt().IsZero() {
 			return fmt.Errorf("finish time is empty for exchange order %s", id)
 		}
-		order.FinishTime = gobs.RemoteTime{Time: v.FinishTime.Time}
+		order.FinishTime = v.FinishedAt()
 		modified = true
-		log.Printf("fixed non-existent finish time for order %s to %s", id, v.FinishTime.Time)
+		log.Printf("fixed non-existent finish time for order %s to %s", id, v.FinishedAt())
 	}
 
 	if modified {

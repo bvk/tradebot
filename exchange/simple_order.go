@@ -12,6 +12,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+var lastUUID = uuid.Must(uuid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"))
+
 type SimpleOrder struct {
 	ServerOrderID OrderID
 
@@ -19,8 +21,8 @@ type SimpleOrder struct {
 
 	Side string
 
-	CreateTime RemoteTime
-	FinishTime RemoteTime
+	CreateTime gobs.RemoteTime
+	FinishTime gobs.RemoteTime
 
 	Fee         decimal.Decimal
 	FilledSize  decimal.Decimal
@@ -40,6 +42,47 @@ type SimpleOrder struct {
 
 var _ Order = &SimpleOrder{}
 var _ OrderUpdate = &SimpleOrder{}
+var _ OrderDetail = &SimpleOrder{}
+
+func NewSimpleOrder(serverID string, clientID uuid.UUID, side string) (*SimpleOrder, error) {
+	if len(serverID) == 0 {
+		return nil, fmt.Errorf("NewSimpleOrder: server id cannot be empty")
+	}
+	if !strings.EqualFold(side, "buy") && !strings.EqualFold(side, "sell") {
+		return nil, fmt.Errorf("NewSimpleOrder: side %q is invalid/unsupported", side)
+	}
+	if clientID == uuid.Nil {
+		return nil, fmt.Errorf("NewSimpleOrder: zero uuid is not a valid client id")
+	}
+	if clientID == lastUUID {
+		return nil, fmt.Errorf("NewSimpleOrder: all ones uuid is not a valid client id")
+	}
+	return &SimpleOrder{
+		ServerOrderID: OrderID(serverID),
+		ClientUUID:    clientID,
+		Side:          strings.ToUpper(side),
+	}, nil
+}
+
+func SimpleOrderFromOrderDetail(detail OrderDetail) (*SimpleOrder, error) {
+	s, err := NewSimpleOrder(detail.ServerID(), detail.ClientID(), detail.OrderSide())
+	if err != nil {
+		return nil, fmt.Errorf("SimpleOrderFromOrderDetail: %w", err)
+	}
+	s.CreateTime = detail.CreatedAt()
+	s.FinishTime = detail.FinishedAt()
+	s.Fee = detail.ExecutedFee()
+	s.FilledSize = detail.ExecutedSize()
+	if !s.FilledSize.IsZero() {
+		s.FilledPrice = detail.ExecutedValue().Div(detail.ExecutedSize())
+	}
+	s.Status = detail.OrderStatus()
+	s.Done = detail.IsDone()
+	if s.Done {
+		s.DoneReason = detail.OrderStatus()
+	}
+	return s, nil
+}
 
 func (v *SimpleOrder) ServerID() string {
 	return string(v.ServerOrderID)
@@ -66,6 +109,13 @@ func (v *SimpleOrder) UpdatedAt() gobs.RemoteTime {
 		return v.CreatedAt()
 	}
 	return gobs.RemoteTime{Time: v.FinishTime.Time}
+}
+
+func (v *SimpleOrder) FinishedAt() gobs.RemoteTime {
+	if v.IsDone() {
+		return v.UpdatedAt()
+	}
+	return gobs.RemoteTime{}
 }
 
 func (v *SimpleOrder) ExecutedFee() decimal.Decimal {

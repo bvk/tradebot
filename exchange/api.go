@@ -20,10 +20,6 @@ type Order interface {
 	OrderSide() string
 }
 
-type PriceUpdate interface {
-	PricePoint() (decimal.Decimal, gobs.RemoteTime)
-}
-
 type OrderUpdate interface {
 	ServerID() string
 	ClientID() uuid.UUID
@@ -39,6 +35,26 @@ type OrderUpdate interface {
 	OrderStatus() string
 }
 
+type OrderDetail interface {
+	ServerID() string
+	ClientID() uuid.UUID
+
+	OrderSide() string
+	CreatedAt() gobs.RemoteTime
+	FinishedAt() gobs.RemoteTime
+
+	ExecutedFee() decimal.Decimal
+	ExecutedSize() decimal.Decimal
+	ExecutedValue() decimal.Decimal
+
+	IsDone() bool
+	OrderStatus() string
+}
+
+type PriceUpdate interface {
+	PricePoint() (decimal.Decimal, gobs.RemoteTime)
+}
+
 type Product interface {
 	io.Closer
 
@@ -52,7 +68,7 @@ type Product interface {
 	LimitBuy(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (OrderID, error)
 	LimitSell(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (OrderID, error)
 
-	Get(ctx context.Context, id OrderID) (*SimpleOrder, error)
+	Get(ctx context.Context, id OrderID) (OrderDetail, error)
 	Cancel(ctx context.Context, id OrderID) error
 
 	// Retire(id OrderID)
@@ -67,5 +83,5 @@ type Exchange interface {
 
 	GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error)
 
-	GetOrder(ctx context.Context, productID string, orderID OrderID) (*SimpleOrder, error)
+	GetOrder(ctx context.Context, productID string, orderID OrderID) (OrderDetail, error)
 }

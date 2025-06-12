@@ -258,12 +258,16 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (
 		if order.Done {
 			continue
 		}
-		norder, err := product.Get(ctx, id)
+		detail, err := product.Get(ctx, id)
 		if err != nil {
 			log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
 			return nupdated, err
 		}
-		v.orderMap.Store(id, norder)
+		sorder, err := exchange.SimpleOrderFromOrderDetail(detail)
+		if err != nil {
+			return nupdated, err
+		}
+		v.orderMap.Store(id, sorder)
 		nupdated++
 	}
 	return nupdated, nil

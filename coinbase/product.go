@@ -85,7 +85,7 @@ func (p *Product) GetOrderUpdates() (*topic.Receiver[exchange.OrderUpdate], erro
 	return topic.Subscribe(p.prodOrderTopic, 1, true /* includeLast */)
 }
 
-func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exchange.SimpleOrder, error) {
+func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (exchange.OrderDetail, error) {
 	return p.exchange.GetOrder(ctx, "" /* productID */, serverOrderID)
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
+	"github.com/shopspring/decimal"
 )
 
 func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrderRequest) (*api.ExchangeGetOrderResponse, error) {
@@ -27,19 +28,23 @@ func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 	if err != nil {
 		return &api.ExchangeGetOrderResponse{Error: err.Error()}, nil
 	}
+	var price decimal.Decimal
+	if !order.ExecutedSize().IsZero() {
+		price = order.ExecutedValue().Div(order.ExecutedSize())
+	}
 	resp := &api.ExchangeGetOrderResponse{
 		Order: &gobs.Order{
-			ServerOrderID: string(order.ServerOrderID),
+			ServerOrderID: order.ServerID(),
 			ClientOrderID: order.ClientID().String(),
-			Side:          order.Side,
-			Status:        order.Status,
-			CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
-			FinishTime:    gobs.RemoteTime{Time: order.FinishTime.Time},
-			FilledFee:     order.Fee,
-			FilledSize:    order.FilledSize,
-			FilledPrice:   order.FilledPrice,
-			Done:          order.Done,
-			DoneReason:    order.DoneReason,
+			Side:          order.OrderSide(),
+			Status:        order.OrderStatus(),
+			CreateTime:    order.CreatedAt(),
+			FinishTime:    order.FinishedAt(),
+			FilledFee:     order.ExecutedFee(),
+			FilledSize:    order.ExecutedSize(),
+			FilledPrice:   price,
+			Done:          order.IsDone(),
+			DoneReason:    order.OrderStatus(),
 		},
 	}
 	return resp, nil

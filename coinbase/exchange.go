@@ -386,7 +386,7 @@ func (ex *Exchange) recreateOldOrder(clientOrderID uuid.UUID) (*exchange.SimpleO
 	return old, true
 }
 
-func (ex *Exchange) GetOrder(ctx context.Context, _ string, orderID exchange.OrderID) (*exchange.SimpleOrder, error) {
+func (ex *Exchange) GetOrder(ctx context.Context, _ string, orderID exchange.OrderID) (exchange.OrderDetail, error) {
 	if v, err := ex.datastore.GetOrder(ctx, string(orderID)); err == nil {
 		return exchangeOrderFromOrder(v)
 	}

@@ -350,8 +350,8 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		order := &exchange.SimpleOrder{
 			ServerOrderID: exchange.OrderID(vv.ServerOrderID),
 			ClientUUID:    cuuid,
-			CreateTime:    exchange.RemoteTime{Time: vv.CreateTime.Time},
-			FinishTime:    exchange.RemoteTime{Time: vv.FinishTime.Time},
+			CreateTime:    vv.CreateTime,
+			FinishTime:    vv.FinishTime,
 			Side:          vv.Side,
 			Status:        vv.Status,
 			Fee:           vv.FilledFee,
