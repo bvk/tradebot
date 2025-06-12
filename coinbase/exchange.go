@@ -20,6 +20,7 @@ import (
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
+	"github.com/google/uuid"
 )
 
 type Exchange struct {
@@ -31,7 +32,7 @@ type Exchange struct {
 
 	// clientOrderIDMap holds client-order-id to exchange.Order mapping for all
 	// known orders. TODO: We should cleanup the oldest orders.
-	clientOrderIDMap syncmap.Map[string, *exchange.SimpleOrder]
+	clientOrderIDMap syncmap.Map[uuid.UUID, *exchange.SimpleOrder]
 
 	productMap syncmap.Map[string, *Product]
 
@@ -48,7 +49,7 @@ type Exchange struct {
 	// after a little while, during which, we cannot use the OrderID with some
 	// operations (eg: CancelOrder), so we use this map to make the callers wait
 	// till the orders becomes ready.
-	pendingMap syncmap.Map[string, chan struct{}]
+	pendingMap syncmap.Map[uuid.UUID, chan struct{}]
 }
 
 // New creates a client for coinbase exchange.
@@ -148,9 +149,7 @@ func (ex *Exchange) sync(ctx context.Context) error {
 		return fmt.Errorf("could not fetch old filled orders: %w", err)
 	}
 	for _, v := range filled {
-		if len(v.ClientOrderID) > 0 {
-			ex.clientOrderIDMap.Store(v.ClientOrderID, v)
-		}
+		ex.clientOrderIDMap.Store(v.ClientID(), v)
 	}
 
 	log.Printf("fetched %d filled orders from %s", len(filled), ex.lastFilledTime)
@@ -163,9 +162,7 @@ func (ex *Exchange) sync(ctx context.Context) error {
 		return fmt.Errorf("could not fetch old canceled orders: %w", err)
 	}
 	for _, v := range cancelled {
-		if len(v.ClientOrderID) > 0 {
-			ex.clientOrderIDMap.Store(v.ClientOrderID, v)
-		}
+		ex.clientOrderIDMap.Store(v.ClientID(), v)
 	}
 	log.Printf("fetched %d canceled orders from %s", len(cancelled), ex.lastFilledTime)
 	return nil
@@ -245,7 +242,11 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 				continue
 			}
 			// Process the order for notifications and datastore.
-			v := exchangeOrderFromOrder(resp.Order)
+			v, err := exchangeOrderFromOrder(resp.Order)
+			if err != nil {
+				slog.Error("could not convert to simple order (ignored)", "err", err)
+				continue
+			}
 			ex.dispatchOrder(resp.Order.ProductID, v)
 			orders = append(orders, resp.Order)
 		}
@@ -275,10 +276,6 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 // dispatchOrder relays the order fetched from coinbase for any reason to the
 // appropriate product for side-channel handling.
 func (ex *Exchange) dispatchOrder(productID string, order *exchange.SimpleOrder) {
-	if len(order.ClientOrderID) == 0 {
-		slog.Error("relay request with empty client order id is ignored")
-		return
-	}
 	if len(order.ServerOrderID) == 0 {
 		slog.Error("unexpected relay request with empty server order id is ignored")
 		return
@@ -288,12 +285,12 @@ func (ex *Exchange) dispatchOrder(productID string, order *exchange.SimpleOrder)
 	done := slices.Contains(doneStatuses, order.Status)
 
 	if ready || done {
-		if ch, ok := ex.pendingMap.LoadAndDelete(order.ClientOrderID); ok {
+		if ch, ok := ex.pendingMap.LoadAndDelete(order.ClientID()); ok {
 			close(ch)
 		}
 	}
 
-	ex.clientOrderIDMap.LoadOrStore(order.ClientOrderID, order)
+	ex.clientOrderIDMap.LoadOrStore(order.ClientID(), order)
 
 	// Relay the order to the appropriate product.
 	if p, ok := ex.productMap.Load(productID); ok {
@@ -307,7 +304,11 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 		for _, event := range msg.Events {
 			if event.Type == "snapshot" || event.Type == "update" {
 				for _, orderEvent := range event.Orders {
-					v := exchangeOrderFromEvent(orderEvent)
+					v, err := exchangeOrderFromEvent(orderEvent)
+					if err != nil {
+						slog.Error("could not convert order event to simple order (ignored)", "err", err)
+						continue
+					}
 					ex.dispatchOrder(orderEvent.ProductID, v)
 				}
 			}
@@ -339,8 +340,12 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 }
 
 func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOrderRequest) (*internal.CreateOrderResponse, error) {
+	cuuid, err := uuid.Parse(req.ClientOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
+	}
 	statusReadyCh := make(chan struct{})
-	if v, loaded := ex.pendingMap.LoadOrStore(req.ClientOrderID, statusReadyCh); loaded {
+	if v, loaded := ex.pendingMap.LoadOrStore(cuuid, statusReadyCh); loaded {
 		slog.Error("unexpected: client id already exists in the pending map (previous request may've failed; ignored)", "client-order-id", req.ClientOrderID)
 		statusReadyCh = v
 	}
@@ -372,7 +377,7 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 	return resp, err
 }
 
-func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.SimpleOrder, bool) {
+func (ex *Exchange) recreateOldOrder(clientOrderID uuid.UUID) (*exchange.SimpleOrder, bool) {
 	old, ok := ex.clientOrderIDMap.Load(clientOrderID)
 	if !ok {
 		return nil, false
@@ -383,13 +388,16 @@ func (ex *Exchange) recreateOldOrder(clientOrderID string) (*exchange.SimpleOrde
 
 func (ex *Exchange) GetOrder(ctx context.Context, _ string, orderID exchange.OrderID) (*exchange.SimpleOrder, error) {
 	if v, err := ex.datastore.GetOrder(ctx, string(orderID)); err == nil {
-		return exchangeOrderFromOrder(v), nil
+		return exchangeOrderFromOrder(v)
 	}
 	resp, err := ex.client.GetOrder(ctx, string(orderID))
 	if err != nil {
 		return nil, fmt.Errorf("could not get order %s: %w", orderID, err)
 	}
-	v := exchangeOrderFromOrder(resp.Order)
+	v, err := exchangeOrderFromOrder(resp.Order)
+	if err != nil {
+		return nil, err
+	}
 	ex.dispatchOrder(resp.Order.ProductID, v)
 	return v, nil
 }
@@ -479,7 +487,10 @@ func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status strin
 		return nil, fmt.Errorf("could not list raw orders: %w", err)
 	}
 	for _, order := range rorders {
-		v := exchangeOrderFromOrder(order)
+		v, err := exchangeOrderFromOrder(order)
+		if err != nil {
+			return nil, fmt.Errorf("could not convert to simple order: %w", err)
+		}
 		ex.dispatchOrder(order.ProductID, v)
 		orders = append(orders, v)
 	}

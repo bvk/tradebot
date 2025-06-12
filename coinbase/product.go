@@ -14,6 +14,7 @@ import (
 
 	"github.com/bvk/tradebot/coinbase/internal"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/topic"
 )
@@ -88,7 +89,7 @@ func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (*exc
 	return p.exchange.GetOrder(ctx, "" /* productID */, serverOrderID)
 }
 
-func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
+func (p *Product) LimitBuy(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.OrderID, error) {
 	if size.LessThan(p.productData.BaseMinSize.Decimal) {
 		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
 	}
@@ -105,7 +106,7 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
 
 	req := &internal.CreateOrderRequest{
-		ClientOrderID: clientOrderID,
+		ClientOrderID: clientOrderID.String(),
 		ProductID:     p.productData.ProductID,
 		Side:          "BUY",
 		Order: &internal.OrderConfig{
@@ -126,7 +127,7 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID string, size, pric
 	return exchange.OrderID(resp.OrderID), nil
 }
 
-func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (exchange.OrderID, error) {
+func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.OrderID, error) {
 	if size.LessThan(p.productData.BaseMinSize.Decimal) {
 		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
 	}
@@ -143,7 +144,7 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID string, size, pri
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
 
 	req := &internal.CreateOrderRequest{
-		ClientOrderID: clientOrderID,
+		ClientOrderID: clientOrderID.String(),
 		ProductID:     p.productData.ProductID,
 		Side:          "SELL",
 		Order: &internal.OrderConfig{

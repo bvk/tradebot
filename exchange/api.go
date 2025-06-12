@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/topic"
 )
@@ -15,7 +16,7 @@ type OrderID string
 
 type Order interface {
 	ServerID() string
-	ClientID() string
+	ClientID() uuid.UUID
 	OrderSide() string
 }
 
@@ -25,7 +26,7 @@ type PriceUpdate interface {
 
 type OrderUpdate interface {
 	ServerID() string
-	ClientID() string
+	ClientID() uuid.UUID
 
 	CreatedAt() gobs.RemoteTime
 	UpdatedAt() gobs.RemoteTime
@@ -48,8 +49,8 @@ type Product interface {
 	GetPriceUpdates() (*topic.Receiver[PriceUpdate], error)
 	GetOrderUpdates() (*topic.Receiver[OrderUpdate], error)
 
-	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
-	LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
+	LimitBuy(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (OrderID, error)
+	LimitSell(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (OrderID, error)
 
 	Get(ctx context.Context, id OrderID) (*SimpleOrder, error)
 	Cancel(ctx context.Context, id OrderID) error

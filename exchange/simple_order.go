@@ -8,13 +8,14 @@ import (
 	"strings"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
 type SimpleOrder struct {
 	ServerOrderID OrderID
 
-	ClientOrderID string
+	ClientUUID uuid.UUID
 
 	Side string
 
@@ -44,8 +45,8 @@ func (v *SimpleOrder) ServerID() string {
 	return string(v.ServerOrderID)
 }
 
-func (v *SimpleOrder) ClientID() string {
-	return string(v.ClientOrderID)
+func (v *SimpleOrder) ClientID() uuid.UUID {
+	return v.ClientUUID
 }
 
 func (v *SimpleOrder) OrderSide() string {
@@ -90,6 +91,7 @@ func (v *SimpleOrder) AddUpdate(update OrderUpdate) error {
 	if v.ClientID() != update.ClientID() {
 		return os.ErrInvalid
 	}
+
 	ctime := update.CreatedAt()
 	if !v.CreateTime.Time.IsZero() && !ctime.Time.IsZero() {
 		if !v.CreateTime.Time.Equal(ctime.Time) {
@@ -99,6 +101,7 @@ func (v *SimpleOrder) AddUpdate(update OrderUpdate) error {
 	if v.CreateTime.Time.IsZero() && !ctime.Time.IsZero() {
 		v.CreateTime.Time = ctime.Time
 	}
+
 	if v.Fee.LessThan(update.ExecutedFee()) {
 		v.Fee = update.ExecutedFee()
 	}

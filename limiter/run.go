@@ -221,11 +221,11 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 	var orderID exchange.OrderID
 	if v.IsSell() {
 		s := time.Now()
-		orderID, err = product.LimitSell(ctx, clientOrderID.String(), size, v.point.Price)
+		orderID, err = product.LimitSell(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	} else {
 		s := time.Now()
-		orderID, err = product.LimitBuy(ctx, clientOrderID.String(), size, v.point.Price)
+		orderID, err = product.LimitBuy(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	}
 	if err != nil {
@@ -236,7 +236,7 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 
 	v.orderMap.Store(orderID, &exchange.SimpleOrder{
 		ServerOrderID: orderID,
-		ClientOrderID: clientOrderID.String(),
+		ClientUUID:    clientOrderID,
 		Side:          v.point.Side(),
 	})
 

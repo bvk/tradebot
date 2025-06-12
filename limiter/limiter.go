@@ -154,7 +154,7 @@ func (v *Limiter) Actions() []*gobs.Action {
 		if order.Done && !order.FilledSize.IsZero() {
 			gorder := &gobs.Order{
 				ServerOrderID: string(order.ServerOrderID),
-				ClientOrderID: order.ClientOrderID,
+				ClientOrderID: order.ClientUUID.String(),
 				CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
 				FinishTime:    gobs.RemoteTime{Time: order.FinishTime.Time},
 				Side:          order.Side,
@@ -273,7 +273,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	for k, v := range v.dupOrderMap() {
 		order := &gobs.Order{
 			ServerOrderID: string(v.ServerOrderID),
-			ClientOrderID: v.ClientOrderID,
+			ClientOrderID: v.ClientID().String(),
 			CreateTime:    gobs.RemoteTime{Time: v.CreateTime.Time},
 			FinishTime:    gobs.RemoteTime{Time: v.FinishTime.Time},
 			Side:          v.Side,
@@ -343,9 +343,13 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		},
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
+		cuuid, err := uuid.Parse(vv.ClientOrderID)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
+		}
 		order := &exchange.SimpleOrder{
 			ServerOrderID: exchange.OrderID(vv.ServerOrderID),
-			ClientOrderID: vv.ClientOrderID,
+			ClientUUID:    cuuid,
 			CreateTime:    exchange.RemoteTime{Time: vv.CreateTime.Time},
 			FinishTime:    exchange.RemoteTime{Time: vv.FinishTime.Time},
 			Side:          vv.Side,

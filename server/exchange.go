@@ -30,7 +30,7 @@ func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 	resp := &api.ExchangeGetOrderResponse{
 		Order: &gobs.Order{
 			ServerOrderID: string(order.ServerOrderID),
-			ClientOrderID: order.ClientOrderID,
+			ClientOrderID: order.ClientID().String(),
 			Side:          order.Side,
 			Status:        order.Status,
 			CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
