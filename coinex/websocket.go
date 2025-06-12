@@ -41,7 +41,7 @@ func (c *Client) goGetMessages(ctx context.Context) {
 		}
 	}()
 
-	for i := 0; ctx.Err() == nil; i = max(i+1, 5) {
+	for i := 0; ctx.Err() == nil; i = min(i+1, 5) {
 		if err := c.getMessages(ctx); err != nil {
 			if !errors.Is(err, os.ErrClosed) {
 				slog.Warn("could not get messages over websocket (may retry)", "err", err)
