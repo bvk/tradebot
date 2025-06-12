@@ -244,11 +244,11 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	defer s.Stop(tcpServer)
 
 	if !c.noPprof {
-		s.AddHandler("/debug/pprof/heap", pprof.Handler("heap"))
-		s.AddHandler("/debug/pprof/goroutine", pprof.Handler("goroutine"))
-		s.AddHandler("/debug/pprof/allocs", pprof.Handler("allocs"))
-		s.AddHandler("/debug/pprof/block", pprof.Handler("block"))
-		s.AddHandler("/debug/pprof/mutex", pprof.Handler("mutex"))
+		s.AddHandler("/debug/pprof/", http.HandlerFunc(pprof.Index))
+		s.AddHandler("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
+		s.AddHandler("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
+		s.AddHandler("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
+		s.AddHandler("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 	}
 	s.AddHandler("/debug/logging/on", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		backend.SetLevel(slog.LevelDebug)
