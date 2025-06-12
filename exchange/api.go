@@ -12,8 +12,6 @@ import (
 	"github.com/visvasity/topic"
 )
 
-type OrderID string
-
 type Order interface {
 	ServerID() string
 	ClientID() uuid.UUID
@@ -65,13 +63,11 @@ type Product interface {
 	GetPriceUpdates() (*topic.Receiver[PriceUpdate], error)
 	GetOrderUpdates() (*topic.Receiver[OrderUpdate], error)
 
-	LimitBuy(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (OrderID, error)
-	LimitSell(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (OrderID, error)
+	LimitBuy(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (Order, error)
+	LimitSell(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (Order, error)
 
-	Get(ctx context.Context, id OrderID) (OrderDetail, error)
-	Cancel(ctx context.Context, id OrderID) error
-
-	// Retire(id OrderID)
+	Get(ctx context.Context, serverID string) (OrderDetail, error)
+	Cancel(ctx context.Context, serverID string) error
 }
 
 type Exchange interface {
@@ -83,5 +79,5 @@ type Exchange interface {
 
 	GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error)
 
-	GetOrder(ctx context.Context, productID string, orderID OrderID) (OrderDetail, error)
+	GetOrder(ctx context.Context, productID string, serverID string) (OrderDetail, error)
 }

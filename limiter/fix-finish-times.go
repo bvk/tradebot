@@ -105,7 +105,7 @@ func asyncUpdateFinishTime(v *Limiter) {
 
 func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) error {
 	var status error
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.SimpleOrder) bool {
+	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		if order.FilledSize.IsZero() {
 			return true
 		}
@@ -115,7 +115,7 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) 
 		if !order.FinishTime.Time.IsZero() {
 			return true
 		}
-		v, err := ex.GetOrder(ctx, v.productID, exchange.OrderID(id))
+		v, err := ex.GetOrder(ctx, v.productID, id)
 		if err != nil {
 			log.Printf("could not fetch order for finish-time (will retry): %v", err)
 			status = err
@@ -156,7 +156,7 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchang
 		if !order.FinishTime.Time.IsZero() {
 			continue
 		}
-		v, err := ex.GetOrder(ctx, value.V2.ProductID, exchange.OrderID(id))
+		v, err := ex.GetOrder(ctx, value.V2.ProductID, id)
 		if err != nil {
 			return err
 		}

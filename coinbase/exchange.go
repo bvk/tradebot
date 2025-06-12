@@ -369,7 +369,7 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 				stop = true
 			case <-time.After(time.Second):
 				slog.Warn(fmt.Sprintf("client order id %s created with server order id %s  (%s) in %s is not ready in time (forcing a fetch)", req.ClientOrderID, resp.OrderID, req.Side, req.ProductID))
-				ex.GetOrder(ctx, "" /* productID */, exchange.OrderID(resp.OrderID))
+				ex.GetOrder(ctx, "" /* productID */, resp.OrderID)
 			}
 		}
 	}
@@ -386,7 +386,7 @@ func (ex *Exchange) recreateOldOrder(clientOrderID uuid.UUID) (*exchange.SimpleO
 	return old, true
 }
 
-func (ex *Exchange) GetOrder(ctx context.Context, _ string, orderID exchange.OrderID) (exchange.OrderDetail, error) {
+func (ex *Exchange) GetOrder(ctx context.Context, _ string, orderID string) (exchange.OrderDetail, error) {
 	if v, err := ex.datastore.GetOrder(ctx, string(orderID)); err == nil {
 		return exchangeOrderFromOrder(v)
 	}

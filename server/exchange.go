@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/bvk/tradebot/api"
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/shopspring/decimal"
@@ -24,7 +23,7 @@ func (s *Server) doExchangeGetOrder(ctx context.Context, req *api.ExchangeGetOrd
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
 	}
-	order, err := ex.GetOrder(ctx, req.ProductID, exchange.OrderID(req.OrderID))
+	order, err := ex.GetOrder(ctx, req.ProductID, req.OrderID)
 	if err != nil {
 		return &api.ExchangeGetOrderResponse{Error: err.Error()}, nil
 	}

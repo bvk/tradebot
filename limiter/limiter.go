@@ -44,7 +44,7 @@ type Limiter struct {
 
 	// orderMap holds all orders created by the limiter. It is used by Run and
 	// Save methods, so it needs to be thread-safe.
-	orderMap syncmap.Map[exchange.OrderID, *exchange.SimpleOrder]
+	orderMap syncmap.Map[string, *exchange.SimpleOrder]
 
 	optionMap map[string]string
 
@@ -127,9 +127,9 @@ func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
 }
 
-func (v *Limiter) dupOrderMap() map[exchange.OrderID]*exchange.SimpleOrder {
-	dup := make(map[exchange.OrderID]*exchange.SimpleOrder)
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.SimpleOrder) bool {
+func (v *Limiter) dupOrderMap() map[string]*exchange.SimpleOrder {
+	dup := make(map[string]*exchange.SimpleOrder)
+	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		dup[id] = order
 		return true
 	})
@@ -235,7 +235,7 @@ func (v *Limiter) PendingValue() decimal.Decimal {
 }
 
 func (v *Limiter) compactOrderMap() {
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.SimpleOrder) bool {
+	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		if order.Done && order.FilledSize.IsZero() {
 			v.orderMap.Delete(id)
 		}
@@ -244,7 +244,7 @@ func (v *Limiter) compactOrderMap() {
 }
 
 func (v *Limiter) updateOrderMap(update exchange.OrderUpdate) (*exchange.SimpleOrder, error) {
-	if current, ok := v.orderMap.Load(exchange.OrderID(update.ServerID())); ok {
+	if current, ok := v.orderMap.Load(update.ServerID()); ok {
 		if err := current.AddUpdate(update); err != nil {
 			return nil, err
 		}
@@ -348,7 +348,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
 		}
 		order := &exchange.SimpleOrder{
-			ServerOrderID: exchange.OrderID(vv.ServerOrderID),
+			ServerOrderID: vv.ServerOrderID,
 			ClientUUID:    cuuid,
 			CreateTime:    vv.CreateTime,
 			FinishTime:    vv.FinishTime,
@@ -360,7 +360,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			Done:          vv.Done,
 			DoneReason:    vv.DoneReason,
 		}
-		v.orderMap.Store(exchange.OrderID(kk), order)
+		v.orderMap.Store(kk, order)
 	}
 	if err := v.check(); err != nil {
 		return nil, err

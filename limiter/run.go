@@ -55,7 +55,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 		return fmt.Errorf("found %d live orders (want 0 or 1)", nlive)
 	}
 
-	var activeOrderID exchange.OrderID
+	var activeOrderID string
 	if nlive != 0 {
 		activeOrderID = live[0].ServerOrderID
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
@@ -207,7 +207,7 @@ func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	return nil
 }
 
-func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, error) {
+func (v *Limiter) create(ctx context.Context, product exchange.Product) (string, error) {
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
 
@@ -218,14 +218,14 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 
 	var err error
 	var latency time.Duration
-	var orderID exchange.OrderID
+	var order exchange.Order
 	if v.IsSell() {
 		s := time.Now()
-		orderID, err = product.LimitSell(ctx, clientOrderID, size, v.point.Price)
+		order, err = product.LimitSell(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	} else {
 		s := time.Now()
-		orderID, err = product.LimitBuy(ctx, clientOrderID, size, v.point.Price)
+		order, err = product.LimitBuy(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	}
 	if err != nil {
@@ -234,17 +234,17 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchang
 		return "", err
 	}
 
-	v.orderMap.Store(orderID, &exchange.SimpleOrder{
-		ServerOrderID: orderID,
-		ClientUUID:    clientOrderID,
-		Side:          v.point.Side(),
-	})
-
+	orderID := order.ServerID()
+	sorder, err := exchange.NewSimpleOrder(orderID, order.ClientID(), order.OrderSide())
+	if err != nil {
+		return "", err
+	}
+	v.orderMap.Store(orderID, sorder)
 	log.Printf("%s:%s: created a new limit order %s with client-order-id %s (%d) in %s", v.uid, v.point, orderID, clientOrderID, offset, latency)
 	return orderID, nil
 }
 
-func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID exchange.OrderID) error {
+func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID string) error {
 	if err := product.Cancel(ctx, activeOrderID); err != nil {
 		log.Printf("%s:%s: cancel limit order %s has failed: %v", v.uid, v.point, activeOrderID, err)
 		return err

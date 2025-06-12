@@ -47,7 +47,7 @@ func exchangeOrderFromOrder(v *internal.Order) (*exchange.SimpleOrder, error) {
 	}
 	order := &exchange.SimpleOrder{
 		ClientUUID:    cuuid,
-		ServerOrderID: exchange.OrderID(v.OrderID),
+		ServerOrderID: v.OrderID,
 		CreateTime:    gobs.RemoteTime{Time: v.CreatedTime.Time},
 		FinishTime:    gobs.RemoteTime{Time: v.LastFillTime.Time},
 		Side:          v.Side,
@@ -69,7 +69,7 @@ func exchangeOrderFromEvent(event *internal.OrderEvent) (*exchange.SimpleOrder, 
 		return nil, fmt.Errorf("could not parse client order id from event as uuid: %w", err)
 	}
 	order := &exchange.SimpleOrder{
-		ServerOrderID: exchange.OrderID(event.OrderID),
+		ServerOrderID: event.OrderID,
 		ClientUUID:    cuuid,
 		CreateTime:    gobs.RemoteTime{Time: event.CreatedTime.Time},
 		Side:          event.OrderSide,

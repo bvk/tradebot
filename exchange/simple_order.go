@@ -15,7 +15,7 @@ import (
 var lastUUID = uuid.Must(uuid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"))
 
 type SimpleOrder struct {
-	ServerOrderID OrderID
+	ServerOrderID string
 
 	ClientUUID uuid.UUID
 
@@ -58,7 +58,7 @@ func NewSimpleOrder(serverID string, clientID uuid.UUID, side string) (*SimpleOr
 		return nil, fmt.Errorf("NewSimpleOrder: all ones uuid is not a valid client id")
 	}
 	return &SimpleOrder{
-		ServerOrderID: OrderID(serverID),
+		ServerOrderID: serverID,
 		ClientUUID:    clientID,
 		Side:          strings.ToUpper(side),
 	}, nil

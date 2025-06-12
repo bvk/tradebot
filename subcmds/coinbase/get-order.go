@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"github.com/bvk/tradebot/coinbase"
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv/kvmemdb"
 	"github.com/visvasity/cli"
@@ -58,7 +57,7 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	defer cb.Close()
 
 	for ii, id := range args {
-		order, err := cb.GetOrder(ctx, "" /* productID */, exchange.OrderID(id))
+		order, err := cb.GetOrder(ctx, "" /* productID */, id)
 		if err != nil {
 			return err
 		}

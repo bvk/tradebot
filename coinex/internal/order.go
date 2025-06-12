@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
@@ -41,8 +40,8 @@ type Order struct {
 	HasFinishEvent bool `json:"-"`
 }
 
-func (v *Order) ServerOrderID() exchange.OrderID {
-	return exchange.OrderID(strconv.FormatInt(v.OrderID, 10))
+func (v *Order) ServerOrderID() string {
+	return strconv.FormatInt(v.OrderID, 10)
 }
 
 func (v *Order) ClientOrderID() string {

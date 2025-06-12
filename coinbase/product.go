@@ -85,22 +85,22 @@ func (p *Product) GetOrderUpdates() (*topic.Receiver[exchange.OrderUpdate], erro
 	return topic.Subscribe(p.prodOrderTopic, 1, true /* includeLast */)
 }
 
-func (p *Product) Get(ctx context.Context, serverOrderID exchange.OrderID) (exchange.OrderDetail, error) {
+func (p *Product) Get(ctx context.Context, serverOrderID string) (exchange.OrderDetail, error) {
 	return p.exchange.GetOrder(ctx, "" /* productID */, serverOrderID)
 }
 
-func (p *Product) LimitBuy(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.OrderID, error) {
+func (p *Product) LimitBuy(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.Order, error) {
 	if size.LessThan(p.productData.BaseMinSize.Decimal) {
-		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
+		return nil, fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
 	}
 	if size.GreaterThan(p.productData.BaseMaxSize.Decimal) {
-		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize.Decimal, os.ErrInvalid)
+		return nil, fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize.Decimal, os.ErrInvalid)
 	}
 
 	// check if this is a retry request for the clientOrderID.
 	if order, ok := p.exchange.recreateOldOrder(clientOrderID); ok {
 		p.prodOrderTopic.Send(order)
-		return order.ServerOrderID, nil
+		return order, nil
 	}
 
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
@@ -118,27 +118,32 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID uuid.UUID, size, p
 	}
 	resp, err := p.exchange.createReadyOrder(ctx, req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !resp.Success {
 		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
-		return "", errors.New(resp.FailureReason)
+		return nil, errors.New(resp.FailureReason)
 	}
-	return exchange.OrderID(resp.OrderID), nil
+	sorder, err := exchange.NewSimpleOrder(resp.OrderID, clientOrderID, "BUY")
+	if err != nil {
+		slog.Error("LimitBuy: could not create simple order instance", "err", err)
+		return nil, err
+	}
+	return sorder, nil
 }
 
-func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.OrderID, error) {
+func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.Order, error) {
 	if size.LessThan(p.productData.BaseMinSize.Decimal) {
-		return "", fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
+		return nil, fmt.Errorf("min size is %s: %w", p.productData.BaseMinSize.Decimal, os.ErrInvalid)
 	}
 	if size.GreaterThan(p.productData.BaseMaxSize.Decimal) {
-		return "", fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize.Decimal, os.ErrInvalid)
+		return nil, fmt.Errorf("max size is %s: %w", p.productData.BaseMaxSize.Decimal, os.ErrInvalid)
 	}
 
 	// check if this is a retry request for the clientOrderID.
 	if order, ok := p.exchange.recreateOldOrder(clientOrderID); ok {
 		p.prodOrderTopic.Send(order)
-		return order.ServerOrderID, nil
+		return order, nil
 	}
 
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
@@ -156,17 +161,21 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, 
 	}
 	resp, err := p.exchange.createReadyOrder(ctx, req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !resp.Success {
 		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
-		return "", errors.New(resp.FailureReason)
+		return nil, errors.New(resp.FailureReason)
 	}
-
-	return exchange.OrderID(resp.OrderID), nil
+	sorder, err := exchange.NewSimpleOrder(resp.OrderID, clientOrderID, "SELL")
+	if err != nil {
+		slog.Error("LimitSell: could not create simple order instance", "err", err)
+		return nil, err
+	}
+	return sorder, nil
 }
 
-func (p *Product) Cancel(ctx context.Context, serverOrderID exchange.OrderID) error {
+func (p *Product) Cancel(ctx context.Context, serverOrderID string) error {
 	req := &internal.CancelOrderRequest{
 		OrderIDs: []string{string(serverOrderID)},
 	}
