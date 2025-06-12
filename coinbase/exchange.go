@@ -352,12 +352,6 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 
 	resp, err := ex.client.CreateOrder(ctx, req)
 	if err == nil && resp.Success {
-		// 9-Sep-2024: Coinbase used to fill resp.OrderID field earlier, but then
-		// dropped it silently, so we copy the order-id into that field for old
-		// behavior.
-		if len(resp.OrderID) == 0 {
-			resp.OrderID = resp.SuccessResponse.OrderID
-		}
 		// Wait for the order-id to be *ready*. We cannot cancel an order-id unless
 		// it reaches to the OPEN status. We just wait here so that Cancel is
 		// guaranteed to work for the callers after this function returns.
@@ -368,8 +362,8 @@ func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOr
 			case <-statusReadyCh:
 				stop = true
 			case <-time.After(time.Second):
-				slog.Warn(fmt.Sprintf("client order id %s created with server order id %s  (%s) in %s is not ready in time (forcing a fetch)", req.ClientOrderID, resp.OrderID, req.Side, req.ProductID))
-				ex.GetOrder(ctx, "" /* productID */, resp.OrderID)
+				slog.Warn(fmt.Sprintf("client order id %s created with server order id %s  (%s) in %s is not ready in time (forcing a fetch)", req.ClientOrderID, resp.SuccessResponse.OrderID, req.Side, req.ProductID))
+				ex.GetOrder(ctx, "" /* productID */, resp.SuccessResponse.OrderID)
 			}
 		}
 	}

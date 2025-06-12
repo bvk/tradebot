@@ -124,12 +124,7 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID uuid.UUID, size, p
 		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
 		return nil, errors.New(resp.FailureReason)
 	}
-	sorder, err := exchange.NewSimpleOrder(resp.OrderID, clientOrderID, "BUY")
-	if err != nil {
-		slog.Error("LimitBuy: could not create simple order instance", "err", err)
-		return nil, err
-	}
-	return sorder, nil
+	return resp.SuccessResponse, nil
 }
 
 func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, price decimal.Decimal) (exchange.Order, error) {
@@ -167,12 +162,7 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, 
 		slog.ErrorContext(ctx, "create order has failed", "error_response", resp.ErrorResponse)
 		return nil, errors.New(resp.FailureReason)
 	}
-	sorder, err := exchange.NewSimpleOrder(resp.OrderID, clientOrderID, "SELL")
-	if err != nil {
-		slog.Error("LimitSell: could not create simple order instance", "err", err)
-		return nil, err
-	}
-	return sorder, nil
+	return resp.SuccessResponse, nil
 }
 
 func (p *Product) Cancel(ctx context.Context, serverOrderID string) error {
