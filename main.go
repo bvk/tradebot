@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 
 	"github.com/bvk/tradebot/subcmds"
@@ -18,8 +19,25 @@ import (
 	"github.com/bvk/tradebot/subcmds/limiter"
 	"github.com/bvk/tradebot/subcmds/looper"
 	"github.com/bvk/tradebot/subcmds/waller"
+	"github.com/hashicorp/go-envparse"
 	"github.com/visvasity/cli"
 )
+
+func init() {
+	// Update environment variables from the ~/.tradebotenv file.
+	fpath := filepath.Join(os.Getenv("HOME"), ".tradebotenv")
+	if fp, err := os.Open(fpath); err == nil {
+		defer fp.Close()
+		if items, err := envparse.Parse(fp); err == nil {
+			for k, v := range items {
+				key := "TRADEBOT_" + k
+				if len(os.Getenv(key)) == 0 {
+					os.Setenv(key, v)
+				}
+			}
+		}
+	}
+}
 
 func main() {
 	defer func() {

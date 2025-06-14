@@ -131,12 +131,12 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	if ip := net.ParseIP(c.IP); ip == nil {
 		return fmt.Errorf("invalid ip address")
 	}
-	if c.Port <= 0 {
+	if c.Port() <= 0 {
 		return fmt.Errorf("invalid port number")
 	}
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP(c.IP),
-		Port: c.Port,
+		Port: c.Port(),
 	}
 
 	// Health checker for the background process initialization. We need to
