@@ -4,6 +4,7 @@ package exchange
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/bvk/tradebot/gobs"
@@ -11,6 +12,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/topic"
 )
+
+var ErrNoFund = errors.New("insufficient fund")
 
 type Order interface {
 	ServerID() string

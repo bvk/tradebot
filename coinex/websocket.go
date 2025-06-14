@@ -4,7 +4,6 @@ package coinex
 
 import (
 	"bytes"
-	"cmp"
 	"compress/gzip"
 	"context"
 	"crypto/hmac"
@@ -18,7 +17,6 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -166,25 +164,26 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 
 	// Subscribe for state.update messages on markets.
 	var markets []string
-	for m, _ := range c.marketDealUpdateMap.Range {
+	for m, _ := range c.marketBBOUpdateMap.Range {
 		markets = append(markets, m)
 	}
 	if len(markets) > 0 {
-		if err := c.websocketMarketListSubscribe(ctx, "deals.subscribe", markets); err != nil {
-			slog.Error("could not resubscribe for market deal updates", "markets", markets, "err", err)
+		if err := c.websocketMarketListSubscribe(ctx, "bbo.subscribe", markets); err != nil {
+			slog.Error("could not resubscribe for market bbo updates", "markets", markets, "err", err)
 			return err
 		}
 		if err := c.websocketMarketListSubscribe(ctx, "order.subscribe", markets); err != nil {
 			return err
 		}
 	}
+	slog.Info("signed and configured websocket to successfully", "markets", markets)
 
 	for ctx.Err() == nil {
 		if err := c.websocketPing(ctx); err != nil {
 			slog.Error("websocket ping failed; reopening new socket", "err", err)
 			return err
 		}
-		if err := sleep(ctx, time.Minute); err != nil {
+		if err := sleep(ctx, c.opts.WebsocketPingInterval); err != nil {
 			return err
 		}
 	}
@@ -312,12 +311,10 @@ func (c *Client) websocketCall(ctx context.Context, method string, params json.R
 }
 
 func (c *Client) websocketPing(ctx context.Context) error {
-	resp, err := c.websocketCall(ctx, "server.ping", json.RawMessage("{}"))
-	if err != nil {
+	if _, err := c.websocketCall(ctx, "server.ping", json.RawMessage("{}")); err != nil {
 		slog.Error("could not perform websocket ping", "err", err)
 		return err
 	}
-	log.Printf("ping-response: %s", resp)
 	return nil
 }
 
@@ -361,12 +358,10 @@ func (c *Client) websocketSign(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	jsresp, err := c.websocketCall(ctx, "server.sign", json.RawMessage(params))
-	if err != nil {
+	if _, err := c.websocketCall(ctx, "server.sign", json.RawMessage(params)); err != nil {
 		slog.Error("could not authenticate with websocket", "err", err)
 		return err
 	}
-	log.Printf("sign-response: %s", jsresp)
 	return nil
 }
 
@@ -410,36 +405,38 @@ func (c *Client) websocketMarketListUnsubscribe(ctx context.Context, method stri
 	return nil
 }
 
-func (c *Client) onDealUpdate(ctx context.Context, notice *internal.WebsocketNotice) error {
-	type Data struct {
-		Market   string                 `json:"market"`
-		DealList []*internal.DealUpdate `json:"deal_list"`
-	}
-	var data Data
-	if err := json.Unmarshal([]byte(notice.Data), &data); err != nil {
-		slog.Error("could not unmarshal deal.update data", "err", err)
-		log.Printf("deal.update notice data=%s", notice.Data)
+func (c *Client) onBBOUpdate(ctx context.Context, notice *internal.WebsocketNotice) error {
+	// log.Printf("price-update: %s", notice.Data)
+
+	update := new(internal.BBOUpdate)
+	if err := json.Unmarshal([]byte(notice.Data), update); err != nil {
+		slog.Error("could not unmarshal bbo.update data", "err", err)
+		log.Printf("bbo.update notice data=%s", notice.Data)
 		return err
 	}
 
-	latest := slices.MaxFunc(data.DealList, func(a, b *internal.DealUpdate) int {
-		return cmp.Compare(a.CreatedAt, b.CreatedAt)
-	})
-
-	if topic, ok := c.marketDealUpdateMap.Load(data.Market); ok {
-		topic.Send(latest)
-	}
+	c.getMarketPricesTopic(update.Market).Send(update)
 	return nil
 }
 
 func (c *Client) onOrderUpdate(ctx context.Context, notice *internal.WebsocketNotice) error {
+	log.Printf("order-update: %s", notice.Data)
+
 	update := new(internal.OrderUpdate)
-	if err := json.Unmarshal([]byte(notice.Data), &update); err != nil {
+	if err := json.Unmarshal([]byte(notice.Data), update); err != nil {
 		slog.Error("could not unmarshal order.update data", "err", err)
 		log.Printf("order.update notice data=%s", notice.Data)
 		return err
 	}
+
 	if update.Event == "finish" {
+		if update.Order.FilledAmount.IsZero() {
+			update.Order.Status = "canceled"
+		} else if update.Order.UnfilledAmount.IsZero() {
+			update.Order.Status = "filled"
+		} else {
+			update.Order.Status = "UNKNOWN"
+		}
 		update.Order.HasFinishEvent = true
 	}
 

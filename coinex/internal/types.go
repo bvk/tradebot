@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
@@ -146,6 +147,8 @@ type DealUpdate struct {
 	CreatedAt int64 `json:"created_at"`
 }
 
+var _ exchange.PriceUpdate = &DealUpdate{}
+
 func (v *DealUpdate) PricePoint() (decimal.Decimal, gobs.RemoteTime) {
 	return v.Price, gobs.RemoteTime{Time: time.UnixMilli(v.CreatedAt)}
 }
@@ -181,10 +184,28 @@ type CancelOrderResponse struct {
 	Data    *Order `json:"data"`
 }
 
+type CancelOrderByClientIDRequest struct {
+	ClientID   string `json:"client_id"`
+	Market     string `json:"market"`
+	MarketType string `json:"market_type"`
+}
+
+type CancelOrderByClientIDResponse struct {
+	Code    int                 `json:"code"`
+	Message string              `json:"message"`
+	Data    []*GetOrderResponse `json:"data"`
+}
+
 type GetOrderResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    *Order `json:"data"`
+}
+
+type BatchQueryOrdersResponse struct {
+	Code    int                 `json:"code"`
+	Message string              `json:"message"`
+	Data    []*GetOrderResponse `json:"data"`
 }
 
 type ListFilledOrdersResponse struct {
@@ -201,4 +222,22 @@ type ListFilledOrdersResponse struct {
 type OrderUpdate struct {
 	Event string `json:"event"`
 	Order *Order `json:"order"`
+}
+
+type BBOUpdate struct {
+	Market       string          `json:"market"`
+	UpdatedAt    int64           `json:"updated_at"`
+	BestBidPrice decimal.Decimal `json:"best_bid_price"`
+	BestBidSize  decimal.Decimal `json:"best_bid_size"`
+	BestAskPrice decimal.Decimal `json:"best_ask_price"`
+	BestAskSize  decimal.Decimal `json:"best_ask_size"`
+}
+
+var _ exchange.PriceUpdate = &BBOUpdate{}
+
+var d2 = decimal.NewFromInt(2)
+
+func (v *BBOUpdate) PricePoint() (decimal.Decimal, gobs.RemoteTime) {
+	price := v.BestBidPrice.Add(v.BestAskPrice).Div(d2)
+	return price, gobs.RemoteTime{Time: time.UnixMilli(v.UpdatedAt)}
 }

@@ -22,10 +22,6 @@ var (
 )
 
 func checkCredentials() bool {
-	type Credentials struct {
-		Key    string
-		Secret string
-	}
 	if len(testingKey) != 0 && len(testingSecret) != 0 {
 		return true
 	}
@@ -51,7 +47,7 @@ func TestClient(t *testing.T) {
 	ctx := context.Background()
 
 	opts := &Options{}
-	c, err := New(testingKey, testingSecret, opts)
+	c, err := New(ctx, testingKey, testingSecret, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,9 +76,9 @@ func TestClient(t *testing.T) {
 	t.Logf("%#v", balances)
 
 	for order := range c.ListFilledOrders(ctx, "", "", &err) {
-		cat := time.UnixMilli(order.CreatedAt)
-		uat := time.UnixMilli(order.UpdatedAt)
-		t.Logf("create=%s market=%s side=%s size=%v price=%v finish=%s", cat.Format(time.RFC3339), order.Market, order.OrderSide, order.FilledAmount, order.OrderPrice, uat.Format(time.RFC3339))
+		cat := time.UnixMilli(order.CreatedAtMilli)
+		uat := time.UnixMilli(order.UpdatedAtMilli)
+		t.Logf("create=%s market=%s side=%s size=%v price=%v finish=%s", cat.Format(time.RFC3339), order.Market, order.Side, order.FilledAmount, order.OrderPrice, uat.Format(time.RFC3339))
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +126,7 @@ func TestWebsocket(t *testing.T) {
 	ctx := context.Background()
 
 	opts := &Options{}
-	c, err := New(testingKey, testingSecret, opts)
+	c, err := New(ctx, testingKey, testingSecret, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,11 +24,29 @@ var (
 type Options struct {
 	// Timeout to use for the HTTP requests.
 	HttpClientTimeout time.Duration
+
+	// WebsocketPingInterval holds ping-pong interval for the websockets.
+	WebsocketPingInterval time.Duration
+
+	// RefreshOrdersInterval holds query orders interval to asynchronously query
+	// order statuses to handle websocket failure scenario.
+	RefreshOrdersInterval time.Duration
+
+	BatchQueryOrdersSize int
 }
 
 func (v *Options) setDefaults() {
 	if v.HttpClientTimeout == 0 {
 		v.HttpClientTimeout = 5 * time.Second
+	}
+	if v.WebsocketPingInterval == 0 {
+		v.WebsocketPingInterval = 30 * time.Second
+	}
+	if v.RefreshOrdersInterval == 0 {
+		v.RefreshOrdersInterval = 30 * time.Second
+	}
+	if v.BatchQueryOrdersSize == 0 {
+		v.BatchQueryOrdersSize = 25
 	}
 }
 

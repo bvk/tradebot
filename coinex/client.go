@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/coinex/internal"
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/syncmap"
 
 	"github.com/visvasity/topic"
@@ -45,8 +46,8 @@ type Client struct {
 
 	refreshOrdersTopic *topic.Topic[*internal.Order]
 
-	marketDealUpdateMap  syncmap.Map[string, *topic.Topic[*internal.DealUpdate]]
 	marketOrderUpdateMap syncmap.Map[string, *topic.Topic[*internal.Order]]
+	marketBBOUpdateMap   syncmap.Map[string, *topic.Topic[*internal.BBOUpdate]]
 
 	websocketHandlerMap map[string]websocketNoticeHandler
 
@@ -55,7 +56,7 @@ type Client struct {
 }
 
 // New returns a new client instance.
-func New(key, secret string, opts *Options) (*Client, error) {
+func New(ctx context.Context, key, secret string, opts *Options) (*Client, error) {
 	if opts == nil {
 		opts = new(Options)
 	}
@@ -78,8 +79,13 @@ func New(key, secret string, opts *Options) (*Client, error) {
 		websocketCallCh:     make(chan *internal.WebsocketCall, 10),
 		refreshOrdersTopic:  topic.New[*internal.Order](),
 	}
-	c.websocketHandlerMap["deals.update"] = c.onDealUpdate
+	c.websocketHandlerMap["bbo.update"] = c.onBBOUpdate
 	c.websocketHandlerMap["order.update"] = c.onOrderUpdate
+
+	// Check that credentials are valid.
+	if _, err := c.GetMarkets(ctx); err != nil {
+		return nil, err
+	}
 
 	c.wg.Add(1)
 	go c.goGetMessages(c.lifeCtx)
@@ -100,6 +106,14 @@ func (c *Client) getMarketOrdersTopic(market string) *topic.Topic[*internal.Orde
 	tp, ok := c.marketOrderUpdateMap.Load(market)
 	if !ok {
 		tp, _ = c.marketOrderUpdateMap.LoadOrStore(market, topic.New[*internal.Order]())
+	}
+	return tp
+}
+
+func (c *Client) getMarketPricesTopic(market string) *topic.Topic[*internal.BBOUpdate] {
+	tp, ok := c.marketBBOUpdateMap.Load(market)
+	if !ok {
+		tp, _ = c.marketBBOUpdateMap.LoadOrStore(market, topic.New[*internal.BBOUpdate]())
 	}
 	return tp
 }
@@ -298,12 +312,48 @@ func (c *Client) GetOrder(ctx context.Context, market string, orderID int64) (*i
 	}
 	resp := new(internal.GetOrderResponse)
 	if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not get market ticker information", "url", addrURL, "err", err)
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, os.ErrNotExist) {
+			slog.Error("could not get order information", "url", addrURL, "err", err)
 		}
 		return nil, err
 	}
 	c.getMarketOrdersTopic(market).Send(resp.Data)
+	return resp.Data, nil
+}
+
+func (c *Client) BatchQueryOrders(ctx context.Context, market string, ids []int64) ([]*internal.GetOrderResponse, error) {
+	var sb strings.Builder
+	for i, id := range ids {
+		if i != 0 {
+			sb.WriteRune(',')
+		}
+		sb.WriteString(strconv.FormatInt(id, 10))
+	}
+
+	values := make(url.Values)
+	values.Set("market", market)
+	values.Set("order_ids", sb.String())
+
+	addrURL := &url.URL{
+		Scheme:   RestURL.Scheme,
+		Host:     RestURL.Host,
+		Path:     path.Join(RestURL.Path, "/spot/batch-order-status"),
+		RawQuery: values.Encode(),
+	}
+	resp := new(internal.BatchQueryOrdersResponse)
+	if err := privateGetJSON(ctx, c, addrURL, nil /* request */, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not batch query orders", "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	for i, item := range resp.Data {
+		if item.Code == 0 {
+			c.getMarketOrdersTopic(market).Send(item.Data)
+			continue
+		}
+		log.Printf("TODO: query order status for order %d failed with status code=%d message=%s", ids[i], item.Code, item.Message)
+	}
 	return resp.Data, nil
 }
 
@@ -328,7 +378,7 @@ func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) 
 	// CoinEx does not save zero-filled canceled orders, so we won't be able to
 	// query/refresh them.
 	if resp.Data.FilledAmount.IsZero() {
-		resp.Data.OrderStatus = "canceled"
+		resp.Data.Status = "canceled"
 	} else {
 		c.refreshOrdersTopic.Send(resp.Data)
 	}
@@ -336,31 +386,60 @@ func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) 
 	return resp.Data, nil
 }
 
+func (c *Client) CancelOrderByClientID(ctx context.Context, market string, clientOrderID string) (*internal.Order, error) {
+	req := internal.CancelOrderByClientIDRequest{
+		Market:     market,
+		MarketType: "SPOT",
+		ClientID:   clientOrderID,
+	}
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/spot/cancel-order-by-client-id"),
+	}
+	resp := new(internal.CancelOrderByClientIDResponse)
+	if err := privatePostJSON(ctx, c, addrURL, &req, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not cancel order by client id", "clientID", clientOrderID, "market", market, "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	if len(resp.Data) == 0 {
+		slog.Error("cancel order by client id request returned empty data", "clientID", clientOrderID, "market", market)
+		return nil, os.ErrInvalid
+	}
+	if resp.Data[0].Code == internal.OrderNotFound {
+		return nil, os.ErrNotExist
+	}
+	c.getMarketOrdersTopic(market).Send(resp.Data[0].Data)
+	return resp.Data[0].Data, nil
+}
+
 // WatchMarket subscribes to streaming updates for a market.
 func (c *Client) WatchMarket(ctx context.Context, market string) error {
-	if _, ok := c.marketDealUpdateMap.Load(market); ok {
+	if _, ok := c.marketBBOUpdateMap.Load(market); ok {
 		return os.ErrExist
 	}
-	if err := c.websocketMarketListSubscribe(ctx, "deals.subscribe", []string{market}); err != nil {
+	if err := c.websocketMarketListSubscribe(ctx, "bbo.subscribe", []string{market}); err != nil {
 		return err
 	}
 	if err := c.websocketMarketListSubscribe(ctx, "order.subscribe", []string{market}); err != nil {
 		return err
 	}
-	c.marketDealUpdateMap.LoadOrStore(market, topic.New[*internal.DealUpdate]())
+	c.marketBBOUpdateMap.LoadOrStore(market, topic.New[*internal.BBOUpdate]())
 	return nil
 }
 
 // UnwatchMarket unsubscribes from streaming updates for a market.
 func (c *Client) UnwatchMarket(ctx context.Context, market string) error {
-	old, ok := c.marketDealUpdateMap.Load(market)
+	old, ok := c.marketBBOUpdateMap.Load(market)
 	if !ok {
 		return os.ErrNotExist
 	}
-	if err := c.websocketMarketListUnsubscribe(ctx, "deals.unsubscribe", []string{market}); err != nil {
+	if err := c.websocketMarketListUnsubscribe(ctx, "bbo.unsubscribe", []string{market}); err != nil {
 		return err
 	}
-	if ok := c.marketDealUpdateMap.CompareAndDelete(market, old); ok {
+	if ok := c.marketBBOUpdateMap.CompareAndDelete(market, old); ok {
 		old.Close()
 	}
 	return nil
@@ -432,7 +511,7 @@ func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL,
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode)
+		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode, "url", addrURL)
 		if body, err := io.ReadAll(resp.Body); err == nil {
 			log.Printf("server response was %s", body)
 		}
@@ -458,7 +537,7 @@ func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL,
 			return httpGetJSON(ctx, c, addrURL, response)
 		}
 
-		slog.Error("http GET is unsuccessful", "status", resp.StatusCode)
+		slog.Error("http GET is unsuccessful", "status", resp.StatusCode, "url", addrURL)
 		return fmt.Errorf("http GET returned %d", resp.StatusCode)
 	}
 
@@ -514,7 +593,7 @@ func privateGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.U
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode)
+		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode, "url", addrURL)
 		if body, err := io.ReadAll(resp.Body); err == nil {
 			log.Printf("server response was %s", body)
 		}
@@ -540,7 +619,7 @@ func privateGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.U
 			return privateGetJSON(ctx, c, addrURL, request, response)
 		}
 
-		slog.Error("http GET is unsuccessful", "status", resp.StatusCode)
+		slog.Error("http GET is unsuccessful", "status", resp.StatusCode, "url", addrURL)
 		return fmt.Errorf("http GET returned %d", resp.StatusCode)
 	}
 
@@ -555,6 +634,9 @@ func privateGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.U
 		return err
 	}
 	if genericResp.Code != 0 {
+		if genericResp.Code == internal.OrderNotFound {
+			return os.ErrNotExist
+		}
 		slog.Error("private GET request failed", "url", addrURL, "body", sb.String(), "response", string(data), "err", err)
 		return fmt.Errorf("failed with code=%d message=%s", genericResp.Code, genericResp.Message)
 	}
@@ -577,14 +659,14 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 	resp, err := c.do(ctx, http.MethodPost, addrURL, sb.String(), "application/json")
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not perform http get request", "url", addrURL, "err", err)
+			slog.Error("could not perform http post request", "url", addrURL, "err", err)
 		}
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("http get returned unsuccessful status code", "status-code", resp.StatusCode)
+		slog.Warn("http post returned unsuccessful status code", "status-code", resp.StatusCode, "url", addrURL)
 		if body, err := io.ReadAll(resp.Body); err == nil {
 			log.Printf("server response was %s", body)
 		}
@@ -593,7 +675,7 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 			if err := sleep(ctx, time.Second); err != nil {
 				return err
 			}
-			return privateGetJSON(ctx, c, addrURL, request, response)
+			return privatePostJSON(ctx, c, addrURL, request, response)
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
@@ -607,11 +689,11 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 			if err := sleep(ctx, timeout); err != nil {
 				return err
 			}
-			return privateGetJSON(ctx, c, addrURL, request, response)
+			return privatePostJSON(ctx, c, addrURL, request, response)
 		}
 
-		slog.Error("http GET is unsuccessful", "status", resp.StatusCode)
-		return fmt.Errorf("http GET returned %d", resp.StatusCode)
+		slog.Error("http POST is unsuccessful", "status", resp.StatusCode, "url", addrURL)
+		return fmt.Errorf("http POST returned %d", resp.StatusCode)
 	}
 
 	data, err := io.ReadAll(resp.Body)
@@ -625,6 +707,9 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 		return err
 	}
 	if genericResp.Code != 0 {
+		if genericResp.Code == internal.InsufficientFunds {
+			return exchange.ErrNoFund
+		}
 		slog.Error("POST request failed", "url", addrURL, "body", sb.String(), "response", string(data), "err", err)
 		return fmt.Errorf("failed with code=%d message=%s", genericResp.Code, genericResp.Message)
 	}
