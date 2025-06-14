@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/pushover"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvkgo/kv/kvmemdb"
@@ -59,6 +60,14 @@ Pushover keys are optional. They are required to receive notifications to the
 mobile phones. They can be configured as follows:
 
   $ tradebot setup pushover-app=awja5ue...ito7svf pushover-user=uscjs2...tvp4kv
+
+COINEX PARAMETERS
+
+CoinEx API keys are required to query and put buy/sell orders on the CoinEx
+exchange. They can be configured as follows:
+
+  $ tradebot setup coinex-access-key=xxxx coinex-secret=yyyyy
+
 `
 }
 
@@ -105,7 +114,11 @@ func (c *Setup) run(ctx context.Context, args []string) error {
 		secrets = &server.Secrets{}
 	}
 
-	validKeys := []string{"coinbase-key", "coinbase-pem", "pushover-app", "pushover-user"}
+	validKeys := []string{
+		"coinbase-key", "coinbase-pem",
+		"pushover-app", "pushover-user",
+		"coinex-access-key", "coinex-secret",
+	}
 	kvMap := make(map[string]string)
 	// Parse config values from the command-line.
 	for _, arg := range args {
@@ -138,6 +151,27 @@ func (c *Setup) run(ctx context.Context, args []string) error {
 		if !c.skipTesting {
 			// Attempt to authenticate with coinbase to validate the keys.
 			client, err := coinbase.New(ctx, kvmemdb.New(), coinbaseKey, coinbasePem, coinbase.SubcommandOptions())
+			if err != nil {
+				return err
+			}
+			client.Close()
+		}
+	}
+
+	coinexKey := kvMap["coinex-access-key"]
+	coinexSecret := kvMap["coinex-secret"]
+	if len(coinexKey) != 0 || len(coinexSecret) != 0 {
+		if len(coinexKey) == 0 || len(coinexSecret) == 0 {
+			return fmt.Errorf(`both "coinex-access-key" and "coinex-secret" parameters are required`)
+		}
+		// Replace escaped newline characters with newlines.
+		secrets.CoinEx = &coinex.Credentials{
+			Key:    coinexKey,
+			Secret: coinexSecret,
+		}
+		if !c.skipTesting {
+			// Attempt to authenticate with coinex to validate the keys.
+			client, err := coinex.New(ctx, coinexKey, coinexSecret, nil /* opts */)
 			if err != nil {
 				return err
 			}
