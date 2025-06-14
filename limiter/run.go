@@ -16,6 +16,8 @@ import (
 	"github.com/visvasity/topic"
 )
 
+const SaveClientIDOffsetSize = 10
+
 func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	v.runtimeLock.Lock()
 	defer v.runtimeLock.Unlock()
@@ -142,7 +144,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 				if tickerPrice.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, err := v.create(localCtx, rt.Product)
+						id, err := v.create(localCtx, rt)
 						if err != nil {
 							return err
 						}
@@ -165,7 +167,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 				if tickerPrice.GreaterThanOrEqual(v.point.Price) && tickerPrice.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, err := v.create(localCtx, rt.Product)
+						id, err := v.create(localCtx, rt)
 						if err != nil {
 							return err
 						}
@@ -207,13 +209,20 @@ func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	return nil
 }
 
-func (v *Limiter) create(ctx context.Context, product exchange.Product) (string, error) {
+func (v *Limiter) create(ctx context.Context, rt *trader.Runtime) (string, error) {
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
 
+	if v.idgen.Offset()%SaveClientIDOffsetSize == 0 {
+		if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
+			log.Printf("%s:%s limit state could not be saved to the database: %v", v.uid, v.point, err)
+			return "", err
+		}
+	}
+
 	size := v.PendingSize()
-	if size.LessThan(product.BaseMinSize()) {
-		size = product.BaseMinSize()
+	if size.LessThan(rt.Product.BaseMinSize()) {
+		size = rt.Product.BaseMinSize()
 	}
 
 	var err error
@@ -221,16 +230,20 @@ func (v *Limiter) create(ctx context.Context, product exchange.Product) (string,
 	var order exchange.Order
 	if v.IsSell() {
 		s := time.Now()
-		order, err = product.LimitSell(ctx, clientOrderID, size, v.point.Price)
+		order, err = rt.Product.LimitSell(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	} else {
 		s := time.Now()
-		order, err = product.LimitBuy(ctx, clientOrderID, size, v.point.Price)
+		order, err = rt.Product.LimitBuy(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	}
 	if err != nil {
-		v.idgen.RevertID()
-		log.Printf("%s:%s: create limit order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, clientOrderID, offset, latency, err)
+		if rt.Exchange.CanDedupOnClientUUID() {
+			v.idgen.RevertID()
+			log.Printf("%s:%s: create limit order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, clientOrderID, offset, latency, err)
+			return "", err
+		}
+		log.Printf("%s:%s: create limit order with client-order-id %s has failed (in %s): %v", v.uid, v.point, clientOrderID, latency, err)
 		return "", err
 	}
 
@@ -255,14 +268,22 @@ func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOr
 
 func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (nupdated int, status error) {
 	for id, order := range v.dupOrderMap() {
-		if order.Done {
+		if order.IsDone() {
 			continue
 		}
 		detail, err := product.Get(ctx, id)
 		if err != nil {
-			log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
-			return nupdated, err
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
+				return nupdated, err
+			}
+			// Exchanges may not keep the cancelled orders with no executed
+			// value. So, assign canceled status to non-existing orders.
+			order.Done = true
+			order.DoneReason = "NOTFOUND/CANCELED"
+			continue
 		}
+
 		sorder, err := exchange.SimpleOrderFromOrderDetail(detail)
 		if err != nil {
 			return nupdated, err

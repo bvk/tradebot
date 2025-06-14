@@ -52,6 +52,8 @@ type Exchange struct {
 	pendingMap syncmap.Map[uuid.UUID, chan struct{}]
 }
 
+var _ exchange.Exchange = &Exchange{}
+
 // New creates a client for coinbase exchange.
 func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_ *Exchange, status error) {
 	if opts == nil {
@@ -140,6 +142,10 @@ func (ex *Exchange) Close() error {
 
 func (ex *Exchange) ExchangeName() string {
 	return "coinbase"
+}
+
+func (ex *Exchange) CanDedupOnClientUUID() bool {
+	return true
 }
 
 func (ex *Exchange) sync(ctx context.Context) error {

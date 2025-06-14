@@ -192,7 +192,9 @@ func (s *Server) HandlerMap() map[string]http.Handler {
 }
 
 func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
+	exchange := s.exchangeMap[product.ExchangeName()]
 	return &trader.Runtime{
+		Exchange:  exchange,
 		Database:  s.db,
 		Product:   product,
 		Messenger: s,

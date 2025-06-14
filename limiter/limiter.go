@@ -333,7 +333,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		uid:          uid,
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
-		idgen:        idgen.New(seed, gv.V2.ClientIDOffset),
+		idgen:        idgen.New(seed, gv.V2.ClientIDOffset+SaveClientIDOffsetSize),
 		optionMap:    make(map[string]string),
 
 		point: point.Point{

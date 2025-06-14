@@ -60,6 +60,10 @@ func (v *Exchange) ExchangeName() string {
 	return "coinex"
 }
 
+func (v *Exchange) CanDedupOnClientUUID() bool {
+	return false
+}
+
 func (v *Exchange) OpenSpotProduct(ctx context.Context, productID string) (exchange.Product, error) {
 	if p, ok := v.productMap.Load(productID); ok {
 		return p, nil

@@ -78,6 +78,15 @@ type Exchange interface {
 
 	ExchangeName() string
 
+	// CanDedupOnClientUUID returns true if exchange back is able to maintain
+	// unique client-id constraint (eg: Coinbase). Must return false, if exchange
+	// does not or cannot maintain client id uniqueness.
+	//
+	// For exchanges that return true, we expect that BUY/SELL orders with same
+	// client-uuid will receive the existing or expired or completed, older
+	// server order.
+	CanDedupOnClientUUID() bool
+
 	OpenSpotProduct(ctx context.Context, productID string) (Product, error)
 
 	GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error)
