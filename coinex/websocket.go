@@ -343,7 +343,7 @@ func (c *Client) websocketSign(ctx context.Context) error {
 		Timestamp int64  `json:"timestamp"`
 	}
 
-	now := time.Now().UnixMilli()
+	now := c.now().UnixMilli()
 	timestamp := strconv.FormatInt(now, 10)
 	hash := hmac.New(sha256.New, []byte(c.secret))
 	io.WriteString(hash, timestamp)
@@ -378,8 +378,8 @@ func (c *Client) websocketMarketListSubscribe(ctx context.Context, method string
 	}
 
 	if resp, err := c.websocketCall(ctx, method, params); err != nil {
-		log.Printf("subscribe with market list request failed: response=%s", resp)
-		slog.Error("could not subscribe with market list", "method", method, "markets", markets)
+		log.Printf("subscribe with market list request failed: response=%s err=%v", resp, err)
+		slog.Error("could not subscribe with market list", "method", method, "markets", markets, "err", err)
 		return err
 	}
 	return nil
@@ -398,8 +398,8 @@ func (c *Client) websocketMarketListUnsubscribe(ctx context.Context, method stri
 	}
 
 	if resp, err := c.websocketCall(ctx, method, params); err != nil {
-		log.Printf("unsubscribe with market list request failed: response=%s", resp)
-		slog.Error("could not unsubscribe with market list", "method", method, "markets", markets)
+		log.Printf("unsubscribe with market list request failed: response=%s err=%v", resp, err)
+		slog.Error("could not unsubscribe with market list", "method", method, "markets", markets, "err", err)
 		return err
 	}
 	return nil

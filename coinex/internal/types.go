@@ -19,6 +19,18 @@ type GenericResponse struct {
 	Data json.RawMessage `json:"data"`
 }
 
+type GetSystemTimeResponse struct {
+	Code int `json:"code"`
+
+	Message string `json:"message"`
+
+	Data *CoinExTime `json:"data"`
+}
+
+type CoinExTime struct {
+	TimestampMilli int64 `json:"timestamp"`
+}
+
 type GetMarketsResponse struct {
 	Code int `json:"code"`
 

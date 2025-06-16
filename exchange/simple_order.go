@@ -4,6 +4,7 @@ package exchange
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -144,7 +145,8 @@ func (v *SimpleOrder) AddUpdate(update OrderUpdate) error {
 
 	ctime := update.CreatedAt()
 	if !v.CreateTime.Time.IsZero() && !ctime.Time.IsZero() {
-		if !v.CreateTime.Time.Equal(ctime.Time) {
+		if v.CreateTime.Time.UnixMilli() != ctime.Time.UnixMilli() {
+			slog.Warn("order create times do not match", "known", v.CreateTime.Time, "update", ctime.Time)
 			return fmt.Errorf("create times do not match")
 		}
 	}

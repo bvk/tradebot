@@ -21,10 +21,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bvk/tradebot/coinex/internal"
+	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 
 	"github.com/visvasity/topic"
@@ -43,6 +46,8 @@ type Client struct {
 	client http.Client
 
 	key, secret string
+
+	timeOffsetMillis atomic.Int64
 
 	refreshOrdersTopic *topic.Topic[*internal.Order]
 
@@ -82,6 +87,10 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 	c.websocketHandlerMap["bbo.update"] = c.onBBOUpdate
 	c.websocketHandlerMap["order.update"] = c.onOrderUpdate
 
+	if err := c.updateTimeAdjustment(ctx); err != nil {
+		return nil, err
+	}
+
 	// Check that credentials are valid.
 	if _, err := c.GetMarkets(ctx); err != nil {
 		return nil, err
@@ -92,6 +101,9 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 
 	c.wg.Add(1)
 	go c.goRefreshOrders(c.lifeCtx)
+
+	c.wg.Add(1)
+	go c.goUpdateTimeAdjustment(c.lifeCtx)
 	return c, nil
 }
 
@@ -100,6 +112,59 @@ func (c *Client) Close() error {
 	c.lifeCancel(os.ErrClosed)
 	c.wg.Wait()
 	return nil
+}
+
+func (c *Client) goUpdateTimeAdjustment(ctx context.Context) {
+	defer c.wg.Done()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
+	for ctx.Err() == nil {
+		if err := c.updateTimeAdjustment(ctx); err != nil {
+			ctxutil.Sleep(ctx, time.Second)
+			continue
+		}
+		ctxutil.Sleep(ctx, time.Minute)
+	}
+}
+
+func (c *Client) updateTimeAdjustment(ctx context.Context) error {
+	for i := 0; ctx.Err() == nil; i = min(5, i+1) {
+		s := time.Now()
+		stime, err := c.GetSystemTime(ctx)
+		rtt := time.Since(s)
+		if err != nil {
+			slog.Error("could not fetch coinex server time (will retry)", "err", err)
+			ctxutil.Sleep(ctx, time.Second<<i)
+			continue
+		}
+		if rtt > c.opts.MaxFetchTimeLatency {
+			slog.Error("took too long to fetch coinex server time (will retry)", "rtt", rtt, "max-allowed", c.opts.MaxFetchTimeLatency)
+			ctxutil.Sleep(ctx, time.Second<<i)
+			continue
+		}
+		localTimestamp := s.Add(rtt / 2)
+		remoteTimestamp := time.UnixMilli(stime.TimestampMilli).Add(rtt / 2)
+		adjustment := remoteTimestamp.Sub(localTimestamp)
+		if adjustment > c.opts.MaxTimeAdjustment {
+			slog.Error("time adjustment required is too large", "required", adjustment, "max-allowed", c.opts.MaxTimeAdjustment)
+			return fmt.Errorf("time adjustment required is too large")
+		}
+		slog.Info("calculated time sync offset with coinex system time", "offset", adjustment)
+		c.timeOffsetMillis.Store(int64(adjustment / time.Millisecond))
+		return nil
+	}
+	return context.Cause(ctx)
+}
+
+func (c *Client) now() gobs.RemoteTime {
+	return gobs.RemoteTime{Time: time.Now().Add(time.Millisecond * time.Duration(c.timeOffsetMillis.Load()))}
 }
 
 func (c *Client) getMarketOrdersTopic(market string) *topic.Topic[*internal.Order] {
@@ -116,6 +181,22 @@ func (c *Client) getMarketPricesTopic(market string) *topic.Topic[*internal.BBOU
 		tp, _ = c.marketBBOUpdateMap.LoadOrStore(market, topic.New[*internal.BBOUpdate]())
 	}
 	return tp
+}
+
+func (c *Client) GetSystemTime(ctx context.Context) (*internal.CoinExTime, error) {
+	addrURL := &url.URL{
+		Scheme: RestURL.Scheme,
+		Host:   RestURL.Host,
+		Path:   path.Join(RestURL.Path, "/time"),
+	}
+	resp := new(internal.GetSystemTimeResponse)
+	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not get server time", "url", addrURL, "err", err)
+		}
+		return nil, err
+	}
+	return resp.Data, nil
 }
 
 func (c *Client) GetMarkets(ctx context.Context) ([]*internal.MarketStatus, error) {
@@ -457,7 +538,7 @@ func (c *Client) do(ctx context.Context, method string, addrURL *url.URL, body, 
 		sb.WriteString(body)
 	}
 
-	now := time.Now()
+	now := c.now()
 	timestamp := strconv.FormatInt(now.UnixMilli(), 10)
 	sb.WriteString(timestamp)
 
