@@ -284,7 +284,7 @@ func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (
 			continue
 		}
 
-		sorder, err := exchange.SimpleOrderFromOrderDetail(detail)
+		sorder, err := exchange.NewSimpleOrderFromOrderDetail(detail)
 		if err != nil {
 			return nupdated, err
 		}

@@ -65,7 +65,7 @@ func NewSimpleOrder(serverID string, clientID uuid.UUID, side string) (*SimpleOr
 	}, nil
 }
 
-func SimpleOrderFromOrderDetail(detail OrderDetail) (*SimpleOrder, error) {
+func NewSimpleOrderFromOrderDetail(detail OrderDetail) (*SimpleOrder, error) {
 	s, err := NewSimpleOrder(detail.ServerID(), detail.ClientID(), detail.OrderSide())
 	if err != nil {
 		return nil, fmt.Errorf("SimpleOrderFromOrderDetail: %w", err)
@@ -81,6 +81,27 @@ func SimpleOrderFromOrderDetail(detail OrderDetail) (*SimpleOrder, error) {
 	s.Done = detail.IsDone()
 	if s.Done {
 		s.DoneReason = detail.OrderStatus()
+	}
+	return s, nil
+}
+
+func NewSimpleOrderFromGobOrder(order *gobs.Order) (*SimpleOrder, error) {
+	cuuid, err := uuid.Parse(order.ClientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	s := &SimpleOrder{
+		ServerOrderID: order.ServerOrderID,
+		ClientUUID:    cuuid,
+		Side:          order.Side,
+		CreateTime:    order.CreateTime,
+		FinishTime:    order.FinishTime,
+		Fee:           order.FilledFee,
+		FilledSize:    order.FilledSize,
+		FilledPrice:   order.FilledPrice,
+		Status:        order.Status,
+		Done:          order.Done,
+		DoneReason:    order.Status,
 	}
 	return s, nil
 }
@@ -135,35 +156,41 @@ func (v *SimpleOrder) IsDone() bool {
 	return v.Done
 }
 
-func (v *SimpleOrder) AddUpdate(update OrderUpdate) error {
+func (v *SimpleOrder) AddUpdate(update OrderUpdate) (int, error) {
 	if v.ServerID() != update.ServerID() {
-		return os.ErrInvalid
+		return 0, os.ErrInvalid
 	}
 	if v.ClientID() != update.ClientID() {
-		return os.ErrInvalid
+		return 0, os.ErrInvalid
 	}
+
+	nchanges := 0
 
 	ctime := update.CreatedAt()
 	if !v.CreateTime.Time.IsZero() && !ctime.Time.IsZero() {
 		if v.CreateTime.Time.UnixMilli() != ctime.Time.UnixMilli() {
 			slog.Warn("order create times do not match", "known", v.CreateTime.Time, "update", ctime.Time)
-			return fmt.Errorf("create times do not match")
+			return 0, fmt.Errorf("create times do not match")
 		}
 	}
 	if v.CreateTime.Time.IsZero() && !ctime.Time.IsZero() {
+		nchanges++
 		v.CreateTime.Time = ctime.Time
 	}
 
 	if v.Fee.LessThan(update.ExecutedFee()) {
+		nchanges++
 		v.Fee = update.ExecutedFee()
 	}
 	if !update.ExecutedSize().IsZero() {
 		if v.FilledSize.LessThan(update.ExecutedSize()) {
+			nchanges++
 			v.FilledSize = update.ExecutedSize()
 			v.FilledPrice = update.ExecutedValue().Div(update.ExecutedSize())
 		}
 	}
 	if !v.Done && update.IsDone() {
+		nchanges++
 		v.Done = true
 		v.Status = update.OrderStatus()
 		if x, ok := update.(*SimpleOrder); ok {
@@ -172,5 +199,24 @@ func (v *SimpleOrder) AddUpdate(update OrderUpdate) error {
 			v.DoneReason = update.OrderStatus()
 		}
 	}
-	return nil
+	return nchanges, nil
+}
+
+func (v *SimpleOrder) ConvertToGobOrder() *gobs.Order {
+	x := &gobs.Order{
+		ServerOrderID: v.ServerID(),
+		ClientOrderID: v.ClientID().String(),
+		CreateTime:    v.CreatedAt(),
+		FinishTime:    v.FinishedAt(),
+		Side:          v.OrderSide(),
+		Status:        v.OrderStatus(),
+		FilledFee:     v.ExecutedFee(),
+		FilledSize:    v.ExecutedSize(),
+		Done:          v.IsDone(),
+		DoneReason:    v.OrderStatus(),
+	}
+	if !x.FilledSize.IsZero() {
+		x.FilledPrice = v.ExecutedValue().Div(v.ExecutedSize())
+	}
+	return x
 }

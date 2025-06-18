@@ -245,7 +245,7 @@ func (v *Limiter) compactOrderMap() {
 
 func (v *Limiter) updateOrderMap(update exchange.OrderUpdate) (*exchange.SimpleOrder, error) {
 	if current, ok := v.orderMap.Load(update.ServerID()); ok {
-		if err := current.AddUpdate(update); err != nil {
+		if _, err := current.AddUpdate(update); err != nil {
 			return nil, err
 		}
 		return current, nil
