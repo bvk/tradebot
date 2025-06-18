@@ -190,7 +190,7 @@ func (c *Client) GetSystemTime(ctx context.Context) (*internal.CoinExTime, error
 		Path:   path.Join(RestURL.Path, "/time"),
 	}
 	resp := new(internal.GetSystemTimeResponse)
-	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+	if err := httpGetJSON(ctx, &c.client, addrURL, resp, &c.opts); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get server time", "url", addrURL, "err", err)
 		}
@@ -206,7 +206,7 @@ func (c *Client) GetMarkets(ctx context.Context) ([]*internal.MarketStatus, erro
 		Path:   path.Join(RestURL.Path, "/spot/market"),
 	}
 	resp := new(internal.GetMarketsResponse)
-	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+	if err := httpGetJSON(ctx, &c.client, addrURL, resp, &c.opts); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market status", "url", addrURL, "err", err)
 		}
@@ -226,7 +226,7 @@ func (c *Client) GetMarket(ctx context.Context, market string) (*internal.Market
 		RawQuery: values.Encode(),
 	}
 	resp := new(internal.GetMarketsResponse)
-	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+	if err := httpGetJSON(ctx, &c.client, addrURL, resp, &c.opts); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market status", "url", addrURL, "err", err)
 		}
@@ -246,7 +246,7 @@ func (c *Client) GetMarketInfo(ctx context.Context, market string) (*internal.Ma
 		RawQuery: values.Encode(),
 	}
 	resp := new(internal.GetMarketInfoResponse)
-	if err := httpGetJSON(ctx, c, addrURL, resp); err != nil {
+	if err := httpGetJSON(ctx, &c.client, addrURL, resp, &c.opts); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not get market ticker information", "url", addrURL, "err", err)
 		}
@@ -561,7 +561,11 @@ func (c *Client) do(ctx context.Context, method string, addrURL *url.URL, body, 
 	return c.client.Do(req)
 }
 
-func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL, response PT) error {
+func httpGetJSON[PT *T, T any](ctx context.Context, client *http.Client, addrURL *url.URL, response PT, opts *Options) error {
+	if opts == nil {
+		opts = new(Options)
+		opts.setDefaults()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addrURL.String(), nil)
 	if err != nil {
 		slog.Error("could not create http get request with context", "url", addrURL, "err", err)
@@ -569,9 +573,9 @@ func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL,
 	}
 
 	s := time.Now()
-	resp, err := c.client.Do(req)
-	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
-		slog.Warn(fmt.Sprintf("get request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
+	resp, err := client.Do(req)
+	if d := time.Now().Sub(s); d > opts.HttpClientTimeout {
+		slog.Warn(fmt.Sprintf("get request took %s which is more than the http client timeout %s", d, opts.HttpClientTimeout))
 	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -601,7 +605,7 @@ func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL,
 			if err := sleep(time.Second); err != nil {
 				return err
 			}
-			return httpGetJSON(ctx, c, addrURL, response)
+			return httpGetJSON(ctx, client, addrURL, response, opts)
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusTeapot {
@@ -615,7 +619,7 @@ func httpGetJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.URL,
 			if err := sleep(timeout); err != nil {
 				return err
 			}
-			return httpGetJSON(ctx, c, addrURL, response)
+			return httpGetJSON(ctx, client, addrURL, response, opts)
 		}
 
 		slog.Error("http GET is unsuccessful", "status", resp.StatusCode, "url", addrURL)

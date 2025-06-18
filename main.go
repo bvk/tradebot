@@ -12,6 +12,7 @@ import (
 
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/coinbase"
+	"github.com/bvk/tradebot/subcmds/coinex"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvk/tradebot/subcmds/exchange"
 	"github.com/bvk/tradebot/subcmds/fix"
@@ -110,6 +111,10 @@ func main() {
 		new(coinbase.GetOrder),
 	}
 
+	coinexCmds := []cli.Command{
+		new(coinex.GetPrices),
+	}
+
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
@@ -121,7 +126,8 @@ func main() {
 		cli.NewGroup("looper", "Manage buy-sell loops", looperCmds...),
 		cli.NewGroup("waller", "Manage trades in a price range", wallerCmds...),
 		cli.NewGroup("exchange", "View/query exchange directly", exchangeCmds...),
-		cli.NewGroup("coinbase", "Handles coinbase specific operations", coinbaseCmds...),
+		cli.NewGroup("coinbase", "Coinbase exchange operations", coinbaseCmds...),
+		cli.NewGroup("coinex", "CoinEx exchange operations", coinexCmds...),
 	}
 	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
 		log.Fatal(err)
