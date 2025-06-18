@@ -5,7 +5,9 @@ package point
 import (
 	"fmt"
 	"log"
+	"log/slog"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
@@ -13,8 +15,27 @@ type Pair struct {
 	Buy, Sell Point
 }
 
+func NewPairFromGobPair(p *gobs.Pair) *Pair {
+	return &Pair{
+		Buy: Point{
+			Size:   p.Buy.Size,
+			Price:  p.Buy.Price,
+			Cancel: p.Buy.Cancel,
+		},
+		Sell: Point{
+			Size:   p.Sell.Size,
+			Price:  p.Sell.Price,
+			Cancel: p.Sell.Cancel,
+		},
+	}
+}
+
 func (p Pair) String() string {
 	return fmt.Sprintf("{%s=%s}", p.Buy, p.Sell)
+}
+
+func (p Pair) LogValue() slog.Value {
+	return slog.StringValue(p.String())
 }
 
 func (p *Pair) Check() error {
