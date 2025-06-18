@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
@@ -36,6 +37,8 @@ type Status struct {
 	budget float64
 
 	beginTime, endTime string
+
+	pricesFrom string
 }
 
 func (c *Status) Purpose() string {
@@ -48,6 +51,7 @@ func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.budget, "budget", 0, "Includes this budget in the return rate table")
 	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for status time period")
 	fset.StringVar(&c.endTime, "end-time", "", "End time for status time period")
+	fset.StringVar(&c.pricesFrom, "prices-from", "coinex", "Exchange name to fetch current prices.")
 	return "status", fset, cli.CmdFunc(c.run)
 }
 
@@ -65,12 +69,26 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			return fmt.Errorf("could not load coinbase account balances: %w", err)
 		}
 	}
-	priceMap, err := datastore.ProductsPriceMap(ctx)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+
+	productPriceMap := make(map[string]decimal.Decimal)
+	switch strings.ToLower(c.pricesFrom) {
+	case "coinex":
+		pmap, err := coinex.GetProductPriceMap(ctx)
+		if err != nil {
 			log.Printf("could not load price information (ignored): %v", err)
+			pmap = make(map[string]decimal.Decimal)
 		}
-		priceMap = make(map[string]decimal.Decimal)
+		productPriceMap = pmap
+
+	case "coinbase":
+		pmap, err := datastore.ProductsPriceMap(ctx)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Printf("could not load price information (ignored): %v", err)
+			}
+			pmap = make(map[string]decimal.Decimal)
+		}
+		productPriceMap = pmap
 	}
 
 	var assets []string
@@ -187,7 +205,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	sum := trader.Summarize(statuses)
 	var curUnsoldValue decimal.Decimal
 	for _, s := range statuses {
-		if p, ok := priceMap[s.ProductID]; ok {
+		if p, ok := productPriceMap[s.ProductID]; ok {
 			curUnsoldValue = curUnsoldValue.Add(s.UnsoldSize.Mul(p))
 		}
 	}
@@ -278,7 +296,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		for _, a := range assets {
 			currency := currencyMap[a]
 			ids = append(ids, a)
-			if p, ok := priceMap[currency+"-USD"]; ok {
+			// FIXME: The following "-USD" suffix doesn't work for CoinEx.
+			if p, ok := productPriceMap[currency+"-USD"]; ok {
 				prices = append(prices, p.StringFixed(3))
 			} else {
 				prices = append(prices, "")

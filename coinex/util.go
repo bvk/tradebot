@@ -13,6 +13,21 @@ import (
 )
 
 func GetPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
+	productPriceMap, err := GetProductPriceMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cryptoPriceMap := make(map[string]decimal.Decimal)
+	for product, price := range productPriceMap {
+		if strings.HasSuffix(product, "USDT") {
+			ccy := strings.TrimSuffix(product, "USDT")
+			cryptoPriceMap[ccy] = price
+		}
+	}
+	return cryptoPriceMap, nil
+}
+
+func GetProductPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
 	type PriceInfo struct {
 		Market string          `json:"market"`
 		Price  decimal.Decimal `json:"last"`
@@ -35,10 +50,7 @@ func GetPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
 	}
 	marketPriceMap := make(map[string]decimal.Decimal)
 	for _, pi := range resp.Data {
-		if strings.HasSuffix(pi.Market, "USDT") {
-			ccy := strings.TrimSuffix(pi.Market, "USDT")
-			marketPriceMap[ccy] = pi.Price
-		}
+		marketPriceMap[pi.Market] = pi.Price
 	}
 	return marketPriceMap, nil
 }
