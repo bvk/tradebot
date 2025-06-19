@@ -115,7 +115,7 @@ func (v *Limiter) ExchangeName() string {
 	return v.exchangeName
 }
 
-func (v *Limiter) BudgetAt(feePct float64) decimal.Decimal {
+func (v *Limiter) BudgetAt(feePct decimal.Decimal) decimal.Decimal {
 	return v.point.Value().Add(v.point.FeeAt(feePct))
 }
 

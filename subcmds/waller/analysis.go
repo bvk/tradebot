@@ -13,7 +13,7 @@ import (
 
 func PrintAnalysis(a *waller.Analysis) {
 	fmt.Printf("Budget required: %s\n", a.Budget().StringFixed(5))
-	fmt.Printf("Fee percentage: %.2f%%\n", a.FeePct())
+	fmt.Printf("Fee percentage: %.2s%%\n", a.FeePct().StringFixed(5))
 
 	fmt.Println()
 	fmt.Printf("Num Buy/Sell pairs: %d\n", a.NumPairs())

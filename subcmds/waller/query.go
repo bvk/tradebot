@@ -28,7 +28,7 @@ func (c *Query) run(ctx context.Context, args []string) error {
 	}
 	pairs := c.spec.BuySellPairs()
 	feePct := c.spec.feePercentage
-	a := waller.Analyze(pairs, feePct)
+	a := waller.Analyze(pairs, decimal.NewFromFloat(feePct))
 	PrintAnalysis(a)
 
 	if c.printPairs {

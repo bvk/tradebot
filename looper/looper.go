@@ -100,7 +100,7 @@ func (v *Looper) ExchangeName() string {
 	return v.exchangeName
 }
 
-func (v *Looper) BudgetAt(feePct float64) decimal.Decimal {
+func (v *Looper) BudgetAt(feePct decimal.Decimal) decimal.Decimal {
 	return v.buyPoint.Value().Add(v.buyPoint.FeeAt(feePct))
 }
 

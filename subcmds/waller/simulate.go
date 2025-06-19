@@ -52,7 +52,7 @@ func (c *Simulate) Run(ctx context.Context, args []string) error {
 	}
 
 	pairs := c.spec.BuySellPairs()
-	analysis := waller.Analyze(pairs, c.spec.feePercentage)
+	analysis := waller.Analyze(pairs, c.spec.FeePct())
 
 	// Initialize the simulator with all points as outstanding buys.
 	buys := make(map[*point.Pair]struct{})
@@ -82,7 +82,7 @@ func (c *Simulate) Run(ctx context.Context, args []string) error {
 					delete(sells, p)
 					buys[p] = struct{}{}
 					profit = profit.Add(p.Sell.Size.Mul(p.Sell.Price.Sub(p.Buy.Price)))
-					profit = profit.Sub(p.Buy.FeeAt(c.spec.feePercentage)).Sub(p.Sell.FeeAt(c.spec.feePercentage))
+					profit = profit.Sub(p.Buy.FeeAt(c.spec.FeePct())).Sub(p.Sell.FeeAt(c.spec.FeePct()))
 					log.Printf("sell executed for point %v at price %v->%v (profit=%v)", p, lastPrice, price, profit)
 				}
 			}
