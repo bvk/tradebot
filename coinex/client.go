@@ -501,6 +501,9 @@ func (c *Client) WatchMarket(ctx context.Context, market string) error {
 	if _, ok := c.marketBBOUpdateMap.Load(market); ok {
 		return os.ErrExist
 	}
+	if err := c.websocketSign(ctx); err != nil {
+		return err
+	}
 	if err := c.websocketMarketListSubscribe(ctx, "bbo.subscribe", []string{market}); err != nil {
 		return err
 	}
