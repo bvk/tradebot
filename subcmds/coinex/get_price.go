@@ -12,19 +12,19 @@ import (
 	"github.com/visvasity/cli"
 )
 
-type GetPrices struct {
+type GetPrice struct {
 }
 
-func (c *GetPrices) Purpose() string {
-	return "Prints Crypto prices from CoinEx markets."
+func (c *GetPrice) Purpose() string {
+	return "Prints Crypto price from CoinEx markets."
 }
 
-func (c *GetPrices) Command() (string, *flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("get-prices", flag.ContinueOnError)
-	return "get-prices", fset, cli.CmdFunc(c.run)
+func (c *GetPrice) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := flag.NewFlagSet("get-price", flag.ContinueOnError)
+	return "get-price", fset, cli.CmdFunc(c.run)
 }
 
-func (c *GetPrices) run(ctx context.Context, args []string) error {
+func (c *GetPrice) run(ctx context.Context, args []string) error {
 	priceMap, err := coinex.GetPriceMap(ctx)
 	if err != nil {
 		return err
