@@ -96,8 +96,10 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 		return nil, err
 	}
 
-	c.wg.Add(1)
-	go c.goGetMessages(c.lifeCtx)
+	if !opts.NoWebsocket {
+		c.wg.Add(1)
+		go c.goGetMessages(c.lifeCtx)
+	}
 
 	c.wg.Add(1)
 	go c.goRefreshOrders(c.lifeCtx)

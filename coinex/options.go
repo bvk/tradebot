@@ -39,6 +39,8 @@ type Options struct {
 	RefreshOrdersInterval time.Duration
 
 	BatchQueryOrdersSize int
+
+	NoWebsocket bool
 }
 
 func (v *Options) setDefaults() {

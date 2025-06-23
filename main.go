@@ -113,6 +113,7 @@ func main() {
 
 	coinexCmds := []cli.Command{
 		new(coinex.GetPrices),
+		new(coinex.GetOrder),
 	}
 
 	cmds := []cli.Command{
