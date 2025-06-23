@@ -114,6 +114,7 @@ func main() {
 	coinexCmds := []cli.Command{
 		new(coinex.GetPrice),
 		new(coinex.GetOrder),
+		new(coinex.FixFee),
 	}
 
 	cmds := []cli.Command{
