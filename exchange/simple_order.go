@@ -168,7 +168,8 @@ func (v *SimpleOrder) AddUpdate(update OrderUpdate) (int, error) {
 
 	ctime := update.CreatedAt()
 	if !v.CreateTime.Time.IsZero() && !ctime.Time.IsZero() {
-		if v.CreateTime.Time.UnixMilli() != ctime.Time.UnixMilli() {
+		diff := v.CreateTime.Time.UnixMilli() - ctime.Time.UnixMilli()
+		if diff < -1 || diff > 1 {
 			slog.Warn("order create times do not match", "known", v.CreateTime.Time, "update", ctime.Time)
 			return 0, fmt.Errorf("create times do not match")
 		}
