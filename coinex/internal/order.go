@@ -32,14 +32,21 @@ type Order struct {
 	FilledValue      decimal.Decimal `json:"filled_value"`
 	LastFilledAmount decimal.Decimal `json:"last_filled_amount"`
 	LastFilledPrice  decimal.Decimal `json:"last_filled_price"`
-	BaseFee          decimal.Decimal `json:"base_fee"`
-	QuoteFee         decimal.Decimal `json:"quote_fee"`
-	DiscountFee      decimal.Decimal `json:"discount_fee"`
-	MakerFeeRate     decimal.Decimal `json:"maker_fee_rate"`
-	TakerFeeRate     decimal.Decimal `json:"taker_fee_rate"`
-	CreatedAtMilli   int64           `json:"created_at"`
-	UpdatedAtMilli   int64           `json:"updated_at"`
-	Status           string          `json:"status"`
+
+	// REST and Websocket apis use different json field names for the fees. We
+	// can just pick the max of both instead of defining two different types.
+	BaseFee             decimal.Decimal `json:"base_fee"`
+	QuoteFee            decimal.Decimal `json:"quote_fee"`
+	DiscountFee         decimal.Decimal `json:"discount_fee"`
+	BaseCurrencyFee     decimal.Decimal `json:"base_ccy_fee"`
+	QuoteCurrencyFee    decimal.Decimal `json:"quote_ccy_fee"`
+	DiscountCurrencyFee decimal.Decimal `json:"discount_ccy_fee"`
+
+	MakerFeeRate   decimal.Decimal `json:"maker_fee_rate"`
+	TakerFeeRate   decimal.Decimal `json:"taker_fee_rate"`
+	CreatedAtMilli int64           `json:"created_at"`
+	UpdatedAtMilli int64           `json:"updated_at"`
+	Status         string          `json:"status"`
 
 	HasFinishEvent bool `json:"-"`
 }
@@ -83,7 +90,7 @@ func (v *Order) ExecutedValue() decimal.Decimal {
 }
 
 func (v *Order) ExecutedFee() decimal.Decimal {
-	return v.QuoteFee // FIXME: Is this in-sync with BaseFee?
+	return decimal.Max(v.QuoteFee, v.QuoteCurrencyFee)
 }
 
 func (v *Order) Size() decimal.Decimal {
