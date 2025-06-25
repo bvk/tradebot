@@ -29,6 +29,7 @@ import (
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
 	"github.com/bvk/tradebot/syncmap"
+	"github.com/bvk/tradebot/telegram"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -67,6 +68,8 @@ type Server struct {
 	exProductsMap map[string]map[string]exchange.Product
 
 	pushoverClient *pushover.Client
+
+	telegramClient *telegram.Client
 }
 
 func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
@@ -123,6 +126,15 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		pushoverClient = client
 	}
 
+	var telegramClient *telegram.Client
+	if secrets.Telegram != nil {
+		client, err := telegram.New(newctx, db, secrets.Telegram)
+		if err != nil {
+			return nil, fmt.Errorf("could not create telegram client: %w", err)
+		}
+		telegramClient = client
+	}
+
 	state, err := kvutil.GetDB[gobs.ServerState](newctx, db, serverStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -138,6 +150,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		handlerMap:     make(map[string]http.Handler),
 		runner:         job.NewRunner(),
 		pushoverClient: pushoverClient,
+		telegramClient: telegramClient,
 	}
 
 	if t.state == nil {
@@ -218,9 +231,15 @@ func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
 }
 
 func (s *Server) SendMessage(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
+	msg := fmt.Sprintf(msgfmt, args...)
 	if s.pushoverClient != nil {
-		if err := s.pushoverClient.SendMessage(ctx, at, fmt.Sprintf(msgfmt, args...)); err != nil {
-			log.Printf("warning: could not send pushover message (ignored): %v", err)
+		if err := s.pushoverClient.SendMessage(ctx, at, msg); err != nil {
+			slog.Error("could not send pushover message (ignored)", "err", err)
+		}
+	}
+	if s.telegramClient != nil {
+		if err := s.telegramClient.SendMessage(ctx, at, msg); err != nil {
+			slog.Error("could not send telegram message (ignored)", "err", err)
 		}
 	}
 }
