@@ -9,12 +9,14 @@ import (
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/pushover"
+	"github.com/bvk/tradebot/telegram"
 )
 
 type Secrets struct {
 	Coinbase *coinbase.Credentials `json:"coinbase"`
 	CoinEx   *coinex.Credentials   `json:"coinex"`
 	Pushover *pushover.Keys        `json:"pushover"`
+	Telegram *telegram.Secrets     `json:"telegram"`
 }
 
 func SecretsFromFile(fpath string) (*Secrets, error) {
@@ -27,4 +29,13 @@ func SecretsFromFile(fpath string) (*Secrets, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func (v *Secrets) Check() error {
+	if v.Telegram != nil {
+		if err := v.Telegram.Check(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

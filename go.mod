@@ -18,7 +18,7 @@ require (
 	github.com/visvasity/cli v0.0.0-20250421023013-9c73481f42bd
 	github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7
 	github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71
-	golang.org/x/sys v0.14.0
+	golang.org/x/sys v0.33.0
 	golang.org/x/time v0.4.0
 	gopkg.in/square/go-jose.v2 v2.6.0
 )
@@ -38,5 +38,6 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.15.0 // indirect
 	golang.org/x/net v0.18.0 // indirect
+	golang.org/x/term v0.32.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 )

@@ -64,6 +64,7 @@ func main() {
 		new(setup.Coinbase),
 		new(setup.CoinEx),
 		new(setup.PushOver),
+		new(setup.Telegram),
 	}
 
 	fixCmds := []cli.Command{
