@@ -19,6 +19,7 @@ import (
 	"github.com/bvk/tradebot/subcmds/job"
 	"github.com/bvk/tradebot/subcmds/limiter"
 	"github.com/bvk/tradebot/subcmds/looper"
+	"github.com/bvk/tradebot/subcmds/setup"
 	"github.com/bvk/tradebot/subcmds/waller"
 	"github.com/hashicorp/go-envparse"
 	"github.com/visvasity/cli"
@@ -57,6 +58,12 @@ func main() {
 		new(db.List),
 		new(db.Backup),
 		new(db.Restore),
+	}
+
+	setupCmds := []cli.Command{
+		new(setup.Coinbase),
+		new(setup.CoinEx),
+		new(setup.PushOver),
 	}
 
 	fixCmds := []cli.Command{
@@ -120,7 +127,6 @@ func main() {
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
-		new(subcmds.Setup),
 		cli.NewGroup("fix", "Fix misc. metadata issues", fixCmds...),
 		cli.NewGroup("job", "Control trader jobs", jobCmds...),
 		cli.NewGroup("db", "View/update database directly", dbCmds...),
@@ -130,6 +136,7 @@ func main() {
 		cli.NewGroup("exchange", "View/query exchange directly", exchangeCmds...),
 		cli.NewGroup("coinbase", "Coinbase exchange operations", coinbaseCmds...),
 		cli.NewGroup("coinex", "CoinEx exchange operations", coinexCmds...),
+		cli.NewGroup("setup", "Setup operations", setupCmds...),
 	}
 	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
 		log.Fatal(err)
