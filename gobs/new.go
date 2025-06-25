@@ -35,6 +35,8 @@ func NewByTypename(typename string) (any, error) {
 		v = new(CoinbaseAccounts)
 	case "CoinbaseProducts":
 		v = new(CoinbaseProducts)
+	case "TelegramState":
+		v = new(TelegramState)
 	default:
 		return nil, fmt.Errorf("unsupported type name %q", typename)
 	}
