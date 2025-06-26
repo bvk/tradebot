@@ -4,9 +4,7 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"path"
 	"strings"
 
@@ -19,56 +17,44 @@ import (
 	"github.com/google/uuid"
 )
 
-func load[T trader.Trader](ctx context.Context, r kv.Reader, keyspace string, loader func(context.Context, string, kv.Reader) (T, error)) ([]trader.Trader, error) {
-	begin := path.Join(keyspace, MinUUID)
-	end := path.Join(keyspace, MaxUUID)
-
-	it, err := r.Ascend(ctx, begin, end)
-	if err != nil {
-		return nil, err
-	}
-	defer kv.Close(it)
-
-	var jobs []trader.Trader
-	for k, _, err := it.Fetch(ctx, false); err == nil; k, _, err = it.Fetch(ctx, true) {
-		uid := strings.TrimPrefix(k, keyspace)
-		if _, err := uuid.Parse(uid); err != nil {
-			continue
-		}
-
-		v, err := loader(ctx, uid, r)
-		if err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, v)
-	}
-
-	if _, _, err := it.Fetch(ctx, false); err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
-	}
-	return jobs, nil
-}
-
 func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Trader, error) {
 	var traders []trader.Trader
 
-	limiters, err := load(ctx, r, limiter.DefaultKeyspace, limiter.Load)
+	limiterPick := func(k string) bool {
+		_, err := uuid.Parse(strings.TrimPrefix(k, limiter.DefaultKeyspace))
+		return err == nil
+	}
+	limiters, err := limiter.LoadFunc(ctx, r, limiterPick)
 	if err != nil {
 		return nil, fmt.Errorf("could not load all existing limiters: %w", err)
 	}
-	traders = append(traders, limiters...)
+	for _, v := range limiters {
+		traders = append(traders, v)
+	}
 
-	loopers, err := load(ctx, r, looper.DefaultKeyspace, looper.Load)
+	looperPick := func(k string) bool {
+		_, err := uuid.Parse(strings.TrimPrefix(k, looper.DefaultKeyspace))
+		return err == nil
+	}
+	loopers, err := looper.LoadFunc(ctx, r, looperPick)
 	if err != nil {
 		return nil, fmt.Errorf("could not load all existing loopers: %w", err)
 	}
-	traders = append(traders, loopers...)
+	for _, v := range loopers {
+		traders = append(traders, v)
+	}
 
-	wallers, err := load(ctx, r, waller.DefaultKeyspace, waller.Load)
+	wallerPick := func(k string) bool {
+		_, err := uuid.Parse(strings.TrimPrefix(k, waller.DefaultKeyspace))
+		return err == nil
+	}
+	wallers, err := waller.LoadFunc(ctx, r, wallerPick)
 	if err != nil {
 		return nil, fmt.Errorf("could not load all existing wallers: %w", err)
 	}
-	traders = append(traders, wallers...)
+	for _, v := range wallers {
+		traders = append(traders, v)
+	}
 
 	return traders, nil
 }
