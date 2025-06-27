@@ -180,11 +180,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 
 	// Remove jobs that don't implement Status interface.
-	type Statuser interface {
-		Status(*timerange.Range) *trader.Status
-	}
 	jobs = slices.DeleteFunc(jobs, func(j trader.Trader) bool {
-		if _, ok := j.(Statuser); !ok {
+		if _, ok := j.(trader.Statuser); !ok {
 			return true
 		}
 		return false
@@ -195,7 +192,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	var statuses []*trader.Status
 	for _, j := range jobs {
-		if v, ok := j.(Statuser); ok {
+		if v, ok := j.(trader.Statuser); ok {
 			if s := v.Status(&period); s != nil {
 				statuses = append(statuses, s)
 			}

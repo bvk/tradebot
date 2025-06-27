@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-type CmdFunc = func(context.Context, *models.Update) error
+type CmdFunc = func(context.Context, []string) (string, error)
 
 type Command struct {
 	Name    string
@@ -126,6 +127,28 @@ func (c *Client) OwnerUserName() string {
 	return c.secrets.OwnerID
 }
 
+func (c *Client) AddCommand(ctx context.Context, name, purpose string, handler CmdFunc) error {
+	if len(name) == 0 || len(purpose) == 0 || handler == nil {
+		return os.ErrInvalid
+	}
+	if _, ok := c.commandMap.Load(name); ok {
+		return os.ErrExist
+	}
+	cdata := &Command{
+		Purpose: purpose,
+		Handler: handler,
+	}
+	if _, loaded := c.commandMap.LoadOrStore(name, cdata); loaded {
+		return os.ErrExist
+	}
+	if ok, err := c.bot.SetMyCommands(ctx, c.commands()); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("could not set bot commands")
+	}
+	return nil
+}
+
 func (c *Client) commands() *bot.SetMyCommandsParams {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -143,29 +166,31 @@ func (c *Client) commands() *bot.SetMyCommandsParams {
 	return p
 }
 
-func (c *Client) getCommand(update *models.Update) (string, CmdFunc, error) {
+func (c *Client) getCommand(update *models.Update) (string, []string, CmdFunc, error) {
 	if update.Message == nil {
-		return "", nil, os.ErrInvalid
+		return "", nil, nil, os.ErrInvalid
 	}
 	if len(update.Message.Entities) == 0 {
-		return "", nil, os.ErrInvalid
+		return "", nil, nil, os.ErrInvalid
 	}
 	entity := update.Message.Entities[0]
 	if entity.Type != models.MessageEntityTypeBotCommand {
-		return "", nil, os.ErrInvalid
+		return "", nil, nil, os.ErrInvalid
 	}
 	if entity.Offset != 0 {
-		return "", nil, os.ErrInvalid
+		return "", nil, nil, os.ErrInvalid
 	}
 	if update.Message.Text[0] != '/' {
-		return "", nil, os.ErrInvalid
+		return "", nil, nil, os.ErrInvalid
 	}
 	cmd := update.Message.Text[1:entity.Length]
+	// TODO: Handle spaces in quotes?
+	args := strings.Fields(strings.TrimSpace(update.Message.Text[entity.Length:]))
 	cdata, ok := c.commandMap.Load(cmd)
 	if !ok {
-		return cmd, nil, os.ErrNotExist
+		return cmd, nil, nil, os.ErrNotExist
 	}
-	return cmd, cdata.Handler, nil
+	return cmd, args, cdata.Handler, nil
 }
 
 func (c *Client) isValidUser(user string) bool {
@@ -229,15 +254,50 @@ func (c *Client) handler(ctx context.Context, bot *bot.Bot, update *models.Updat
 		slog.Warn("could not update chat id values (ignored)", "err", err)
 	}
 
-	cmd, handler, err := c.getCommand(update)
-	if err != nil {
+	if err := c.respond(ctx, update); err != nil {
+		slog.Error("could not respond to user command (ignored)", "user", sender, "err", err)
 		return
+	}
+}
+
+func (c *Client) respond(ctx context.Context, update *models.Update) (status error) {
+	var reply string
+	defer func() {
+		if len(reply) != 0 {
+			p := &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   reply,
+				ReplyParameters: &models.ReplyParameters{
+					MessageID: update.Message.ID,
+				},
+			}
+			if _, err := c.bot.SendMessage(ctx, p); err != nil {
+				status = err
+			}
+		}
+	}()
+
+	defer func() {
+		if status != nil {
+			reply = status.Error()
+			status = nil
+		}
+	}()
+
+	cmd, args, handler, err := c.getCommand(update)
+	if err != nil {
+		return err
 	}
 
-	if err := handler(ctx, update); err != nil {
+	response, err := handler(ctx, args)
+	if err != nil {
+		sender := update.Message.From.Username
 		slog.Error("could not handle user command (ignored)", "cmd", cmd, "user", sender, "err", err)
-		return
+		return err
 	}
+
+	reply = response
+	return nil
 }
 
 func (c *Client) updateChatIDs(ctx context.Context, update *models.Update) error {
@@ -258,31 +318,10 @@ func (c *Client) updateChatIDs(ctx context.Context, update *models.Update) error
 	return nil
 }
 
-func (c *Client) uptime(ctx context.Context, update *models.Update) error {
-	text := fmt.Sprintf("%v", time.Since(start))
-	p := &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   text,
-		ReplyParameters: &models.ReplyParameters{
-			MessageID: update.Message.ID,
-		},
-	}
-	if _, err := c.bot.SendMessage(ctx, p); err != nil {
-		return err
-	}
-	return nil
+func (c *Client) uptime(ctx context.Context, args []string) (string, error) {
+	return fmt.Sprintf("%v", time.Since(start)), nil
 }
 
-func (c *Client) test(ctx context.Context, update *models.Update) error {
-	p := &bot.SendMessageParams{
-		ChatID: update.Message.Chat.ID,
-		Text:   "This is a test response. Please ignore.",
-		ReplyParameters: &models.ReplyParameters{
-			MessageID: update.Message.ID,
-		},
-	}
-	if _, err := c.bot.SendMessage(ctx, p); err != nil {
-		return err
-	}
-	return nil
+func (c *Client) test(ctx context.Context, args []string) (string, error) {
+	return "This is a test response. Please ignore.", nil
 }

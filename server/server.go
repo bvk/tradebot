@@ -181,6 +181,10 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 
 	// TODO: Setup a fund
 
+	if err := t.AddTelegramCommand(newctx, "profit", "Prints profit information", t.profitTelegramCmd); err != nil {
+		slog.Error("could not add profit telegram command (ignored)", "err", err)
+	}
+
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
 	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
