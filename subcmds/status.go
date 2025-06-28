@@ -123,7 +123,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 				jobs = append(jobs, job)
 			}
 		} else {
-			vs, err := server.LoadTraders(ctx, r)
+			vs, err := server.LoadAll(ctx, r)
 			if err != nil {
 				return fmt.Errorf("could not load traders: %w", err)
 			}

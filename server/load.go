@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func LoadTraders(ctx context.Context, r kv.Reader) ([]trader.Trader, error) {
+func LoadAll(ctx context.Context, r kv.Reader) ([]trader.Trader, error) {
 	var traders []trader.Trader
 
 	limiterPick := func(k string) bool {
@@ -91,12 +91,4 @@ func Load(ctx context.Context, r kv.Reader, uid, typename string) (trader.Trader
 	}
 
 	return nil, fmt.Errorf("unsupported trader type %q", typename)
-}
-
-func loadFromDB(ctx context.Context, db kv.Database, uid, typename string) (job trader.Trader, err error) {
-	kv.WithReader(ctx, db, func(ctx context.Context, r kv.Reader) error {
-		job, err = Load(ctx, r, uid, typename)
-		return err
-	})
-	return
 }
