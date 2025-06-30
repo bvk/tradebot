@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/go-envparse v0.1.0
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/shopspring/decimal v1.3.1
-	github.com/visvasity/cli v0.0.0-20250421023013-9c73481f42bd
+	github.com/visvasity/cli v0.0.0-20250511081102-2fa160cc32ee
 	github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7
 	github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71
 	golang.org/x/sys v0.33.0
