@@ -93,10 +93,6 @@ func New(ctx context.Context, db kv.Database, secrets *Secrets) (_ *Client, stat
 	c.state = state
 
 	// Configure all commands.
-	c.commandMap.Store("test", &Command{
-		Purpose: "Sends a test message",
-		Handler: c.test,
-	})
 	c.commandMap.Store("uptime", &Command{
 		Purpose: "Prints tradebot uptime",
 		Handler: c.uptime,
@@ -326,8 +322,4 @@ func (c *Client) uptime(ctx context.Context, args []string) (string, error) {
 	}
 	days := d / day
 	return fmt.Sprintf("%dd%v", days, d%day), nil
-}
-
-func (c *Client) test(ctx context.Context, args []string) (string, error) {
-	return "This is a test response. Please ignore.", nil
 }
