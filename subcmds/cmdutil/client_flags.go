@@ -12,10 +12,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
-	"strconv"
 	"time"
+
+	"github.com/bvk/tradebot/subcmds/defaults"
 )
 
 type ClientFlags struct {
@@ -26,22 +26,14 @@ type ClientFlags struct {
 }
 
 func (cf *ClientFlags) SetFlags(fset *flag.FlagSet) {
-	fset.IntVar(&cf.port, "connect-port", 0, "TCP port number for the api endpoint (default=10000 or TRADEBOT_SERVER_PORT value)")
+	fset.IntVar(&cf.port, "connect-port", defaults.ServerPort(), "TCP port number for the api endpoint")
 	fset.StringVar(&cf.Host, "connect-host", "127.0.0.1", "Hostname or IP address for the api endpoint")
 	fset.StringVar(&cf.APIPath, "api-path", "/", "base path to the api handler")
 	fset.DurationVar(&cf.HTTPTimeout, "http-timeout", 30*time.Second, "http client timeout")
 }
 
 func (cf *ClientFlags) Port() int {
-	if cf.port != 0 {
-		return cf.port
-	}
-	if v := os.Getenv("TRADEBOT_SERVER_PORT"); len(v) != 0 {
-		if port, err := strconv.ParseInt(v, 10, 16); err == nil {
-			return int(port)
-		}
-	}
-	return 10000
+	return cf.port
 }
 
 func (cf *ClientFlags) AddressURL() *url.URL {

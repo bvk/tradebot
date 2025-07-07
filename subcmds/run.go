@@ -24,6 +24,7 @@ import (
 	"github.com/bvk/tradebot/httputil"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/bvk/tradebot/subcmds/defaults"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
@@ -42,7 +43,9 @@ type Run struct {
 	restart         bool
 	shutdownTimeout time.Duration
 
-	logDebug             bool
+	logDir   string
+	logDebug bool
+
 	noPprof              bool
 	noResume             bool
 	noFetchCandles       bool
@@ -66,7 +69,8 @@ func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.DurationVar(&c.maxFetchTimeLatency, "max-fetch-time-latency", 0, "max latency for fetch-time operation in finding time difference")
 	fset.DurationVar(&c.maxHttpClientTimeout, "max-http-client-timeout", 30*time.Second, "default max timeout for http requests")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
-	fset.StringVar(&c.dataDir, "data-dir", "", "path to the data directory")
+	fset.StringVar(&c.dataDir, "data-dir", defaults.DataDir(), "path to the data directory")
+	fset.StringVar(&c.logDir, "log-dir", defaults.LogDir(), "path to the logs directory")
 	fset.StringVar(&c.waitforHostPort, "waitfor-host-port", "", "startup waits till host:port becomes reachable")
 	return "run", fset, cli.CmdFunc(c.run)
 }
@@ -118,6 +122,17 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	dataDir, err := filepath.Abs(c.dataDir)
 	if err != nil {
 		return fmt.Errorf("could not determine data-dir %q absolute path: %w", c.dataDir, err)
+	}
+	if len(c.logDir) == 0 {
+		return fmt.Errorf("logs directory cannot be empty: %w", os.ErrInvalid)
+	}
+	if _, err := os.Stat(c.logDir); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("could not stat log directory %q: %w", c.logDir, err)
+		}
+		if err := os.MkdirAll(c.logDir, 0700); err != nil {
+			return fmt.Errorf("could not create log directory %q: %w", c.logDir, err)
+		}
 	}
 
 	if len(c.secretsPath) == 0 {
@@ -217,14 +232,14 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	log.SetFlags(log.Lshortfile)
 	backend := sglog.NewBackend(&sglog.Options{
 		LogFileHeader:        true,
-		LogDirs:              []string{dataDir},
+		LogDirs:              []string{c.logDir},
 		LogFileMaxSize:       100 * 1024 * 1024,
 		LogFileReuseDuration: time.Hour,
 	})
 	defer backend.Close()
 
 	slog.SetDefault(slog.New(backend.Handler()))
-	log.Printf("using data directory %s and secrets file %s", dataDir, c.secretsPath)
+	log.Printf("using data directory %s, log directory %s and secrets file %s", dataDir, c.logDir, c.secretsPath)
 
 	if c.logDebug {
 		backend.SetLevel(slog.LevelDebug)
