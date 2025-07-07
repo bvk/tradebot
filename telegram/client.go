@@ -319,7 +319,13 @@ func (c *Client) updateChatIDs(ctx context.Context, update *models.Update) error
 }
 
 func (c *Client) uptime(ctx context.Context, args []string) (string, error) {
-	return fmt.Sprintf("%v", time.Since(start)), nil
+	const day = 24 * time.Hour
+	d := time.Since(start)
+	if d < day {
+		return fmt.Sprintf("%v", time.Since(start)), nil
+	}
+	days := d / day
+	return fmt.Sprintf("%dd%v", days, d%day), nil
 }
 
 func (c *Client) test(ctx context.Context, args []string) (string, error) {
