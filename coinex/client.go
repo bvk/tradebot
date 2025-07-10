@@ -488,8 +488,8 @@ func (c *Client) CancelOrderByClientID(ctx context.Context, market string, clien
 		return nil, err
 	}
 	if len(resp.Data) == 0 {
-		slog.Error("cancel order by client id request returned empty data", "clientID", clientOrderID, "market", market)
-		return nil, os.ErrInvalid
+		slog.Warn("cancel order by client id request returned empty data", "clientID", clientOrderID, "market", market)
+		return nil, os.ErrNotExist
 	}
 	if resp.Data[0].Code == internal.OrderNotFound {
 		return nil, os.ErrNotExist
@@ -802,6 +802,9 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 		}
 		slog.Error("POST request failed", "url", addrURL, "body", sb.String(), "response", string(data), "err", err)
 		return fmt.Errorf("failed with code=%d message=%s", genericResp.Code, genericResp.Message)
+	}
+	if len(genericResp.Data) == 0 {
+		slog.Warn("received empty Data response", "url", addrURL, "body", sb.String(), "response", string(data), "err", err)
 	}
 
 	if err := json.Unmarshal(data, response); err != nil {
