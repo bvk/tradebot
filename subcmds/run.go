@@ -4,6 +4,7 @@ package subcmds
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -229,6 +230,13 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	}
 	defer flock.Unlock()
 
+	// Make a copy of the binary into the data directory, so that /restart
+	// telegram command can guarantee to restart the same version.
+	if err := c.backupBinary(ctx); err != nil {
+		slog.Error("could not make a backup copy of the binary", "err", err)
+		return err
+	}
+
 	log.SetFlags(log.Lshortfile)
 	backend := sglog.NewBackend(&sglog.Options{
 		LogFileHeader:        true,
@@ -332,6 +340,68 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 func isGoodKey(k string) bool {
 	return path.IsAbs(k) && k == path.Clean(k)
+}
+
+func (c *Run) backupBinary(ctx context.Context) (status error) {
+	src, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	sfi, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(c.dataDir, "tradebot")
+	dfi, err := os.Stat(dst)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err == nil {
+		if mode := dfi.Mode(); !mode.IsRegular() {
+			return fmt.Errorf("binary target path %q is not a regular file", dst)
+		}
+		if os.SameFile(sfi, dfi) {
+			return nil
+		}
+	}
+	if err = os.Link(src, dst); err == nil {
+		return nil
+	}
+
+	sfp, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sfp.Close()
+
+	dfp, err := os.CreateTemp(c.dataDir, "tradebot*****")
+	if err != nil {
+		return err
+	}
+	defer dfp.Close()
+
+	tmpName := dfp.Name()
+	defer func() {
+		if status != nil {
+			os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := io.Copy(dfp, sfp); err != nil {
+		return err
+	}
+	if err := dfp.Sync(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, os.FileMode(0755)); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Run) waitforDial(ctx context.Context, hostport string) error {
