@@ -2,12 +2,21 @@
 
 package server
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
 
 type Options struct {
 	// RunFixes when true, trader.Start method will call Fix method on all trade
 	// jobs (irrespective of their job status).
 	RunFixes bool
+
+	// BinaryBackupPath if non-empty holds path to the backup for the currently
+	// executing binary path.
+	BinaryBackupPath string
 
 	// NoResume when true, will NOT resume the trade jobs automatically.
 	NoResume bool
@@ -29,4 +38,18 @@ func (v *Options) setDefaults() {
 	if v.MaxHttpClientTimeout == 0 {
 		v.MaxHttpClientTimeout = 10 * time.Second
 	}
+}
+
+func (v *Options) Check() error {
+	if len(v.BinaryBackupPath) != 0 {
+		if !filepath.IsAbs(v.BinaryBackupPath) {
+			return fmt.Errorf("binary backup path must be an absolute path")
+		}
+		if stat, err := os.Stat(v.BinaryBackupPath); err != nil {
+			return err
+		} else if !stat.Mode().IsRegular() {
+			return fmt.Errorf("binary backup path must be a regular file")
+		}
+	}
+	return nil
 }

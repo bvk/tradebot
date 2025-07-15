@@ -77,6 +77,9 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		opts = new(Options)
 	}
 	opts.setDefaults()
+	if err := opts.Check(); err != nil {
+		return nil, err
+	}
 
 	exchangeMap := make(map[string]exchange.Exchange)
 	defer func() {
@@ -183,6 +186,11 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 
 	if err := t.AddTelegramCommand(newctx, "profit", "Prints profit information", t.profitTelegramCmd); err != nil {
 		slog.Error("could not add profit telegram command (ignored)", "err", err)
+	}
+	if len(t.opts.BinaryBackupPath) != 0 {
+		if err := t.AddTelegramCommand(newctx, "restart", "Restarts current process", t.restartCmd); err != nil {
+			slog.Error("could not add restart telegram command (ignored)", "err", err)
+		}
 	}
 
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)

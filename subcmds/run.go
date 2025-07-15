@@ -299,6 +299,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		NoFetchCandles:       c.noFetchCandles,
 		MaxFetchTimeLatency:  c.maxFetchTimeLatency,
 		MaxHttpClientTimeout: c.maxHttpClientTimeout,
+		BinaryBackupPath:     c.binaryBackupPath(),
 	}
 	trader, err := server.New(ctx, secrets, db, topts)
 	if err != nil {
@@ -342,6 +343,10 @@ func isGoodKey(k string) bool {
 	return path.IsAbs(k) && k == path.Clean(k)
 }
 
+func (c *Run) binaryBackupPath() string {
+	return filepath.Join(c.dataDir, "tradebot")
+}
+
 func (c *Run) backupBinary(ctx context.Context) (status error) {
 	src, err := os.Executable()
 	if err != nil {
@@ -351,7 +356,7 @@ func (c *Run) backupBinary(ctx context.Context) (status error) {
 	if err != nil {
 		return err
 	}
-	dst := filepath.Join(c.dataDir, "tradebot")
+	dst := c.binaryBackupPath()
 	dfi, err := os.Stat(dst)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {

@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -19,6 +20,20 @@ func (s *Server) AddTelegramCommand(ctx context.Context, name, purpose string, h
 		return s.telegramClient.AddCommand(ctx, name, purpose, handler)
 	}
 	return nil // Ignored
+}
+
+func (s *Server) restartCmd(ctx context.Context, args []string) (string, error) {
+	if len(args) != 0 {
+		return "", fmt.Errorf("too many arguments")
+	}
+	if len(s.opts.BinaryBackupPath) == 0 {
+		return "", fmt.Errorf("binary backup is not found")
+	}
+	cmd := exec.Command(s.opts.BinaryBackupPath, "run", "-restart")
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	return "Restart issued successfully", nil
 }
 
 func Summarize(ctx context.Context, db kv.Database, periods ...*timerange.Range) ([]*trader.Summary, error) {
