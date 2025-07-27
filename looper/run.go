@@ -112,6 +112,8 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			action = "BUY"
 		}
 
+		slog.Info("", "looper", v, "next-action", action, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
+
 		switch action {
 		default: // STOP
 			slog.Error("looper instance is stopped", "looper", v, "bought", bought, "sold", sold, "holdings", holdings, "nbuys", nbuys, "nsells", nsells)
