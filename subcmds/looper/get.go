@@ -47,6 +47,12 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 
 		d, _ := json.MarshalIndent(gv, "", "  ")
 		fmt.Printf("%s\n", d)
+
+		v, err := looper.Load(ctx, uid, r)
+		if err != nil {
+			return fmt.Errorf("could not create looper instance for %q: %v", key, err)
+		}
+		v.LogDebugInfo()
 		return nil
 	}
 

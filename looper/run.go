@@ -5,6 +5,7 @@ package looper
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"path"
 	"time"
@@ -50,6 +51,23 @@ func (v *Looper) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	return nil
 }
 
+func (v *Looper) LogDebugInfo() {
+	var bought decimal.Decimal
+	for _, b := range v.buys {
+		bought = bought.Add(b.FilledSize())
+	}
+	var sold decimal.Decimal
+	for _, s := range v.sells {
+		sold = sold.Add(s.FilledSize())
+	}
+
+	numBuys, pbuy := bought.QuoRem(v.buyPoint.Size, 16)
+	numSells, psell := sold.QuoRem(v.sellPoint.Size, 16)
+	nbuys, nsells := numBuys.IntPart(), numSells.IntPart()
+	holdings := bought.Sub(sold)
+	log.Printf("bought=%v sold=%v numBuys=%v pbuy=%v numSells=%v psell=%v, nbuys=%d nsells=%d holdings=%v", bought, sold, numBuys, pbuy, numSells, psell, nbuys, nsells, holdings)
+}
+
 func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	v.runtimeLock.Lock()
 	defer v.runtimeLock.Unlock()
@@ -64,8 +82,8 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			sold = sold.Add(s.FilledSize())
 		}
 
-		numBuys, pbuy := bought.QuoRem(v.buyPoint.Size, 6)
-		numSells, psell := sold.QuoRem(v.sellPoint.Size, 6)
+		numBuys, pbuy := bought.QuoRem(v.buyPoint.Size, 16)
+		numSells, psell := sold.QuoRem(v.sellPoint.Size, 16)
 		nbuys, nsells := numBuys.IntPart(), numSells.IntPart()
 		holdings := bought.Sub(sold)
 
@@ -74,16 +92,11 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 		case nbuys < nsells || holdings.IsNegative():
 			action = "STOP"
 
+		case nbuys > nsells:
+			action = "SELL"
+
 		case pbuy.IsZero() && psell.IsZero():
-			// When no partial buys/sells are present, next action depends on number
-			// of sells vs number of buys.
-			if nbuys == nsells {
-				action = "BUY"
-			} else if nbuys > nsells {
-				action = "SELL"
-			} else { // nbuys < nsells is unexpected
-				action = "STOP"
-			}
+			action = "BUY"
 
 		case !pbuy.IsZero() && !psell.IsZero():
 			// When buys and sells are both partial, then we have a bug, we must stop
