@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"path"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -96,6 +98,10 @@ func New(ctx context.Context, db kv.Database, secrets *Secrets) (_ *Client, stat
 	c.commandMap.Store("uptime", &Command{
 		Purpose: "Prints tradebot uptime",
 		Handler: c.uptime,
+	})
+	c.commandMap.Store("version", &Command{
+		Purpose: "Prints version information",
+		Handler: c.version,
 	})
 
 	if ok, err := c.bot.SetMyCommands(ctx, c.commands()); err != nil {
@@ -257,6 +263,8 @@ func (c *Client) handler(ctx context.Context, bot *bot.Bot, update *models.Updat
 }
 
 func (c *Client) respond(ctx context.Context, update *models.Update) (status error) {
+	True := true
+
 	var reply string
 	defer func() {
 		if len(reply) != 0 {
@@ -265,6 +273,9 @@ func (c *Client) respond(ctx context.Context, update *models.Update) (status err
 				Text:   reply,
 				ReplyParameters: &models.ReplyParameters{
 					MessageID: update.Message.ID,
+				},
+				LinkPreviewOptions: &models.LinkPreviewOptions{
+					IsDisabled: &True,
 				},
 			}
 			if _, err := c.bot.SendMessage(ctx, p); err != nil {
@@ -322,4 +333,24 @@ func (c *Client) uptime(ctx context.Context, args []string) (string, error) {
 	}
 	days := d / day
 	return fmt.Sprintf("%dd%v", days, d%day), nil
+}
+
+func (c *Client) version(_ context.Context, _ []string) (string, error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", fmt.Errorf("could not read build information")
+	}
+	// Do not print version information for the dependencies. It can overflow the
+	// Telegram size limits.
+	var sb strings.Builder
+	fmt.Fprintln(&sb, "Go: ", info.GoVersion)
+	fmt.Fprintln(&sb, "Binary Path: ", info.Path)
+	fmt.Fprintln(&sb, "Main Module Path: ", info.Main.Path)
+	fmt.Fprintln(&sb, "Main Module Version: ", info.Main.Version)
+	fmt.Fprintln(&sb, "Main Module Checksum: ", info.Main.Sum)
+	for _, s := range info.Settings {
+		fmt.Fprintln(&sb, s.Key, ": ", s.Value)
+	}
+	log.Printf(sb.String())
+	return sb.String(), nil
 }
