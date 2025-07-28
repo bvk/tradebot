@@ -5,8 +5,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bvk/tradebot/telegram"
@@ -34,6 +39,60 @@ func (s *Server) restartCmd(ctx context.Context, args []string) (string, error) 
 		return "", err
 	}
 	return "Restart issued successfully", nil
+}
+
+func (s *Server) upgradeCmd(ctx context.Context, args []string) (string, error) {
+	target := "latest"
+	if len(args) != 0 {
+		if len(args) != 1 {
+			return "", fmt.Errorf("upgrade command takes at most one argument")
+		}
+		if strings.ContainsRune(args[0], '@') {
+			return "", fmt.Errorf("target branch name %q is invalid", args[0])
+		}
+		target = args[0]
+	}
+
+	binfo, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", fmt.Errorf("could not read build info")
+	}
+
+	binDir := ""
+	if p := os.Getenv("GOPATH"); p != "" {
+		binDir = filepath.Join(p, "bin")
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("could not determine user's home directory: %w", err)
+		}
+		binDir = filepath.Join(homeDir, "go/bin")
+	}
+
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("go compiler is not found")
+	}
+	// TODO: Verify the minimum go compiler version.
+
+	installCmd := exec.Command(goPath, "install", binfo.Path+"@"+target)
+	if out, err := installCmd.Output(); err != nil {
+		return string(out), fmt.Errorf("could not install target version: %w", err)
+	}
+	binPath := filepath.Join(binDir, "tradebot")
+	if _, err := os.Stat(binPath); err != nil {
+		return "", fmt.Errorf("could not find installed binary: %w", err)
+	}
+
+	runCmd := exec.Command(binPath, "run", "-restart", "-background")
+	runCmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true,
+	}
+	slog.Info("restarting with installed version", "target", target, "binPath", binPath)
+	if err := runCmd.Start(); err != nil {
+		return "", fmt.Errorf("could not start the installed binary: %w", err)
+	}
+	return fmt.Sprintf("service is upgraded to %q successfully", target), nil
 }
 
 func Summarize(ctx context.Context, db kv.Database, periods ...*timerange.Range) ([]*trader.Summary, error) {
