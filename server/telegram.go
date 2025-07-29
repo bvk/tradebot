@@ -96,7 +96,13 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) error {
 	if err := runCmd.Start(); err != nil {
 		return fmt.Errorf("could not start the installed binary: %w", err)
 	}
-	fmt.Fprintf(stdout, "service is upgraded to %q successfully", target)
+	go func() {
+		if err := runCmd.Wait(); err != nil {
+			slog.Error("installed binary has failed to initialize", "err", err)
+			s.telegramClient.SendMessage(ctx, time.Now(), "installed binary has failed to initialize.")
+		}
+	}()
+	fmt.Fprintln(stdout, "installed binary is started in the background.")
 	return nil
 }
 
