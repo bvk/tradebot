@@ -95,6 +95,8 @@ github.com/visvasity/cli v0.0.0-20250421023013-9c73481f42bd h1:FwaovtRtUesVmCCQN
 github.com/visvasity/cli v0.0.0-20250421023013-9c73481f42bd/go.mod h1:ILMwbw7ura6UQfgCh3IIKnXBa267vHTBP/qNn6gAnYA=
 github.com/visvasity/cli v0.0.0-20250511081102-2fa160cc32ee h1:B1aaNk2P1Z627Oi/ctHhrfSfWQ5zwZ5ALLjKgHVmDo4=
 github.com/visvasity/cli v0.0.0-20250511081102-2fa160cc32ee/go.mod h1:ILMwbw7ura6UQfgCh3IIKnXBa267vHTBP/qNn6gAnYA=
+github.com/visvasity/cli v0.0.0-20250729021438-02a4793adfad h1:qC4yIrwF7GYfYfRBUVZhJebzJEHTQrHysgmbNG5s/LU=
+github.com/visvasity/cli v0.0.0-20250729021438-02a4793adfad/go.mod h1:ILMwbw7ura6UQfgCh3IIKnXBa267vHTBP/qNn6gAnYA=
 github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7 h1:61Dshk1FM5vmKl36TW2cnupkXzq5n5ruvP7JkrpsFBA=
 github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7/go.mod h1:tbXJl3NRnZVv5ArHRSZeLW1nGJTofo3MxWTFBPQxcRM=
 github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71 h1:hAQJQrKhXaQ7BliKysI+8fxiPKzOrJgCXCSJiBKmE0w=
