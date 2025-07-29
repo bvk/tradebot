@@ -16,7 +16,7 @@ require (
 	github.com/nightlyone/lockfile v1.0.0
 	github.com/shopspring/decimal v1.3.1
 	github.com/visvasity/cli v0.0.0-20250729021438-02a4793adfad
-	github.com/visvasity/sglog v0.0.0-20250417210623-faad1e1a39e7
+	github.com/visvasity/sglog v0.0.0-20250729151519-230bd74d3ef0
 	github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71
 	golang.org/x/sys v0.33.0
 	golang.org/x/time v0.4.0
