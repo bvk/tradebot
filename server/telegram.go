@@ -18,6 +18,7 @@ import (
 	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 func (s *Server) AddTelegramCommand(ctx context.Context, name, purpose string, handler telegram.CmdFunc) error {
@@ -27,35 +28,38 @@ func (s *Server) AddTelegramCommand(ctx context.Context, name, purpose string, h
 	return nil // Ignored
 }
 
-func (s *Server) restartCmd(ctx context.Context, args []string) (string, error) {
+func (s *Server) restartCmd(ctx context.Context, args []string) error {
+	stdout := cli.Stdout(ctx)
 	if len(args) != 0 {
-		return "", fmt.Errorf("too many arguments")
+		return fmt.Errorf("too many arguments")
 	}
 	if len(s.opts.BinaryBackupPath) == 0 {
-		return "", fmt.Errorf("binary backup is not found")
+		return fmt.Errorf("binary backup is not found")
 	}
 	cmd := exec.Command(s.opts.BinaryBackupPath, "run", "-restart")
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return err
 	}
-	return "Restart issued successfully", nil
+	fmt.Fprintln(stdout, "Restart issued successfully")
+	return nil
 }
 
-func (s *Server) upgradeCmd(ctx context.Context, args []string) (string, error) {
+func (s *Server) upgradeCmd(ctx context.Context, args []string) error {
+	stdout := cli.Stdout(ctx)
 	target := "latest"
 	if len(args) != 0 {
 		if len(args) != 1 {
-			return "", fmt.Errorf("upgrade command takes at most one argument")
+			return fmt.Errorf("upgrade command takes at most one argument")
 		}
 		if strings.ContainsRune(args[0], '@') {
-			return "", fmt.Errorf("target branch name %q is invalid", args[0])
+			return fmt.Errorf("target branch name %q is invalid", args[0])
 		}
 		target = args[0]
 	}
 
 	binfo, ok := debug.ReadBuildInfo()
 	if !ok {
-		return "", fmt.Errorf("could not read build info")
+		return fmt.Errorf("could not read build info")
 	}
 
 	binDir := ""
@@ -64,24 +68,24 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) (string, error) 
 	} else {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("could not determine user's home directory: %w", err)
+			return fmt.Errorf("could not determine user's home directory: %w", err)
 		}
 		binDir = filepath.Join(homeDir, "go/bin")
 	}
 
 	goPath, err := exec.LookPath("go")
 	if err != nil {
-		return "", fmt.Errorf("go compiler is not found")
+		return fmt.Errorf("go compiler is not found")
 	}
 	// TODO: Verify the minimum go compiler version.
 
 	installCmd := exec.Command(goPath, "install", binfo.Path+"@"+target)
-	if out, err := installCmd.Output(); err != nil {
-		return string(out), fmt.Errorf("could not install target version: %w", err)
+	if _, err := installCmd.Output(); err != nil {
+		return fmt.Errorf("could not install target version: %w", err)
 	}
 	binPath := filepath.Join(binDir, "tradebot")
 	if _, err := os.Stat(binPath); err != nil {
-		return "", fmt.Errorf("could not find installed binary: %w", err)
+		return fmt.Errorf("could not find installed binary: %w", err)
 	}
 
 	runCmd := exec.Command(binPath, "run", "-restart", "-background")
@@ -90,9 +94,10 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) (string, error) 
 	}
 	slog.Info("restarting with installed version", "target", target, "binPath", binPath)
 	if err := runCmd.Start(); err != nil {
-		return "", fmt.Errorf("could not start the installed binary: %w", err)
+		return fmt.Errorf("could not start the installed binary: %w", err)
 	}
-	return fmt.Sprintf("service is upgraded to %q successfully", target), nil
+	fmt.Fprintf(stdout, "service is upgraded to %q successfully", target)
+	return nil
 }
 
 func Summarize(ctx context.Context, db kv.Database, periods ...*timerange.Range) ([]*trader.Summary, error) {
@@ -122,7 +127,8 @@ func Summarize(ctx context.Context, db kv.Database, periods ...*timerange.Range)
 	return summaries, nil
 }
 
-func (s *Server) profitTelegramCmd(ctx context.Context, args []string) (string, error) {
+func (s *Server) profitTelegramCmd(ctx context.Context, args []string) error {
+	stdout := cli.Stdout(ctx)
 	if len(args) == 0 {
 		ps := []*timerange.Range{
 			timerange.Today(time.Local),
@@ -148,70 +154,42 @@ func (s *Server) profitTelegramCmd(ctx context.Context, args []string) (string, 
 		}
 		vs, err := Summarize(ctx, s.db, ps...)
 		if err != nil {
-			return "", err
+			return err
 		}
-		var sb strings.Builder
 		for i := range keys {
-			fmt.Fprintf(&sb, "%s: %s\n", keys[i], vs[i].Profit().StringFixed(3))
+			fmt.Fprintf(stdout, "%s: %s\n", keys[i], vs[i].Profit().StringFixed(3))
 		}
-		return sb.String(), nil
+		return nil
 	}
 
+	var err error
+	var summaries []*trader.Summary
 	switch strings.ToLower(args[0]) {
 	case "today":
-		vs, err := Summarize(ctx, s.db, timerange.Today(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.Today(time.Local))
 	case "yesterday":
-		vs, err := Summarize(ctx, s.db, timerange.Yesterday(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.Yesterday(time.Local))
 	case "this-week":
-		vs, err := Summarize(ctx, s.db, timerange.ThisWeek(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.ThisWeek(time.Local))
 	case "last-week":
-		vs, err := Summarize(ctx, s.db, timerange.LastWeek(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.LastWeek(time.Local))
 	case "this-month":
-		vs, err := Summarize(ctx, s.db, timerange.ThisMonth(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.ThisMonth(time.Local))
 	case "last-month":
-		vs, err := Summarize(ctx, s.db, timerange.LastMonth(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.LastMonth(time.Local))
 	case "this-year":
-		vs, err := Summarize(ctx, s.db, timerange.ThisYear(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.ThisYear(time.Local))
 	case "last-year":
-		vs, err := Summarize(ctx, s.db, timerange.LastYear(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.LastYear(time.Local))
 	case "lifetime":
-		vs, err := Summarize(ctx, s.db, timerange.Lifetime(time.Local))
-		if err != nil {
-			return "", err
-		}
-		return vs[0].Profit().StringFixed(3), nil
+		summaries, err = Summarize(ctx, s.db, timerange.Lifetime(time.Local))
+	default:
+		return fmt.Errorf("invalid/unsupported arguments")
 	}
-	return "", fmt.Errorf("invalid/unsupported arguments")
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(stdout, summaries[0].Profit().StringFixed(3))
+	return nil
 }

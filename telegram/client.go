@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"path"
@@ -21,12 +20,13 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 )
 
-type CmdFunc = func(context.Context, []string) (string, error)
+type CmdFunc = cli.CmdFunc
 
 type Command struct {
 	Name    string
@@ -296,14 +296,14 @@ func (c *Client) respond(ctx context.Context, update *models.Update) (status err
 		return err
 	}
 
-	response, err := handler(ctx, args)
-	if err != nil {
+	var sb strings.Builder
+	if err := handler(cli.WithStdout(ctx, &sb), args); err != nil {
 		sender := update.Message.From.Username
 		slog.Error("could not handle user command (ignored)", "cmd", cmd, "user", sender, "err", err)
 		return err
 	}
 
-	reply = response
+	reply = sb.String()
 	return nil
 }
 
@@ -325,32 +325,34 @@ func (c *Client) updateChatIDs(ctx context.Context, update *models.Update) error
 	return nil
 }
 
-func (c *Client) uptime(ctx context.Context, args []string) (string, error) {
+func (c *Client) uptime(ctx context.Context, args []string) error {
+	stdout := cli.Stdout(ctx)
 	const day = 24 * time.Hour
 	d := time.Since(start)
 	if d < day {
-		return fmt.Sprintf("%v", time.Since(start)), nil
+		fmt.Fprintf(stdout, "%v", time.Since(start))
+		return nil
 	}
 	days := d / day
-	return fmt.Sprintf("%dd%v", days, d%day), nil
+	fmt.Fprintf(stdout, "%dd%v", days, d%day)
+	return nil
 }
 
-func (c *Client) version(_ context.Context, _ []string) (string, error) {
+func (c *Client) version(ctx context.Context, _ []string) error {
+	stdout := cli.Stdout(ctx)
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return "", fmt.Errorf("could not read build information")
+		return fmt.Errorf("could not read build information")
 	}
 	// Do not print version information for the dependencies. It can overflow the
 	// Telegram size limits.
-	var sb strings.Builder
-	fmt.Fprintln(&sb, "Go: ", info.GoVersion)
-	fmt.Fprintln(&sb, "Binary Path: ", info.Path)
-	fmt.Fprintln(&sb, "Main Module Path: ", info.Main.Path)
-	fmt.Fprintln(&sb, "Main Module Version: ", info.Main.Version)
-	fmt.Fprintln(&sb, "Main Module Checksum: ", info.Main.Sum)
+	fmt.Fprintln(stdout, "Go: ", info.GoVersion)
+	fmt.Fprintln(stdout, "Binary Path: ", info.Path)
+	fmt.Fprintln(stdout, "Main Module Path: ", info.Main.Path)
+	fmt.Fprintln(stdout, "Main Module Version: ", info.Main.Version)
+	fmt.Fprintln(stdout, "Main Module Checksum: ", info.Main.Sum)
 	for _, s := range info.Settings {
-		fmt.Fprintln(&sb, s.Key, ": ", s.Value)
+		fmt.Fprintln(stdout, s.Key, ": ", s.Value)
 	}
-	log.Printf(sb.String())
-	return sb.String(), nil
+	return nil
 }
