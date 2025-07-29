@@ -195,6 +195,9 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	if err := t.AddTelegramCommand(newctx, "upgrade", "Upgrades tradebot service", t.upgradeCmd); err != nil {
 		slog.Error("could not add upgrade telegram command (ignored)", "err", err)
 	}
+	if err := t.AddTelegramCommand(newctx, "stats", "Prints system and service stats", t.statsCmd); err != nil {
+		slog.Error("could not add stats telegram command (ignored)", "err", err)
+	}
 
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)

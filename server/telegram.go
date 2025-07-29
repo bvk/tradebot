@@ -19,14 +19,79 @@ import (
 	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/mem"
+	"github.com/shirou/gopsutil/v4/process"
 	"github.com/visvasity/cli"
 )
+
+var start = time.Now()
 
 func (s *Server) AddTelegramCommand(ctx context.Context, name, purpose string, handler telegram.CmdFunc) error {
 	if s.telegramClient != nil {
 		return s.telegramClient.AddCommand(ctx, name, purpose, handler)
 	}
 	return nil // Ignored
+}
+
+func (s *Server) statsCmd(ctx context.Context, _ []string) error {
+	p, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	meminfo, err := p.MemoryInfoWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	vminfo, err := mem.VirtualMemoryWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	hinfo, err := host.InfoWithContext(ctx)
+	if err != nil {
+		return err
+	}
+	dinfo, err := disk.UsageWithContext(ctx, s.opts.DataDir)
+	if err != nil {
+		return err
+	}
+
+	durationWithDays := func(d time.Duration) string {
+		const day = 24 * time.Hour
+		if d < day {
+			return fmt.Sprintf("%v", time.Since(start))
+		}
+		return fmt.Sprintf("%dd%v", int(d/day), d%day)
+	}
+
+	stdout := cli.Stdout(ctx)
+	fmt.Fprintln(stdout, "System Stats")
+	fmt.Fprintf(stdout, "  Hostname: %s\n", hinfo.Hostname)
+	fmt.Fprintf(stdout, "  OS: %s\n", hinfo.OS)
+	fmt.Fprintf(stdout, "  Platform: %s\n", hinfo.PlatformFamily)
+	fmt.Fprintf(stdout, "  OS Version: %s\n", hinfo.PlatformVersion)
+	fmt.Fprintf(stdout, "  Kernel Version: %s %s\n", hinfo.KernelVersion, hinfo.KernelArch)
+	bootTime := time.Unix(int64(hinfo.BootTime), 0)
+	fmt.Fprintf(stdout, "  Uptime: %s\n", durationWithDays(time.Since(bootTime)))
+	fmt.Fprintf(stdout, "  Total Memory: %0.2fMB\n", float64(vminfo.Total)/1024/1024)
+	fmt.Fprintf(stdout, "  Used Memory: %0.2fMB\n", float64(vminfo.Used)/1024/1024)
+	fmt.Fprintf(stdout, "  Free Memory: %0.2fMB\n", float64(vminfo.Free)/1024/1024)
+	fmt.Fprintf(stdout, "  Total Storage: %0.2fGB\n", float64(dinfo.Total)/1024/1024/1024)
+	fmt.Fprintf(stdout, "  Used Storage: %0.2fGB\n", float64(dinfo.Used)/1024/1024/1024)
+	fmt.Fprintf(stdout, "  Free Storage: %0.2fGB\n", float64(dinfo.Free)/1024/1024/1024)
+	fmt.Fprintln(stdout)
+	fmt.Fprintln(stdout, "Service Stats")
+	fmt.Fprintf(stdout, "  Binary: %s\n", exe)
+	fmt.Fprintf(stdout, "  Data dir: %s\n", s.opts.DataDir)
+	fmt.Fprintf(stdout, "  Uptime: %s\n", durationWithDays(time.Since(start)))
+	fmt.Fprintf(stdout, "  Virtual Memory: %0.2fMB\n", float64(meminfo.VMS)/1024/1024)
+	fmt.Fprintf(stdout, "  Resident Memory: %0.2fMB\n", float64(meminfo.RSS)/1024/1024)
+	return nil
 }
 
 func (s *Server) restartCmd(ctx context.Context, args []string) error {

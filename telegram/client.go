@@ -95,13 +95,9 @@ func New(ctx context.Context, db kv.Database, secrets *Secrets) (_ *Client, stat
 	c.state = state
 
 	// Configure all commands.
-	c.commandMap.Store("uptime", &Command{
-		Purpose: "Prints tradebot uptime",
-		Handler: c.uptime,
-	})
 	c.commandMap.Store("version", &Command{
 		Purpose: "Prints version information",
-		Handler: c.version,
+		Handler: version,
 	})
 
 	if ok, err := c.bot.SetMyCommands(ctx, c.commands()); err != nil {
@@ -325,20 +321,7 @@ func (c *Client) updateChatIDs(ctx context.Context, update *models.Update) error
 	return nil
 }
 
-func (c *Client) uptime(ctx context.Context, args []string) error {
-	stdout := cli.Stdout(ctx)
-	const day = 24 * time.Hour
-	d := time.Since(start)
-	if d < day {
-		fmt.Fprintf(stdout, "%v", time.Since(start))
-		return nil
-	}
-	days := d / day
-	fmt.Fprintf(stdout, "%dd%v", days, d%day)
-	return nil
-}
-
-func (c *Client) version(ctx context.Context, _ []string) error {
+func version(ctx context.Context, _ []string) error {
 	stdout := cli.Stdout(ctx)
 	info, ok := debug.ReadBuildInfo()
 	if !ok {

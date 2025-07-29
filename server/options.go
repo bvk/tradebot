@@ -14,6 +14,9 @@ type Options struct {
 	// jobs (irrespective of their job status).
 	RunFixes bool
 
+	// Path to the data directory.
+	DataDir string
+
 	// BinaryBackupPath if non-empty holds path to the backup for the currently
 	// executing binary path.
 	BinaryBackupPath string
@@ -49,6 +52,13 @@ func (v *Options) Check() error {
 			return err
 		} else if !stat.Mode().IsRegular() {
 			return fmt.Errorf("binary backup path must be a regular file")
+		}
+	}
+	if len(v.DataDir) != 0 {
+		if stat, err := os.Stat(v.DataDir); err != nil {
+			return err
+		} else if !stat.Mode().IsDir() {
+			return fmt.Errorf("data dir path must be a directory")
 		}
 	}
 	return nil
