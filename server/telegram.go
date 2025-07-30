@@ -136,6 +136,14 @@ func (s *Server) statsCmd(ctx context.Context, _ []string) error {
 	fmt.Fprintf(stdout, "  Uptime: %s\n", durationWithDays(time.Since(start)))
 	fmt.Fprintf(stdout, "  Virtual Memory: %0.2fMB\n", float64(meminfo.VMS)/1024/1024)
 	fmt.Fprintf(stdout, "  Resident Memory: %0.2fMB\n", float64(meminfo.RSS)/1024/1024)
+	if s.secrets != nil {
+		if s.secrets.Telegram != nil {
+			fmt.Fprintf(stdout, "  OwnerID: https://t.me/%s\n", s.secrets.Telegram.OwnerID)
+			if len(s.secrets.Telegram.AdminID) != 0 {
+				fmt.Fprintf(stdout, "  AdminID: https://t.me/%s\n", s.secrets.Telegram.AdminID)
+			}
+		}
+	}
 	return nil
 }
 

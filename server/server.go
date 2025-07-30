@@ -53,6 +53,8 @@ type Server struct {
 
 	db kv.Database
 
+	secrets *Secrets
+
 	exchangeMap map[string]exchange.Exchange
 
 	handlerMap map[string]http.Handler
@@ -148,6 +150,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	t := &Server{
 		db:             db,
 		opts:           *opts,
+		secrets:        secrets,
 		state:          state,
 		exchangeMap:    exchangeMap,
 		handlerMap:     make(map[string]http.Handler),
