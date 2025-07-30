@@ -1,6 +1,6 @@
 # Copyright (c) 2025 BVK Chaitanya
 
-export GO ?= go1.24.0
+export GO ?= go
 export GOBIN ?= $(CURDIR)
 export PATH := $(PATH):$(HOME)/go/bin
 export GOTESTFLAGS ?=
@@ -18,8 +18,9 @@ check: all
 
 .PHONY: go-all
 go-all: go-generate
-	GOOS=linux GOARCH=amd64 $(GO) build .
+	GOOS=linux GOARCH=amd64 $(GO) build -o tradebot.linux .
 	GOOS=darwin GOARCH=arm64 $(GO) build -o tradebot.mac .
+	$(GO) build -o tradebot .
 
 .PHONY: go-generate
 go-generate:
