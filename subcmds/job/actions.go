@@ -10,21 +10,21 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Actions struct {
 	cmdutil.DBFlags
 }
 
-func (c *Actions) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("actions", flag.ContinueOnError)
+func (c *Actions) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.run)
+	return "actions", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Actions) run(ctx context.Context, args []string) error {
@@ -65,6 +65,6 @@ func (c *Actions) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Actions) Synopsis() string {
+func (c *Actions) Purpose() string {
 	return "Prints all trading actions by the job"
 }

@@ -105,7 +105,7 @@ func asyncUpdateFinishTime(v *Limiter) {
 
 func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) error {
 	var status error
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		if order.FilledSize.IsZero() {
 			return true
 		}
@@ -115,14 +115,14 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) 
 		if !order.FinishTime.Time.IsZero() {
 			return true
 		}
-		v, err := ex.GetOrder(ctx, exchange.OrderID(id))
+		v, err := ex.GetOrder(ctx, v.productID, id)
 		if err != nil {
 			log.Printf("could not fetch order for finish-time (will retry): %v", err)
 			status = err
 			return false
 		}
-		order.FinishTime = v.FinishTime
-		log.Printf("fixed non-existent finish time for just finished order %s to %s", id, v.FinishTime.Time)
+		order.FinishTime = v.FinishedAt()
+		log.Printf("fixed non-existent finish time for just finished order %s to %s", id, v.FinishedAt())
 		return true
 	})
 	return status
@@ -156,16 +156,16 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchang
 		if !order.FinishTime.Time.IsZero() {
 			continue
 		}
-		v, err := ex.GetOrder(ctx, exchange.OrderID(id))
+		v, err := ex.GetOrder(ctx, value.V2.ProductID, id)
 		if err != nil {
 			return err
 		}
-		if v.FinishTime.Time.IsZero() {
+		if v.FinishedAt().IsZero() {
 			return fmt.Errorf("finish time is empty for exchange order %s", id)
 		}
-		order.FinishTime = gobs.RemoteTime{Time: v.FinishTime.Time}
+		order.FinishTime = v.FinishedAt()
 		modified = true
-		log.Printf("fixed non-existent finish time for order %s to %s", id, v.FinishTime.Time)
+		log.Printf("fixed non-existent finish time for order %s to %s", id, v.FinishedAt())
 	}
 
 	if modified {

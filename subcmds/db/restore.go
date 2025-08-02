@@ -13,10 +13,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Restore struct {
@@ -25,14 +25,14 @@ type Restore struct {
 	numOpsPerTx int
 }
 
-func (c *Restore) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("restore", flag.ContinueOnError)
+func (c *Restore) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.IntVar(&c.numOpsPerTx, "num-ops-per-tx", 100, "max number of ops per restore transaction")
-	return fset, cli.CmdFunc(c.run)
+	return "restore", fset, cli.CmdFunc(c.run)
 }
 
-func (c *Restore) Synopsis() string {
+func (c *Restore) Purpose() string {
 	return "Restores the database from a backup file"
 }
 

@@ -12,13 +12,13 @@ import (
 	"path"
 	"sort"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type DedupLimiterIDs struct {
@@ -27,11 +27,11 @@ type DedupLimiterIDs struct {
 	dryRun bool
 }
 
-func (c *DedupLimiterIDs) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("dedup-limiter-ids", flag.ContinueOnError)
+func (c *DedupLimiterIDs) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.BoolVar(&c.dryRun, "dry-run", true, "when true only prints the information")
-	return fset, cli.CmdFunc(c.Run)
+	return "dedup-limiter-ids", fset, cli.CmdFunc(c.Run)
 }
 
 func (c *DedupLimiterIDs) Run(ctx context.Context, args []string) error {
@@ -94,6 +94,6 @@ func (c *DedupLimiterIDs) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *DedupLimiterIDs) Synopsis() string {
+func (c *DedupLimiterIDs) Purpose() string {
 	return "Check and fix duplicate limiter-ids in all Loopers"
 }

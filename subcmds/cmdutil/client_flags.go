@@ -14,26 +14,32 @@ import (
 	"net/url"
 	"path"
 	"time"
+
+	"github.com/bvk/tradebot/subcmds/defaults"
 )
 
 type ClientFlags struct {
-	Port        int
+	port        int
 	Host        string
 	APIPath     string
 	HTTPTimeout time.Duration
 }
 
 func (cf *ClientFlags) SetFlags(fset *flag.FlagSet) {
-	fset.IntVar(&cf.Port, "connect-port", 10000, "TCP port number for the api endpoint")
+	fset.IntVar(&cf.port, "connect-port", defaults.ServerPort(), "TCP port number for the api endpoint")
 	fset.StringVar(&cf.Host, "connect-host", "127.0.0.1", "Hostname or IP address for the api endpoint")
 	fset.StringVar(&cf.APIPath, "api-path", "/", "base path to the api handler")
 	fset.DurationVar(&cf.HTTPTimeout, "http-timeout", 30*time.Second, "http client timeout")
 }
 
+func (cf *ClientFlags) Port() int {
+	return cf.port
+}
+
 func (cf *ClientFlags) AddressURL() *url.URL {
 	return &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(cf.Host, fmt.Sprintf("%d", cf.Port)),
+		Host:   net.JoinHostPort(cf.Host, fmt.Sprintf("%d", cf.Port())),
 		Path:   cf.APIPath,
 	}
 }

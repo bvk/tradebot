@@ -19,6 +19,7 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
@@ -28,6 +29,7 @@ import (
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/pushover"
 	"github.com/bvk/tradebot/syncmap"
+	"github.com/bvk/tradebot/telegram"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
@@ -66,6 +68,8 @@ type Server struct {
 	exProductsMap map[string]map[string]exchange.Product
 
 	pushoverClient *pushover.Client
+
+	telegramClient *telegram.Client
 }
 
 func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
@@ -73,6 +77,9 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		opts = new(Options)
 	}
 	opts.setDefaults()
+	if err := opts.Check(); err != nil {
+		return nil, err
+	}
 
 	exchangeMap := make(map[string]exchange.Exchange)
 	defer func() {
@@ -83,7 +90,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		}
 	}()
 
-	var coinbaseClient *coinbase.Exchange
 	if secrets.Coinbase != nil {
 		cbopts := &coinbase.Options{
 			MaxFetchTimeLatency: opts.MaxFetchTimeLatency,
@@ -96,9 +102,23 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		if err != nil {
 			return nil, fmt.Errorf("could not create coinbase client: %w", err)
 		}
-		coinbaseClient = client
+		exchangeMap["coinbase"] = client
 	}
-	exchangeMap["coinbase"] = coinbaseClient
+
+	if secrets.CoinEx != nil {
+		opts := &coinex.Options{
+			HttpClientTimeout: opts.MaxHttpClientTimeout,
+		}
+		exchange, err := coinex.NewExchange(newctx, secrets.CoinEx.Key, secrets.CoinEx.Secret, opts)
+		if err != nil {
+			return nil, fmt.Errorf("could not create coinex exchange: %w", err)
+		}
+		exchangeMap["coinex"] = exchange
+	}
+
+	if len(exchangeMap) == 0 {
+		return nil, fmt.Errorf("no credentials found for any supported exchange")
+	}
 
 	var pushoverClient *pushover.Client
 	if secrets.Pushover != nil {
@@ -107,6 +127,15 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 			return nil, fmt.Errorf("could not create pushover client: %w", err)
 		}
 		pushoverClient = client
+	}
+
+	var telegramClient *telegram.Client
+	if secrets.Telegram != nil {
+		client, err := telegram.New(newctx, db, secrets.Telegram)
+		if err != nil {
+			return nil, fmt.Errorf("could not create telegram client: %w", err)
+		}
+		telegramClient = client
 	}
 
 	state, err := kvutil.GetDB[gobs.ServerState](newctx, db, serverStateKey)
@@ -124,6 +153,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		handlerMap:     make(map[string]http.Handler),
 		runner:         job.NewRunner(),
 		pushoverClient: pushoverClient,
+		telegramClient: telegramClient,
 	}
 
 	if t.state == nil {
@@ -154,6 +184,21 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 
 	// TODO: Setup a fund
 
+	if err := t.AddTelegramCommand(newctx, "profit", "Prints profit information", t.profitTelegramCmd); err != nil {
+		slog.Error("could not add profit telegram command (ignored)", "err", err)
+	}
+	if len(t.opts.BinaryBackupPath) != 0 {
+		if err := t.AddTelegramCommand(newctx, "restart", "Restarts current process", t.restartCmd); err != nil {
+			slog.Error("could not add restart telegram command (ignored)", "err", err)
+		}
+	}
+	if err := t.AddTelegramCommand(newctx, "upgrade", "Upgrades tradebot service", t.upgradeCmd); err != nil {
+		slog.Error("could not add upgrade telegram command (ignored)", "err", err)
+	}
+	if err := t.AddTelegramCommand(newctx, "stats", "Prints system and service stats", t.statsCmd); err != nil {
+		slog.Error("could not add stats telegram command (ignored)", "err", err)
+	}
+
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
 	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
@@ -167,6 +212,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 
 	t.handlerMap[api.ExchangeGetOrderPath] = httpPostJSONHandler(t.doExchangeGetOrder)
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
+	t.handlerMap[api.ExchangeUpdateProductPath] = httpPostJSONHandler(t.doExchangeUpdateProduct)
 
 	for _, ex := range t.exchangeMap {
 		limiter.RunBackgroundTasks(&t.cg, t.db, ex)
@@ -193,7 +239,9 @@ func (s *Server) HandlerMap() map[string]http.Handler {
 }
 
 func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
+	exchange := s.exchangeMap[product.ExchangeName()]
 	return &trader.Runtime{
+		Exchange:  exchange,
 		Database:  s.db,
 		Product:   product,
 		Messenger: s,
@@ -201,9 +249,15 @@ func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
 }
 
 func (s *Server) SendMessage(ctx context.Context, at time.Time, msgfmt string, args ...interface{}) {
+	msg := fmt.Sprintf(msgfmt, args...)
 	if s.pushoverClient != nil {
-		if err := s.pushoverClient.SendMessage(ctx, at, fmt.Sprintf(msgfmt, args...)); err != nil {
-			log.Printf("warning: could not send pushover message (ignored): %v", err)
+		if err := s.pushoverClient.SendMessage(ctx, at, msg); err != nil {
+			slog.Error("could not send pushover message (ignored)", "err", err)
+		}
+	}
+	if s.telegramClient != nil {
+		if err := s.telegramClient.SendMessage(ctx, at, msg); err != nil {
+			slog.Error("could not send telegram message (ignored)", "err", err)
 		}
 	}
 }
@@ -355,7 +409,7 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
 	}
 
-	product, err := exch.OpenProduct(s.cg.Context(), productID)
+	product, err := exch.OpenSpotProduct(s.cg.Context(), productID)
 	if err != nil {
 		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
 	}

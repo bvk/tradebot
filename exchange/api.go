@@ -4,43 +4,56 @@ package exchange
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/topic"
 )
 
-type OrderID string
+var ErrNoFund = errors.New("insufficient fund")
 
-type Order struct {
-	OrderID OrderID
-
-	ClientOrderID string
-
-	Side string
-
-	CreateTime RemoteTime
-	FinishTime RemoteTime
-
-	Fee         decimal.Decimal
-	FilledSize  decimal.Decimal
-	FilledPrice decimal.Decimal
-
-	Status string
-
-	// Done is true if order is complete. DoneReason below indicates if order has
-	// failed or succeeded.
-	Done bool
-
-	// When Done is true, an empty DoneReason value indicates a successfull
-	// execution of the order and a non-empty DoneReason indicates a failure with
-	// the reason for the failure.
-	DoneReason string
+type Order interface {
+	ServerID() string
+	ClientID() uuid.UUID
+	OrderSide() string
 }
 
-type Ticker struct {
-	Timestamp RemoteTime
-	Price     decimal.Decimal
+type OrderUpdate interface {
+	ServerID() string
+	ClientID() uuid.UUID
+
+	CreatedAt() gobs.RemoteTime
+	UpdatedAt() gobs.RemoteTime
+
+	ExecutedFee() decimal.Decimal
+	ExecutedSize() decimal.Decimal
+	ExecutedValue() decimal.Decimal
+
+	IsDone() bool
+	OrderStatus() string
+}
+
+type OrderDetail interface {
+	ServerID() string
+	ClientID() uuid.UUID
+
+	OrderSide() string
+	CreatedAt() gobs.RemoteTime
+	FinishedAt() gobs.RemoteTime
+
+	ExecutedFee() decimal.Decimal
+	ExecutedSize() decimal.Decimal
+	ExecutedValue() decimal.Decimal
+
+	IsDone() bool
+	OrderStatus() string
+}
+
+type PriceUpdate interface {
+	PricePoint() (decimal.Decimal, gobs.RemoteTime)
 }
 
 type Product interface {
@@ -50,16 +63,14 @@ type Product interface {
 	ExchangeName() string
 	BaseMinSize() decimal.Decimal
 
-	TickerCh() (ch <-chan *Ticker, stopf func())
-	OrderUpdatesCh() (ch <-chan *Order, stopf func())
+	GetPriceUpdates() (*topic.Receiver[PriceUpdate], error)
+	GetOrderUpdates() (*topic.Receiver[OrderUpdate], error)
 
-	LimitBuy(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
-	LimitSell(ctx context.Context, clientOrderID string, size, price decimal.Decimal) (OrderID, error)
+	LimitBuy(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (Order, error)
+	LimitSell(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (Order, error)
 
-	Get(ctx context.Context, id OrderID) (*Order, error)
-	Cancel(ctx context.Context, id OrderID) error
-
-	// Retire(id OrderID)
+	Get(ctx context.Context, serverID string) (OrderDetail, error)
+	Cancel(ctx context.Context, serverID string) error
 }
 
 type Exchange interface {
@@ -67,10 +78,18 @@ type Exchange interface {
 
 	ExchangeName() string
 
-	OpenProduct(ctx context.Context, productID string) (Product, error)
+	// CanDedupOnClientUUID returns true if exchange back is able to maintain
+	// unique client-id constraint (eg: Coinbase). Must return false, if exchange
+	// does not or cannot maintain client id uniqueness.
+	//
+	// For exchanges that return true, we expect that BUY/SELL orders with same
+	// client-uuid will receive the existing or expired or completed, older
+	// server order.
+	CanDedupOnClientUUID() bool
 
-	GetProduct(ctx context.Context, id string) (*gobs.Product, error)
-	GetOrder(ctx context.Context, id OrderID) (*Order, error)
+	OpenSpotProduct(ctx context.Context, productID string) (Product, error)
 
-	IsDone(status string) bool
+	GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error)
+
+	GetOrder(ctx context.Context, productID string, serverID string) (OrderDetail, error)
 }

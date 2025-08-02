@@ -11,13 +11,13 @@ import (
 	"os"
 	"path"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Get struct {
@@ -47,6 +47,12 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 
 		d, _ := json.MarshalIndent(gv, "", "  ")
 		fmt.Printf("%s\n", d)
+
+		v, err := looper.Load(ctx, uid, r)
+		if err != nil {
+			return fmt.Errorf("could not create looper instance for %q: %v", key, err)
+		}
+		v.LogDebugInfo()
 		return nil
 	}
 
@@ -62,12 +68,12 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Get) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.Run)
+	return "get", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Get) Synopsis() string {
+func (c *Get) Purpose() string {
 	return "Prints a looper state"
 }

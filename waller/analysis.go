@@ -11,10 +11,10 @@ import (
 
 type Analysis struct {
 	pairs  []*point.Pair
-	feePct float64
+	feePct decimal.Decimal
 }
 
-func Analyze(pairs []*point.Pair, feePct float64) *Analysis {
+func Analyze(pairs []*point.Pair, feePct decimal.Decimal) *Analysis {
 	ps := make([]*point.Pair, len(pairs))
 	for i, p := range pairs {
 		ps[i] = &point.Pair{Buy: p.Buy, Sell: p.Sell}
@@ -33,7 +33,7 @@ func (a *Analysis) NumPairs() int {
 	return len(a.pairs)
 }
 
-func (a *Analysis) FeePct() float64 {
+func (a *Analysis) FeePct() decimal.Decimal {
 	return a.feePct
 }
 

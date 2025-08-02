@@ -3,12 +3,14 @@
 package coinbase
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/bvk/tradebot/coinbase/internal"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
+	"github.com/google/uuid"
 )
 
 var doneStatuses []string = []string{
@@ -38,12 +40,16 @@ func gobOrderFromOrder(v *internal.Order) *gobs.Order {
 	return order
 }
 
-func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {
-	order := &exchange.Order{
-		ClientOrderID: v.ClientOrderID,
-		OrderID:       exchange.OrderID(v.OrderID),
-		CreateTime:    exchange.RemoteTime{Time: v.CreatedTime.Time},
-		FinishTime:    exchange.RemoteTime{Time: v.LastFillTime.Time},
+func exchangeOrderFromOrder(v *internal.Order) (*exchange.SimpleOrder, error) {
+	cuuid, err := uuid.Parse(v.ClientOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
+	}
+	order := &exchange.SimpleOrder{
+		ClientUUID:    cuuid,
+		ServerOrderID: v.OrderID,
+		CreateTime:    gobs.RemoteTime{Time: v.CreatedTime.Time},
+		FinishTime:    gobs.RemoteTime{Time: v.LastFillTime.Time},
 		Side:          v.Side,
 		Fee:           v.TotalFees.Decimal,
 		FilledSize:    v.FilledSize.Decimal,
@@ -54,14 +60,18 @@ func exchangeOrderFromOrder(v *internal.Order) *exchange.Order {
 	if order.Done && order.Status != "FILLED" {
 		order.DoneReason = order.Status
 	}
-	return order
+	return order, nil
 }
 
-func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.Order {
-	order := &exchange.Order{
-		OrderID:       exchange.OrderID(event.OrderID),
-		ClientOrderID: event.ClientOrderID,
-		CreateTime:    exchange.RemoteTime{Time: event.CreatedTime.Time},
+func exchangeOrderFromEvent(event *internal.OrderEvent) (*exchange.SimpleOrder, error) {
+	cuuid, err := uuid.Parse(event.ClientOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse client order id from event as uuid: %w", err)
+	}
+	order := &exchange.SimpleOrder{
+		ServerOrderID: event.OrderID,
+		ClientUUID:    cuuid,
+		CreateTime:    gobs.RemoteTime{Time: event.CreatedTime.Time},
 		Side:          event.OrderSide,
 		Status:        event.Status,
 		Done:          slices.Contains(doneStatuses, event.Status),
@@ -72,7 +82,7 @@ func exchangeOrderFromEvent(event *internal.OrderEvent) *exchange.Order {
 	if order.Done && event.Status != "FILLED" {
 		order.DoneReason = event.Status
 	}
-	return order
+	return order, nil
 }
 
 func compareFilledSize(a, b *internal.Order) int {

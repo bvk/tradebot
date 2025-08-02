@@ -15,8 +15,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
@@ -28,6 +28,7 @@ import (
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/cli"
 )
 
 type Status struct {
@@ -36,19 +37,22 @@ type Status struct {
 	budget float64
 
 	beginTime, endTime string
+
+	pricesFrom string
 }
 
-func (c *Status) Synopsis() string {
-	return "Status prints global summary of all or selected trade jobs"
+func (c *Status) Purpose() string {
+	return "Prints summary of all or selected trade jobs"
 }
 
-func (c *Status) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("status", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.Float64Var(&c.budget, "budget", 0, "Includes this budget in the return rate table")
 	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for status time period")
 	fset.StringVar(&c.endTime, "end-time", "", "End time for status time period")
-	return fset, cli.CmdFunc(c.run)
+	fset.StringVar(&c.pricesFrom, "prices-from", "coinex", "Exchange name to fetch current prices.")
+	return "status", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Status) run(ctx context.Context, args []string) error {
@@ -65,12 +69,26 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			return fmt.Errorf("could not load coinbase account balances: %w", err)
 		}
 	}
-	priceMap, err := datastore.ProductsPriceMap(ctx)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+
+	productPriceMap := make(map[string]decimal.Decimal)
+	switch strings.ToLower(c.pricesFrom) {
+	case "coinex":
+		pmap, err := coinex.GetProductPriceMap(ctx)
+		if err != nil {
 			log.Printf("could not load price information (ignored): %v", err)
+			pmap = make(map[string]decimal.Decimal)
 		}
-		priceMap = make(map[string]decimal.Decimal)
+		productPriceMap = pmap
+
+	case "coinbase":
+		pmap, err := datastore.ProductsPriceMap(ctx)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Printf("could not load price information (ignored): %v", err)
+			}
+			pmap = make(map[string]decimal.Decimal)
+		}
+		productPriceMap = pmap
 	}
 
 	var assets []string
@@ -105,7 +123,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 				jobs = append(jobs, job)
 			}
 		} else {
-			vs, err := server.LoadTraders(ctx, r)
+			vs, err := server.LoadAll(ctx, r)
 			if err != nil {
 				return fmt.Errorf("could not load traders: %w", err)
 			}
@@ -162,11 +180,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	}
 
 	// Remove jobs that don't implement Status interface.
-	type Statuser interface {
-		Status(*timerange.Range) *trader.Status
-	}
 	jobs = slices.DeleteFunc(jobs, func(j trader.Trader) bool {
-		if _, ok := j.(Statuser); !ok {
+		if _, ok := j.(trader.Statuser); !ok {
 			return true
 		}
 		return false
@@ -177,7 +192,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	var statuses []*trader.Status
 	for _, j := range jobs {
-		if v, ok := j.(Statuser); ok {
+		if v, ok := j.(trader.Statuser); ok {
 			if s := v.Status(&period); s != nil {
 				statuses = append(statuses, s)
 			}
@@ -187,7 +202,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	sum := trader.Summarize(statuses)
 	var curUnsoldValue decimal.Decimal
 	for _, s := range statuses {
-		if p, ok := priceMap[s.ProductID]; ok {
+		if p, ok := productPriceMap[s.ProductID]; ok {
 			curUnsoldValue = curUnsoldValue.Add(s.UnsoldSize.Mul(p))
 		}
 	}
@@ -278,7 +293,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		for _, a := range assets {
 			currency := currencyMap[a]
 			ids = append(ids, a)
-			if p, ok := priceMap[currency+"-USD"]; ok {
+			// FIXME: The following "-USD" suffix doesn't work for CoinEx.
+			if p, ok := productPriceMap[currency+"-USD"]; ok {
 				prices = append(prices, p.StringFixed(3))
 			} else {
 				prices = append(prices, "")

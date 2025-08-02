@@ -52,6 +52,10 @@ func (s *Spec) BuySellPairs() []*point.Pair {
 	return s.pairs
 }
 
+func (s *Spec) FeePct() decimal.Decimal {
+	return decimal.NewFromFloat(s.feePercentage)
+}
+
 func (s *Spec) setDefaults() {
 	if s.sellSize == 0 {
 		s.sellSize = s.buySize
@@ -145,7 +149,7 @@ func fixedProfitPairs(s *Spec) []*point.Pair {
 		}
 		p := &point.Pair{Buy: *buy, Sell: *sell}
 		if s.feePercentage != 0 {
-			p = point.AdjustForMargin(p, s.feePercentage)
+			p = point.AdjustForMargin(p, s.FeePct())
 		}
 		pairs = append(pairs, p)
 	}
@@ -179,7 +183,7 @@ func percentProfitPairs(s *Spec) []*point.Pair {
 
 		p := &point.Pair{Buy: *buy, Sell: *sell}
 		if s.feePercentage != 0 {
-			p = point.AdjustForMargin(p, s.feePercentage)
+			p = point.AdjustForMargin(p, s.FeePct())
 		}
 		pairs = append(pairs, p)
 	}

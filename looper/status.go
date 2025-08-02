@@ -63,7 +63,7 @@ func (v *Looper) Status(period *timerange.Range) *trader.Status {
 			ProductID:    v.productID,
 			ExchangeName: v.exchangeName,
 			Summary: &trader.Summary{
-				Budget: v.BudgetAt(0.25),
+				Budget: v.BudgetAt(decimal.NewFromFloat(0.25)),
 			},
 		}
 	}
@@ -230,7 +230,6 @@ func (v *Looper) Status(period *timerange.Range) *trader.Status {
 			TimePeriod: *period,
 		},
 	}
-	feePct, _ := s.FeePct().Float64()
-	s.Budget = v.BudgetAt(feePct)
+	s.Budget = v.BudgetAt(s.FeePct())
 	return s
 }

@@ -123,6 +123,7 @@ func (r *Runner) StopAll(ctx context.Context, rw kv.ReadWriter) error {
 func (r *Runner) wrapJobFunc(uid string, fn Func) Func {
 	return func(ctx context.Context) error {
 		status := fn(ctx)
+		log.Printf("job %q has returned with status: %v", uid, status)
 
 		r.mu.Lock()
 		defer r.mu.Unlock()

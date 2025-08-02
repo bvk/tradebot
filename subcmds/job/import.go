@@ -12,12 +12,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Import struct {
@@ -26,11 +26,11 @@ type Import struct {
 	dryRun bool
 }
 
-func (c *Import) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("import", flag.ContinueOnError)
+func (c *Import) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the imported data")
-	return fset, cli.CmdFunc(c.run)
+	return "import", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Import) run(ctx context.Context, args []string) error {
@@ -116,6 +116,6 @@ func (c *Import) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Import) Synopsis() string {
+func (c *Import) Purpose() string {
 	return "Imports a trading job from a file"
 }

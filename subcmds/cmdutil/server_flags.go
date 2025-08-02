@@ -4,14 +4,20 @@ package cmdutil
 
 import (
 	"flag"
+
+	"github.com/bvk/tradebot/subcmds/defaults"
 )
 
 type ServerFlags struct {
-	Port int
+	port int
 	IP   string
 }
 
 func (sf *ServerFlags) SetFlags(fset *flag.FlagSet) {
-	fset.IntVar(&sf.Port, "listen-port", 10000, "TCP port number for the api endpoint")
+	fset.IntVar(&sf.port, "listen-port", defaults.ServerPort(), "TCP port number for the api endpoint")
 	fset.StringVar(&sf.IP, "listen-ip", "127.0.0.1", "TCP ip address for the api endpoint")
+}
+
+func (sf *ServerFlags) Port() int {
+	return sf.port
 }

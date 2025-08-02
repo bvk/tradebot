@@ -8,13 +8,13 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
+	"log/slog"
 	"path"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
@@ -84,6 +84,10 @@ func (v *Looper) String() string {
 	return "looper:" + v.uid
 }
 
+func (v *Looper) LogValue() slog.Value {
+	return slog.StringValue(v.uid)
+}
+
 func (v *Looper) UID() string {
 	return v.uid
 }
@@ -96,7 +100,7 @@ func (v *Looper) ExchangeName() string {
 	return v.exchangeName
 }
 
-func (v *Looper) BudgetAt(feePct float64) decimal.Decimal {
+func (v *Looper) BudgetAt(feePct decimal.Decimal) decimal.Decimal {
 	return v.buyPoint.Value().Add(v.buyPoint.FeeAt(feePct))
 }
 
@@ -161,14 +165,6 @@ func (v *Looper) UnsoldValue() decimal.Decimal {
 		return d.Mul(v.buyPoint.Price)
 	}
 	return decimal.Zero
-}
-
-// isReady returns true if ticker price is inside the looper action range.
-func (v *Looper) isReady(ticker *exchange.Ticker) bool {
-	if ticker == nil {
-		return false
-	}
-	return v.buyPoint.InRange(ticker.Price) || v.sellPoint.InRange(ticker.Price)
 }
 
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {

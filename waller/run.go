@@ -5,6 +5,8 @@ package waller
 import (
 	"context"
 	"log"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -39,6 +41,14 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("CAUGHT PANIC", "panic", r)
+					slog.Error(string(debug.Stack()))
+					panic(r)
+				}
+			}()
 
 			for ctx.Err() == nil {
 				if err := loop.Run(ctx, rt); err != nil {

@@ -76,8 +76,8 @@ func (p *Point) Side() string {
 
 // FeeAt returns the fee incurred for the buy or sell at the given fee
 // percentage.
-func (p *Point) FeeAt(pct float64) decimal.Decimal {
-	return p.Value().Mul(decimal.NewFromFloat(pct)).Div(decimal.NewFromFloat(100))
+func (p *Point) FeeAt(pct decimal.Decimal) decimal.Decimal {
+	return p.Value().Mul(pct).Div(decimal.NewFromFloat(100))
 }
 
 // Value returns the dollar amount for point (i.e, size*price) without

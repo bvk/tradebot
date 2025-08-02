@@ -10,12 +10,12 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type Get struct {
@@ -122,13 +122,13 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Get) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Get) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.BoolVar(&c.skipZeroBuys, "skip-zero-buys", true, "when true, doesn't print inactive pairs")
-	return fset, cli.CmdFunc(c.Run)
+	return "get", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Get) Synopsis() string {
+func (c *Get) Purpose() string {
 	return "Prints a waller state"
 }

@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/waller"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/cli"
 )
 
 type Simulate struct {
@@ -52,7 +52,7 @@ func (c *Simulate) Run(ctx context.Context, args []string) error {
 	}
 
 	pairs := c.spec.BuySellPairs()
-	analysis := waller.Analyze(pairs, c.spec.feePercentage)
+	analysis := waller.Analyze(pairs, c.spec.FeePct())
 
 	// Initialize the simulator with all points as outstanding buys.
 	buys := make(map[*point.Pair]struct{})
@@ -82,7 +82,7 @@ func (c *Simulate) Run(ctx context.Context, args []string) error {
 					delete(sells, p)
 					buys[p] = struct{}{}
 					profit = profit.Add(p.Sell.Size.Mul(p.Sell.Price.Sub(p.Buy.Price)))
-					profit = profit.Sub(p.Buy.FeeAt(c.spec.feePercentage)).Sub(p.Sell.FeeAt(c.spec.feePercentage))
+					profit = profit.Sub(p.Buy.FeeAt(c.spec.FeePct())).Sub(p.Sell.FeeAt(c.spec.FeePct()))
 					log.Printf("sell executed for point %v at price %v->%v (profit=%v)", p, lastPrice, price, profit)
 				}
 			}
@@ -106,17 +106,17 @@ func (c *Simulate) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Simulate) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Simulate) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("simulate", flag.ContinueOnError)
 	c.spec.SetFlags(fset)
-	return fset, cli.CmdFunc(c.Run)
+	return "simulate", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Simulate) Synopsis() string {
+func (c *Simulate) Purpose() string {
 	return "Runs a waller simulation over the input price data from a file"
 }
 
-func (c *Simulate) CommandHelp() string {
+func (c *Simulate) Description() string {
 	return `
 
 Command "simulate" runs a simulation to determine how much profit would be

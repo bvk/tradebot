@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log/slog"
+	"os"
 	"path"
 	"sort"
 	"strings"
@@ -42,7 +44,7 @@ type Limiter struct {
 
 	// orderMap holds all orders created by the limiter. It is used by Run and
 	// Save methods, so it needs to be thread-safe.
-	orderMap syncmap.Map[exchange.OrderID, *exchange.Order]
+	orderMap syncmap.Map[string, *exchange.SimpleOrder]
 
 	optionMap map[string]string
 
@@ -97,6 +99,10 @@ func (v *Limiter) String() string {
 	return "limiter:" + v.uid
 }
 
+func (v *Limiter) LogValue() slog.Value {
+	return slog.StringValue(v.uid)
+}
+
 func (v *Limiter) UID() string {
 	return v.uid
 }
@@ -109,7 +115,7 @@ func (v *Limiter) ExchangeName() string {
 	return v.exchangeName
 }
 
-func (v *Limiter) BudgetAt(feePct float64) decimal.Decimal {
+func (v *Limiter) BudgetAt(feePct decimal.Decimal) decimal.Decimal {
 	return v.point.Value().Add(v.point.FeeAt(feePct))
 }
 
@@ -121,9 +127,9 @@ func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
 }
 
-func (v *Limiter) dupOrderMap() map[exchange.OrderID]*exchange.Order {
-	dup := make(map[exchange.OrderID]*exchange.Order)
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+func (v *Limiter) dupOrderMap() map[string]*exchange.SimpleOrder {
+	dup := make(map[string]*exchange.SimpleOrder)
+	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		dup[id] = order
 		return true
 	})
@@ -147,8 +153,8 @@ func (v *Limiter) Actions() []*gobs.Action {
 	for _, order := range v.dupOrderMap() {
 		if order.Done && !order.FilledSize.IsZero() {
 			gorder := &gobs.Order{
-				ServerOrderID: string(order.OrderID),
-				ClientOrderID: order.ClientOrderID,
+				ServerOrderID: string(order.ServerOrderID),
+				ClientOrderID: order.ClientUUID.String(),
 				CreateTime:    gobs.RemoteTime{Time: order.CreateTime.Time},
 				FinishTime:    gobs.RemoteTime{Time: order.FinishTime.Time},
 				Side:          order.Side,
@@ -229,7 +235,7 @@ func (v *Limiter) PendingValue() decimal.Decimal {
 }
 
 func (v *Limiter) compactOrderMap() {
-	v.orderMap.Range(func(id exchange.OrderID, order *exchange.Order) bool {
+	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		if order.Done && order.FilledSize.IsZero() {
 			v.orderMap.Delete(id)
 		}
@@ -237,10 +243,14 @@ func (v *Limiter) compactOrderMap() {
 	})
 }
 
-func (v *Limiter) updateOrderMap(order *exchange.Order) {
-	if _, ok := v.orderMap.Load(order.OrderID); ok {
-		v.orderMap.Store(order.OrderID, order)
+func (v *Limiter) updateOrderMap(update exchange.OrderUpdate) (*exchange.SimpleOrder, error) {
+	if current, ok := v.orderMap.Load(update.ServerID()); ok {
+		if _, err := current.AddUpdate(update); err != nil {
+			return nil, err
+		}
+		return current, nil
 	}
+	return nil, os.ErrNotExist
 }
 
 func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
@@ -262,8 +272,8 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	}
 	for k, v := range v.dupOrderMap() {
 		order := &gobs.Order{
-			ServerOrderID: string(v.OrderID),
-			ClientOrderID: v.ClientOrderID,
+			ServerOrderID: string(v.ServerOrderID),
+			ClientOrderID: v.ClientID().String(),
 			CreateTime:    gobs.RemoteTime{Time: v.CreateTime.Time},
 			FinishTime:    gobs.RemoteTime{Time: v.FinishTime.Time},
 			Side:          v.Side,
@@ -323,7 +333,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		uid:          uid,
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
-		idgen:        idgen.New(seed, gv.V2.ClientIDOffset),
+		idgen:        idgen.New(seed, gv.V2.ClientIDOffset+SaveClientIDOffsetSize),
 		optionMap:    make(map[string]string),
 
 		point: point.Point{
@@ -333,11 +343,15 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		},
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
-		order := &exchange.Order{
-			OrderID:       exchange.OrderID(vv.ServerOrderID),
-			ClientOrderID: vv.ClientOrderID,
-			CreateTime:    exchange.RemoteTime{Time: vv.CreateTime.Time},
-			FinishTime:    exchange.RemoteTime{Time: vv.FinishTime.Time},
+		cuuid, err := uuid.Parse(vv.ClientOrderID)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
+		}
+		order := &exchange.SimpleOrder{
+			ServerOrderID: vv.ServerOrderID,
+			ClientUUID:    cuuid,
+			CreateTime:    vv.CreateTime,
+			FinishTime:    vv.FinishTime,
 			Side:          vv.Side,
 			Status:        vv.Status,
 			Fee:           vv.FilledFee,
@@ -346,7 +360,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			Done:          vv.Done,
 			DoneReason:    vv.DoneReason,
 		}
-		v.orderMap.Store(exchange.OrderID(kk), order)
+		v.orderMap.Store(kk, order)
 	}
 	if err := v.check(); err != nil {
 		return nil, err

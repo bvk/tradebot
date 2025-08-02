@@ -69,6 +69,12 @@ func (f *DBFlags) dbCloser(db kv.Database, c io.Closer) func() {
 	}
 }
 
+// IsRemoteDatabase returns true if target database is a remote database over
+// http.
+func (f *DBFlags) IsRemoteDatabase() bool {
+	return f.fromBackup == "" && f.dataDir == ""
+}
+
 func (f *DBFlags) GetDatabase(ctx context.Context) (db kv.Database, closer func(), status error) {
 	defer func() {
 		if status == nil && len(f.backupBefore) != 0 {

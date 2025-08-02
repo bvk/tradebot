@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/waller"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/cli"
 )
 
 type CancelOffset struct {
@@ -67,13 +67,13 @@ func (c *CancelOffset) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *CancelOffset) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("cancel-offset", flag.ContinueOnError)
+func (c *CancelOffset) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.Float64Var(&c.cancelOffset, "cancel-offset", 0, "cancel-at price offset for the buy/sell points")
-	return fset, cli.CmdFunc(c.Run)
+	return "cancel-offset", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *CancelOffset) Synopsis() string {
+func (c *CancelOffset) Purpose() string {
 	return "Adjust cancel-offset price for points in a (unloaded) waller job"
 }

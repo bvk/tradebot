@@ -4,6 +4,7 @@ package limiter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,7 +13,10 @@ import (
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/topic"
 )
+
+const SaveClientIDOffsetSize = 10
 
 func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	v.runtimeLock.Lock()
@@ -40,7 +44,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 	// Check if any of the orders in the orderMap are still active on the
 	// exchange.
-	var live []*exchange.Order
+	var live []*exchange.SimpleOrder
 	for _, order := range v.dupOrderMap() {
 		if !order.Done {
 			live = append(live, order)
@@ -53,9 +57,9 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 		return fmt.Errorf("found %d live orders (want 0 or 1)", nlive)
 	}
 
-	var activeOrderID exchange.OrderID
+	var activeOrderID string
 	if nlive != 0 {
-		activeOrderID = live[0].OrderID
+		activeOrderID = live[0].ServerOrderID
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
 
@@ -64,13 +68,27 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 	localCtx := context.Background()
 
-	tickerCh, stopTickers := rt.Product.TickerCh()
-	defer stopTickers()
+	priceUpdates, err := rt.Product.GetPriceUpdates()
+	if err != nil {
+		return err
+	}
+	defer priceUpdates.Close()
 
-	orderUpdatesCh, stopUpdates := rt.Product.OrderUpdatesCh()
-	defer stopUpdates()
+	tickerCh, err := topic.ReceiveCh(priceUpdates)
+	if err != nil {
+		return err
+	}
 
-	lastSizeLimit := v.sizeLimit()
+	orderUpdates, err := rt.Product.GetOrderUpdates()
+	if err != nil {
+		return err
+	}
+	defer orderUpdates.Close()
+
+	orderUpdatesCh, err := topic.ReceiveCh(orderUpdates)
+	if err != nil {
+		return err
+	}
 
 	for p := v.PendingSize(); !p.IsZero(); p = v.PendingSize() {
 		select {
@@ -98,49 +116,24 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 			flushCh = time.After(time.Minute)
 
-		case order := <-orderUpdatesCh:
+		case update := <-orderUpdatesCh:
 			dirty++
-			v.updateOrderMap(order)
-			if order.Done && order.OrderID == activeOrderID {
+			order, err := v.updateOrderMap(update)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+			if order != nil && order.IsDone() && order.ServerOrderID == activeOrderID {
 				log.Printf("%s:%s: limit order with server order-id %s is completed with status %q (DoneReason %q)", v.uid, v.point, activeOrderID, order.Status, order.DoneReason)
 				activeOrderID = ""
 			}
 
 		case ticker := <-tickerCh:
-			// We should pause this job when hold option is set, effectively pausing
-			// the job. We should cancel active order if any.
-			if v.holdOpt.Load() {
-				if activeOrderID != "" {
-					log.Printf("%v: canceling existing order %s cause option hold=true is set", v.uid, activeOrderID)
-					if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
-						return err
-					}
-					dirty++
-					activeOrderID = ""
-				}
-				// Do not create any new orders.
-				continue
-			}
-
-			// Cancel the active order if size-limit option value has changed; order
-			// will be recreated with correct size-limit.
-			if x := v.sizeLimit(); activeOrderID != "" && !lastSizeLimit.Equal(x) {
-				log.Printf("%v: canceling existing order %s cause size-limit has changed from %s to %s", v.uid, activeOrderID, lastSizeLimit, x)
-				if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
-					return err
-				}
-				dirty++
-				activeOrderID = ""
-				lastSizeLimit = x
-			}
-
-			// Do not create orders when we need to wait for ticker side.
-			if activeOrderID == "" && !v.isTickerSideReady(ticker.Price) {
-				continue
-			}
+			tickerPrice, _ := ticker.PricePoint()
 
 			if v.IsSell() {
-				if ticker.Price.LessThanOrEqual(v.point.Cancel) {
+				if tickerPrice.LessThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
@@ -149,9 +142,9 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						activeOrderID = ""
 					}
 				}
-				if ticker.Price.GreaterThan(v.point.Cancel) {
+				if tickerPrice.GreaterThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, err := v.create(localCtx, rt.Product)
+						id, err := v.create(localCtx, rt)
 						if err != nil {
 							return err
 						}
@@ -163,7 +156,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 
 			if v.IsBuy() {
-				if ticker.Price.GreaterThanOrEqual(v.point.Cancel) {
+				if tickerPrice.GreaterThanOrEqual(v.point.Cancel) {
 					if activeOrderID != "" {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
@@ -172,9 +165,9 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						activeOrderID = ""
 					}
 				}
-				if ticker.Price.LessThan(v.point.Cancel) {
+				if tickerPrice.GreaterThanOrEqual(v.point.Price) && tickerPrice.LessThan(v.point.Cancel) {
 					if activeOrderID == "" {
-						id, err := v.create(localCtx, rt.Product)
+						id, err := v.create(localCtx, rt)
 						if err != nil {
 							return err
 						}
@@ -216,47 +209,55 @@ func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	return nil
 }
 
-func (v *Limiter) create(ctx context.Context, product exchange.Product) (exchange.OrderID, error) {
+func (v *Limiter) create(ctx context.Context, rt *trader.Runtime) (string, error) {
 	offset := v.idgen.Offset()
 	clientOrderID := v.idgen.NextID()
 
-	size := v.PendingSize()
-	if s := v.sizeLimit(); size.GreaterThan(s) {
-		size = s
+	if v.idgen.Offset()%SaveClientIDOffsetSize == 0 {
+		if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
+			log.Printf("%s:%s limit state could not be saved to the database: %v", v.uid, v.point, err)
+			return "", err
+		}
 	}
-	if size.LessThan(product.BaseMinSize()) {
-		size = product.BaseMinSize()
+
+	size := v.PendingSize()
+	if size.LessThan(rt.Product.BaseMinSize()) {
+		size = rt.Product.BaseMinSize()
 	}
 
 	var err error
 	var latency time.Duration
-	var orderID exchange.OrderID
+	var order exchange.Order
 	if v.IsSell() {
 		s := time.Now()
-		orderID, err = product.LimitSell(ctx, clientOrderID.String(), size, v.point.Price)
+		order, err = rt.Product.LimitSell(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	} else {
 		s := time.Now()
-		orderID, err = product.LimitBuy(ctx, clientOrderID.String(), size, v.point.Price)
+		order, err = rt.Product.LimitBuy(ctx, clientOrderID, size, v.point.Price)
 		latency = time.Now().Sub(s)
 	}
 	if err != nil {
-		v.idgen.RevertID()
-		log.Printf("%s:%s: create limit order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, clientOrderID, offset, latency, err)
+		if rt.Exchange.CanDedupOnClientUUID() {
+			v.idgen.RevertID()
+			log.Printf("%s:%s: create limit order with client-order-id %s (%d reverted) has failed (in %s): %v", v.uid, v.point, clientOrderID, offset, latency, err)
+			return "", err
+		}
+		log.Printf("%s:%s: create limit order with client-order-id %s has failed (in %s): %v", v.uid, v.point, clientOrderID, latency, err)
 		return "", err
 	}
 
-	v.orderMap.Store(orderID, &exchange.Order{
-		OrderID:       orderID,
-		ClientOrderID: clientOrderID.String(),
-		Side:          v.point.Side(),
-	})
-
+	orderID := order.ServerID()
+	sorder, err := exchange.NewSimpleOrder(orderID, order.ClientID(), order.OrderSide())
+	if err != nil {
+		return "", err
+	}
+	v.orderMap.Store(orderID, sorder)
 	log.Printf("%s:%s: created a new limit order %s with client-order-id %s (%d) in %s", v.uid, v.point, orderID, clientOrderID, offset, latency)
 	return orderID, nil
 }
 
-func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID exchange.OrderID) error {
+func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOrderID string) error {
 	if err := product.Cancel(ctx, activeOrderID); err != nil {
 		log.Printf("%s:%s: cancel limit order %s has failed: %v", v.uid, v.point, activeOrderID, err)
 		return err
@@ -267,15 +268,27 @@ func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOr
 
 func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (nupdated int, status error) {
 	for id, order := range v.dupOrderMap() {
-		if order.Done {
+		if order.IsDone() {
 			continue
 		}
-		norder, err := product.Get(ctx, id)
+		detail, err := product.Get(ctx, id)
 		if err != nil {
-			log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Printf("%s:%s: could not fetch order with id %s: %v", v.uid, v.point, id, err)
+				return nupdated, err
+			}
+			// Exchanges may not keep the cancelled orders with no executed
+			// value. So, assign canceled status to non-existing orders.
+			order.Done = true
+			order.DoneReason = "NOTFOUND/CANCELED"
+			continue
+		}
+
+		sorder, err := exchange.NewSimpleOrderFromOrderDetail(detail)
+		if err != nil {
 			return nupdated, err
 		}
-		v.orderMap.Store(id, norder)
+		v.orderMap.Store(id, sorder)
 		nupdated++
 	}
 	return nupdated, nil

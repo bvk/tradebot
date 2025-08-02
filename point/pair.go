@@ -5,7 +5,9 @@ package point
 import (
 	"fmt"
 	"log"
+	"log/slog"
 
+	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
 
@@ -13,8 +15,27 @@ type Pair struct {
 	Buy, Sell Point
 }
 
+func NewPairFromGobPair(p *gobs.Pair) *Pair {
+	return &Pair{
+		Buy: Point{
+			Size:   p.Buy.Size,
+			Price:  p.Buy.Price,
+			Cancel: p.Buy.Cancel,
+		},
+		Sell: Point{
+			Size:   p.Sell.Size,
+			Price:  p.Sell.Price,
+			Cancel: p.Sell.Cancel,
+		},
+	}
+}
+
 func (p Pair) String() string {
 	return fmt.Sprintf("{%s=%s}", p.Buy, p.Sell)
+}
+
+func (p Pair) LogValue() slog.Value {
+	return slog.StringValue(p.String())
 }
 
 func (p *Pair) Check() error {
@@ -56,7 +77,7 @@ func (p *Pair) ValueMargin() decimal.Decimal {
 
 // FeesAt returns the sum of buy and sell point fees for the given fee
 // percentage.
-func (p *Pair) FeesAt(pct float64) decimal.Decimal {
+func (p *Pair) FeesAt(pct decimal.Decimal) decimal.Decimal {
 	return p.Buy.FeeAt(pct).Add(p.Sell.FeeAt(pct))
 }
 
@@ -65,7 +86,7 @@ func (p *Pair) FeesAt(pct float64) decimal.Decimal {
 // that returned pair retains the same Margin as the input pair. Sell point's
 // cancel price is also adjust to the same amount so that final sell point is
 // consistent.
-func AdjustForMargin(p *Pair, pct float64) *Pair {
+func AdjustForMargin(p *Pair, pct decimal.Decimal) *Pair {
 	//
 	// Given `Value = Price*Size` and `Fee = Value * pct / 100`
 	//
@@ -81,7 +102,7 @@ func AdjustForMargin(p *Pair, pct float64) *Pair {
 	//
 
 	// divisor := 1 - pct/100
-	divisor := decimal.NewFromInt(1).Sub(decimal.NewFromFloat(pct).Div(decimal.NewFromInt(100)))
+	divisor := decimal.NewFromInt(1).Sub(pct.Div(decimal.NewFromInt(100)))
 
 	sellValue := p.ValueMargin().Add(p.Buy.Value()).Add(p.Buy.FeeAt(pct)).Div(divisor)
 

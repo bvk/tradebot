@@ -4,8 +4,10 @@ package internal
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/google/uuid"
 )
 
 type Balance struct {
@@ -129,7 +131,6 @@ type CreateOrderResponse struct {
 	Success         bool                        `json:"success"`
 	SuccessResponse *CreateOrderSuccessResponse `json:"success_response"`
 
-	OrderID     string       `json:"order_id"`
 	OrderConfig *OrderConfig `json:"order_configuration"`
 
 	FailureReason string                    `json:"failure_reason"`
@@ -141,6 +142,20 @@ type CreateOrderSuccessResponse struct {
 	ProductID     string `json:"product_id"`
 	Side          string `json:"side"`
 	ClientOrderID string `json:"client_order_id"`
+}
+
+var _ exchange.Order = &CreateOrderSuccessResponse{}
+
+func (v *CreateOrderSuccessResponse) ServerID() string {
+	return v.OrderID
+}
+
+func (v *CreateOrderSuccessResponse) ClientID() uuid.UUID {
+	return uuid.Must(uuid.Parse(v.ClientOrderID))
+}
+
+func (v *CreateOrderSuccessResponse) OrderSide() string {
+	return strings.ToUpper(v.Side)
 }
 
 type CreateOrderErrorResponse struct {

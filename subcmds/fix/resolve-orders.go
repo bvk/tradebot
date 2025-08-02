@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/idgen"
@@ -24,6 +23,7 @@ import (
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvkgo/kv"
+	"github.com/visvasity/cli"
 )
 
 type ResolveOrders struct {
@@ -36,13 +36,13 @@ type ResolveOrders struct {
 	dryRun bool
 }
 
-func (c *ResolveOrders) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("resolve-orders", flag.ContinueOnError)
+func (c *ResolveOrders) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.product, "product", "", "name of the coinbase product")
 	fset.StringVar(&c.clientIDsFile, "client-ids-file", "/tmp/client-ids.dat", "temp file to save client ids")
 	fset.BoolVar(&c.dryRun, "dry-run", true, "when true only prints the information")
-	return fset, cli.CmdFunc(c.Run)
+	return "resolve-orders", fset, cli.CmdFunc(c.Run)
 }
 
 func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
@@ -160,6 +160,6 @@ func (c *ResolveOrders) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *ResolveOrders) Synopsis() string {
+func (c *ResolveOrders) Purpose() string {
 	return "Resolves filled exchange orders back to the job uids."
 }

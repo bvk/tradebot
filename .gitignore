@@ -1,4 +1,7 @@
 *~
+*.db
+*.db.gz
+*-creds.json
 /tradebot
 /secrets.json
 /coinbase/coinbase-creds.json

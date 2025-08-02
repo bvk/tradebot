@@ -122,6 +122,12 @@ func daemonizeChild(envkey string) error {
 		return fmt.Errorf("could not set session id: %w", err)
 	}
 
+	// Clear the environment variable. This will allow the higher-level service
+	// to upgrade itself. If the environment variable is left as is, child
+	// process --during the upgrades-- will inherit this value and -background flag
+	// wouldn't work.
+	os.Setenv(envkey, "")
+
 	log.SetOutput(io.Discard)
 	return nil
 }

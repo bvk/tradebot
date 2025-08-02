@@ -27,7 +27,7 @@ type Trader interface {
 
 	// BudgetAt returns the total amount of value required to execute at the
 	// given fee percentage.
-	BudgetAt(feePct float64) decimal.Decimal
+	BudgetAt(feePct decimal.Decimal) decimal.Decimal
 
 	// SetOption updates trader job's customize-able parameters.
 	SetOption(opt, val string) error

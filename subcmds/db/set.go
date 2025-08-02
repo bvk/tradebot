@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Set struct {
@@ -42,12 +42,12 @@ func (c *Set) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Set) Command() (*flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("set", flag.ContinueOnError)
+func (c *Set) Command() (string, *flag.FlagSet, cli.CmdFunc) {
+	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
-	return fset, cli.CmdFunc(c.Run)
+	return "set", fset, cli.CmdFunc(c.Run)
 }
 
-func (c *Set) Synopsis() string {
+func (c *Set) Purpose() string {
 	return "Updates the value for a key in the database"
 }

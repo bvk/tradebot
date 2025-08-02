@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bvk/tradebot/cli"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/visvasity/cli"
 )
 
 type Sync struct {
@@ -31,14 +31,14 @@ type Sync struct {
 	productID string
 }
 
-func (c *Sync) Command() (*flag.FlagSet, cli.CmdFunc) {
+func (c *Sync) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("sync", flag.ContinueOnError)
 	c.DBFlags.SetFlags(fset)
 	fset.StringVar(&c.productID, "product-id", "", "product id")
 	fset.StringVar(&c.fromDate, "from-date", "", "date of the day in YYYY-MM-DD format")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataType, "data-type", "", "one of filled|canceled|candles")
-	return fset, cli.CmdFunc(c.run)
+	return "sync", fset, cli.CmdFunc(c.run)
 }
 
 func (c *Sync) run(ctx context.Context, args []string) error {

@@ -5,21 +5,38 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
+	"runtime/debug"
 
-	"github.com/bvk/tradebot/cli"
+	"github.com/bvk/tradebot/envfile"
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/coinbase"
+	"github.com/bvk/tradebot/subcmds/coinex"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvk/tradebot/subcmds/exchange"
 	"github.com/bvk/tradebot/subcmds/fix"
 	"github.com/bvk/tradebot/subcmds/job"
 	"github.com/bvk/tradebot/subcmds/limiter"
 	"github.com/bvk/tradebot/subcmds/looper"
+	"github.com/bvk/tradebot/subcmds/setup"
 	"github.com/bvk/tradebot/subcmds/waller"
+	"github.com/visvasity/cli"
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CAUGHT PANIC", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
+	if err := envfile.UpdateEnv(".tradebotenv", envfile.VariableNamePrefix("TRADEBOT_")); err != nil {
+		log.Fatal(err)
+	}
+
 	dbCmds := []cli.Command{
 		new(db.Get),
 		new(db.Set),
@@ -30,10 +47,18 @@ func main() {
 		new(db.Restore),
 	}
 
+	setupCmds := []cli.Command{
+		new(setup.Coinbase),
+		new(setup.CoinEx),
+		new(setup.PushOver),
+		new(setup.Telegram),
+	}
+
 	fixCmds := []cli.Command{
 		new(fix.CancelOffset),
 		new(fix.DedupLimiterIDs),
 		new(fix.ResolveOrders),
+		new(fix.SwitchToUSD),
 	}
 
 	jobCmds := []cli.Command{
@@ -72,6 +97,7 @@ func main() {
 	exchangeCmds := []cli.Command{
 		new(exchange.GetOrder),
 		new(exchange.GetProduct),
+		new(exchange.UpdateProduct),
 	}
 
 	coinbaseCmds := []cli.Command{
@@ -80,19 +106,25 @@ func main() {
 		new(coinbase.GetOrder),
 	}
 
+	coinexCmds := []cli.Command{
+		new(coinex.GetPrice),
+		new(coinex.GetOrder),
+		new(coinex.FixFee),
+	}
+
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
-		new(subcmds.Setup),
-		new(subcmds.IDGen),
-		cli.CommandGroup("fix", "Fix misc. metadata issues", fixCmds...),
-		cli.CommandGroup("job", "Control trader jobs", jobCmds...),
-		cli.CommandGroup("db", "View/update database directly", dbCmds...),
-		cli.CommandGroup("limiter", "Manage limit buys/sells", limiterCmds...),
-		cli.CommandGroup("looper", "Manage buy-sell loops", looperCmds...),
-		cli.CommandGroup("waller", "Manage trades in a price range", wallerCmds...),
-		cli.CommandGroup("exchange", "View/query exchange directly", exchangeCmds...),
-		cli.CommandGroup("coinbase", "Handles coinbase specific operations", coinbaseCmds...),
+		cli.NewGroup("fix", "Fix misc. metadata issues", fixCmds...),
+		cli.NewGroup("job", "Control trader jobs", jobCmds...),
+		cli.NewGroup("db", "View/update database directly", dbCmds...),
+		cli.NewGroup("limiter", "Manage limit buys/sells", limiterCmds...),
+		cli.NewGroup("looper", "Manage buy-sell loops", looperCmds...),
+		cli.NewGroup("waller", "Manage trades in a price range", wallerCmds...),
+		cli.NewGroup("exchange", "View/query exchange directly", exchangeCmds...),
+		cli.NewGroup("coinbase", "Coinbase exchange operations", coinbaseCmds...),
+		cli.NewGroup("coinex", "CoinEx exchange operations", coinexCmds...),
+		cli.NewGroup("setup", "Setup operations", setupCmds...),
 	}
 	if err := cli.Run(context.Background(), cmds, os.Args[1:]); err != nil {
 		log.Fatal(err)
