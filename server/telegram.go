@@ -143,6 +143,7 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("go compiler is not found")
 	}
+	slog.Info("found go compiler", "path", goPath)
 	// Verify the minimum required go compiler version.
 	versionCmd := exec.Command(goPath, "version")
 	out, err := versionCmd.Output()
@@ -153,8 +154,9 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) error {
 	if len(fields) < 4 || fields[0] != "go" || fields[1] != "version" {
 		return fmt.Errorf("unexpected go version output format")
 	}
-	if version.Compare(fields[2], "go1.21.0") < 0 {
-		return fmt.Errorf("go compiler version %q is too old (want go1.21.0 or higher)", fields[2])
+	slog.Info("found go compiler version as", "version", fields[2])
+	if version.Compare(fields[2], "go1.22.0") < 0 {
+		return fmt.Errorf("go compiler version %q is too old (want go1.22.0 or higher)", fields[2])
 	}
 
 	installCmd := exec.Command(goPath, "install", binfo.Path+"@"+target)
