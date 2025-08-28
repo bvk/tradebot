@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 
 	"github.com/bvk/tradebot/api"
@@ -28,6 +29,7 @@ func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 		ename, pid := v.ExchangeName(), v.ProductID()
 		product, err := s.getProduct(ctx, ename, pid)
 		if err != nil {
+			slog.Error("could not load product for the job", "job", uid, "product", pid, "exchange", ename, "err", err)
 			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", uid, pid, ename, err)
 		}
 
