@@ -9,8 +9,10 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/bvk/tradebot/api"
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/trader"
@@ -27,9 +29,19 @@ func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 		uid := v.UID()
 
 		ename, pid := v.ExchangeName(), v.ProductID()
-		product, err := s.getProduct(ctx, ename, pid)
-		if err != nil {
-			slog.Error("could not load product for the job", "job", uid, "product", pid, "exchange", ename, "err", err)
+
+		var err error
+		var product exchange.Product
+		for i := range 10 /* retry 10 times */ {
+			product, err = s.getProduct(ctx, ename, pid)
+			if err != nil {
+				slog.Error("could not load product for the job (will retry)", "retry", i, "job", uid, "product", pid, "exchange", ename, "err", err)
+				time.Sleep(time.Second)
+				continue
+			}
+			break
+		}
+		if product == nil {
 			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", uid, pid, ename, err)
 		}
 
