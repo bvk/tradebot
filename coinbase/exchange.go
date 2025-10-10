@@ -510,6 +510,11 @@ func (ex *Exchange) listRawAccounts(ctx context.Context) ([]*internal.Account, e
 		accounts = append(accounts, resp.Accounts...)
 	}
 
+	// Write account balances periodically to the logs.
+	for _, account := range accounts {
+		slog.Info("account balance", "name", account.Name, "currency", account.Currency, "available", account.AvailableBalance.Value.Decimal, "available-currency", account.AvailableBalance.Currency, "hold", account.Hold.Value.Decimal, "hold-currency", account.Hold.Currency)
+	}
+
 	return accounts, nil
 }
 
