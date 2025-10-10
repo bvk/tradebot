@@ -21,6 +21,7 @@ import (
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 type Exchange struct {
@@ -227,6 +228,8 @@ func (ex *Exchange) goFetchCandles(ctx context.Context) {
 func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 	last := ex.lastFilledTime
 	timeout := ex.opts.PollOrdersRetryInterval
+	accountHoldMap := make(map[string]decimal.Decimal)
+	accountAvailableMap := make(map[string]decimal.Decimal)
 	for ctxutil.Sleep(ctx, timeout); ctx.Err() == nil; ctxutil.Sleep(ctx, timeout) {
 		now := ex.client.Now().Time
 		fills, err := ex.listFillsFrom(ctx, last)
@@ -269,12 +272,26 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 		}
 
 		// Update account balances.
-		if accounts, err := ex.listRawAccounts(ctx); err != nil {
+		accounts, err := ex.listRawAccounts(ctx)
+		if err != nil {
 			slog.Warn("could not fetch account balances (will retry)", "err", err)
-		} else {
-			if err := ex.datastore.saveAccounts(ctx, accounts); err != nil {
-				slog.Warn("could not save account balances (will retry)", "err", err)
+			continue
+		}
+		if err := ex.datastore.saveAccounts(ctx, accounts); err != nil {
+			slog.Warn("could not save account balances (will retry)", "err", err)
+		}
+		// Write account balances changes to the logs.
+		for _, a := range accounts {
+			lastHold, ok1 := accountHoldMap[a.Hold.Currency]
+			lastAvail, ok2 := accountAvailableMap[a.AvailableBalance.Currency]
+			newHold := a.Hold.Value.Decimal
+			newAvail := a.AvailableBalance.Value.Decimal
+			if ok1 && ok2 && lastHold.Equal(newHold) && lastAvail.Equal(newAvail) {
+				continue
 			}
+			accountHoldMap[a.Hold.Currency] = newHold
+			accountAvailableMap[a.AvailableBalance.Currency] = newAvail
+			slog.Info("coinbase account balance", "name", a.Name, "currency", a.Currency, "available", newAvail, "hold", newHold)
 		}
 	}
 }
@@ -508,11 +525,6 @@ func (ex *Exchange) listRawAccounts(ctx context.Context) ([]*internal.Account, e
 		}
 		values = cont
 		accounts = append(accounts, resp.Accounts...)
-	}
-
-	// Write account balances periodically to the logs.
-	for _, account := range accounts {
-		slog.Info("account balance", "name", account.Name, "currency", account.Currency, "available", account.AvailableBalance.Value.Decimal, "available-currency", account.AvailableBalance.Currency, "hold", account.Hold.Value.Decimal, "hold-currency", account.Hold.Currency)
 	}
 
 	return accounts, nil
