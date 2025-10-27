@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"go/version"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,8 +71,49 @@ func (s *Server) statsCmd(ctx context.Context, _ []string) error {
 		return fmt.Sprintf("%dd%v", int(d/day), d%day)
 	}
 
+	dirSize := func(path string) (int64, error) {
+		var size int64
+		err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				size += info.Size()
+			}
+			return err
+		})
+		return size, err
+	}
+	dsize, err := dirSize(s.opts.DataDir)
+	if err != nil {
+		slog.Error("could not compute data directory size (ignored)", "err", err)
+	}
+
+	publicIP := func(ctx context.Context) (string, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://ipinfo.io/ip", nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return "", err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("http get ipinfo.io/ip returned %d", resp.StatusCode)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		return string(body), nil
+	}
+	ip, err := publicIP(ctx)
+	if err != nil {
+		slog.Error("could not determine public ip (ignored)", "err", err)
+	}
+
 	stdout := cli.Stdout(ctx)
-	fmt.Fprintln(stdout, "System Stats")
+	fmt.Fprintf(stdout, "System Stats\n")
 	fmt.Fprintf(stdout, "  Hostname: %s\n", hinfo.Hostname)
 	fmt.Fprintf(stdout, "  OS: %s\n", hinfo.OS)
 	fmt.Fprintf(stdout, "  Platform: %s\n", hinfo.PlatformFamily)
@@ -78,6 +121,7 @@ func (s *Server) statsCmd(ctx context.Context, _ []string) error {
 	fmt.Fprintf(stdout, "  Kernel Version: %s %s\n", hinfo.KernelVersion, hinfo.KernelArch)
 	bootTime := time.Unix(int64(hinfo.BootTime), 0)
 	fmt.Fprintf(stdout, "  Uptime: %s\n", durationWithDays(time.Since(bootTime)))
+	fmt.Fprintf(stdout, "  Public IP: %s\n", ip)
 	fmt.Fprintf(stdout, "  Total Memory: %0.2fMB\n", float64(vminfo.Total)/1024/1024)
 	fmt.Fprintf(stdout, "  Used Memory: %0.2fMB\n", float64(vminfo.Used)/1024/1024)
 	fmt.Fprintf(stdout, "  Free Memory: %0.2fMB\n", float64(vminfo.Free)/1024/1024)
@@ -85,12 +129,21 @@ func (s *Server) statsCmd(ctx context.Context, _ []string) error {
 	fmt.Fprintf(stdout, "  Used Storage: %0.2fGB\n", float64(dinfo.Used)/1024/1024/1024)
 	fmt.Fprintf(stdout, "  Free Storage: %0.2fGB\n", float64(dinfo.Free)/1024/1024/1024)
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, "Service Stats")
+	fmt.Fprintf(stdout, "Service Stats\n")
 	fmt.Fprintf(stdout, "  Binary: %s\n", exe)
-	fmt.Fprintf(stdout, "  Data dir: %s\n", s.opts.DataDir)
+	fmt.Fprintf(stdout, "  DataDir: %s\n", s.opts.DataDir)
+	fmt.Fprintf(stdout, "  DataDir Size: %0.2fMB\n", float64(dsize)/1024/1024)
 	fmt.Fprintf(stdout, "  Uptime: %s\n", durationWithDays(time.Since(start)))
 	fmt.Fprintf(stdout, "  Virtual Memory: %0.2fMB\n", float64(meminfo.VMS)/1024/1024)
 	fmt.Fprintf(stdout, "  Resident Memory: %0.2fMB\n", float64(meminfo.RSS)/1024/1024)
+	if s.secrets != nil {
+		if s.secrets.Telegram != nil {
+			fmt.Fprintf(stdout, "  OwnerID: https://t.me/%s\n", s.secrets.Telegram.OwnerID)
+			if len(s.secrets.Telegram.AdminID) != 0 {
+				fmt.Fprintf(stdout, "  AdminID: https://t.me/%s\n", s.secrets.Telegram.AdminID)
+			}
+		}
+	}
 	return nil
 }
 
@@ -143,6 +196,7 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("go compiler is not found")
 	}
+	slog.Info("found go compiler", "path", goPath)
 	// Verify the minimum required go compiler version.
 	versionCmd := exec.Command(goPath, "version")
 	out, err := versionCmd.Output()
@@ -153,8 +207,9 @@ func (s *Server) upgradeCmd(ctx context.Context, args []string) error {
 	if len(fields) < 4 || fields[0] != "go" || fields[1] != "version" {
 		return fmt.Errorf("unexpected go version output format")
 	}
-	if version.Compare(fields[2], "go1.21.0") < 0 {
-		return fmt.Errorf("go compiler version %q is too old (want go1.21.0 or higher)", fields[2])
+	slog.Info("found go compiler version as", "version", fields[2])
+	if version.Compare(fields[2], "go1.22.0") < 0 {
+		return fmt.Errorf("go compiler version %q is too old (want go1.22.0 or higher)", fields[2])
 	}
 
 	installCmd := exec.Command(goPath, "install", binfo.Path+"@"+target)

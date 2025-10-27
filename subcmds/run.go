@@ -17,6 +17,8 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,7 +41,7 @@ type Run struct {
 
 	background bool
 
-	waitforHostPort string
+	waitforHostPorts string
 
 	restart         bool
 	shutdownTimeout time.Duration
@@ -72,7 +74,7 @@ func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", defaults.DataDir(), "path to the data directory")
 	fset.StringVar(&c.logDir, "log-dir", defaults.LogDir(), "path to the logs directory")
-	fset.StringVar(&c.waitforHostPort, "waitfor-host-port", "", "startup waits till host:port becomes reachable")
+	fset.StringVar(&c.waitforHostPorts, "waitfor-host-ports", "api.coinex.com:443,api.coinbase.com:443", "startup waits till all host:port become reachable")
 	return "run", fset, cli.CmdFunc(c.run)
 }
 
@@ -108,6 +110,19 @@ the API keys.
 func (c *Run) run(ctx context.Context, args []string) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Add /sbin and /usr/sbin directories to the PATH environment variable.
+	envPath := os.Getenv("PATH")
+	pathDirs := strings.Split(envPath, ":")
+	if !slices.Contains(pathDirs, "/sbin") {
+		pathDirs = append(pathDirs, "/sbin")
+	}
+	if !slices.Contains(pathDirs, "/usr/sbin") {
+		pathDirs = append(pathDirs, "/usr/sbin")
+	}
+	if newPath := strings.Join(pathDirs, ":"); newPath != envPath {
+		os.Setenv("PATH", newPath)
+	}
 
 	if len(c.dataDir) == 0 {
 		c.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
@@ -190,16 +205,12 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	if err := c.waitforGlobalUnicastIP(ctx); err != nil {
 		return err
 	}
-	if len(c.waitforHostPort) > 0 {
-		if err := c.waitforDial(ctx, c.waitforHostPort); err != nil {
-			return err
+	for _, v := range strings.Split(c.waitforHostPorts, ",") {
+		if len(v) != 0 {
+			if err := c.waitforDial(ctx, v); err != nil {
+				return err
+			}
 		}
-	}
-	if err := c.waitforDial(ctx, "api.coinex.com:443"); err != nil {
-		return err
-	}
-	if err := c.waitforDial(ctx, "api.coinbase.com:443"); err != nil {
-		return err
 	}
 
 	lockPath := filepath.Join(dataDir, "tradebot.lock")

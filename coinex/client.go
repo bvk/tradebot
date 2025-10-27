@@ -453,10 +453,14 @@ func (c *Client) CancelOrder(ctx context.Context, market string, orderID int64) 
 	}
 	resp := new(internal.CancelOrderResponse)
 	if err := privatePostJSON(ctx, c, addrURL, &req, resp); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not cancel order", "orderID", orderID, "market", market, "url", addrURL, "err", err)
+		// CoinEx does not save zero-filled canceled orders, so os.ErrNotExist is a success.
+		if !errors.Is(err, os.ErrNotExist) {
+			if !errors.Is(err, context.Canceled) {
+				slog.Error("could not cancel order", "orderID", orderID, "market", market, "url", addrURL, "err", err)
+			}
+			return nil, err
 		}
-		return nil, err
+		resp.Data = &internal.Order{}
 	}
 	// CoinEx does not save zero-filled canceled orders, so we won't be able to
 	// query/refresh them.
@@ -482,10 +486,12 @@ func (c *Client) CancelOrderByClientID(ctx context.Context, market string, clien
 	}
 	resp := new(internal.CancelOrderByClientIDResponse)
 	if err := privatePostJSON(ctx, c, addrURL, &req, resp); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not cancel order by client id", "clientID", clientOrderID, "market", market, "url", addrURL, "err", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			if !errors.Is(err, context.Canceled) {
+				slog.Error("could not cancel order by client id", "clientID", clientOrderID, "market", market, "url", addrURL, "err", err)
+			}
+			return nil, err
 		}
-		return nil, err
 	}
 	if len(resp.Data) == 0 {
 		slog.Warn("cancel order by client id request returned empty data", "clientID", clientOrderID, "market", market)
@@ -799,6 +805,9 @@ func privatePostJSON[PT *T, T any](ctx context.Context, c *Client, addrURL *url.
 	if genericResp.Code != 0 {
 		if genericResp.Code == internal.InsufficientFunds {
 			return exchange.ErrNoFund
+		}
+		if genericResp.Code == internal.OrderNotFound {
+			return os.ErrNotExist
 		}
 		slog.Error("POST request failed", "url", addrURL, "body", sb.String(), "response", string(data), "err", err)
 		return fmt.Errorf("failed with code=%d message=%s", genericResp.Code, genericResp.Message)

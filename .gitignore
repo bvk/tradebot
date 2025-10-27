@@ -2,7 +2,12 @@
 *.db
 *.db.gz
 *-creds.json
+/t/
 /tradebot
+/tradebot.mac
+/tradebot.linux
+/coverage.out
+/coverage.html
 /secrets.json
 /coinbase/coinbase-creds.json
 /pushover/pushover-keys.json

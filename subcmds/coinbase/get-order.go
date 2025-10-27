@@ -46,6 +46,9 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if secrets.Coinbase == nil {
+		return fmt.Errorf("secrets file has no coinbase credentials")
+	}
 
 	db := kvmemdb.New()
 

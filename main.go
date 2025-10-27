@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"net"
 	"os"
 	"runtime/debug"
 
@@ -23,6 +24,17 @@ import (
 	"github.com/bvk/tradebot/subcmds/waller"
 	"github.com/visvasity/cli"
 )
+
+func init() {
+	// Force use Google DNS instead of the system dns.
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, "8.8.8.8:53")
+		},
+	}
+}
 
 func main() {
 	defer func() {

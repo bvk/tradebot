@@ -51,6 +51,9 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if secrets.CoinEx == nil {
+		return fmt.Errorf("secrets file has no coinex credentials")
+	}
 
 	opts := &coinex.Options{
 		NoWebsocket: true,
