@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -109,6 +110,19 @@ the API keys.
 func (c *Run) run(ctx context.Context, args []string) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Add /sbin and /usr/sbin directories to the PATH environment variable.
+	envPath := os.Getenv("PATH")
+	pathDirs := strings.Split(envPath, ":")
+	if !slices.Contains(pathDirs, "/sbin") {
+		pathDirs = append(pathDirs, "/sbin")
+	}
+	if !slices.Contains(pathDirs, "/usr/sbin") {
+		pathDirs = append(pathDirs, "/usr/sbin")
+	}
+	if newPath := strings.Join(pathDirs, ":"); newPath != envPath {
+		os.Setenv("PATH", newPath)
+	}
 
 	if len(c.dataDir) == 0 {
 		c.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
