@@ -111,21 +111,30 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Add /sbin and /usr/sbin directories to the PATH environment variable.
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Add the following directories to PATH environment variable.
+	dirs := []string{
+		"/bin", "/usr/bin", "/sbin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin", "/usr/local/go/bin",
+		"/opt/homebrew/bin", "/opt/homebrew/sbin",
+		filepath.Join(homeDir, "bin"), filepath.Join(homeDir, "go", "bin"),
+	}
 	envPath := os.Getenv("PATH")
 	pathDirs := strings.Split(envPath, ":")
-	if !slices.Contains(pathDirs, "/sbin") {
-		pathDirs = append(pathDirs, "/sbin")
-	}
-	if !slices.Contains(pathDirs, "/usr/sbin") {
-		pathDirs = append(pathDirs, "/usr/sbin")
+	for _, d := range dirs {
+		if !slices.Contains(pathDirs, d) {
+			pathDirs = append(pathDirs, d)
+		}
 	}
 	if newPath := strings.Join(pathDirs, ":"); newPath != envPath {
 		os.Setenv("PATH", newPath)
 	}
 
 	if len(c.dataDir) == 0 {
-		c.dataDir = filepath.Join(os.Getenv("HOME"), ".tradebot")
+		c.dataDir = filepath.Join(homeDir, ".tradebot")
 	}
 	if _, err := os.Stat(c.dataDir); err != nil {
 		if !os.IsNotExist(err) {
