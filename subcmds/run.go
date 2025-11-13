@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/ctxutil"
-	"github.com/bvk/tradebot/daemonize"
 	"github.com/bvk/tradebot/httputil"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
@@ -33,21 +32,17 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
 	"github.com/visvasity/cli"
-	"github.com/visvasity/sglog"
+	"github.com/visvasity/runcmd"
 )
 
 type Run struct {
-	cmdutil.ServerFlags
+	runcmd.RunFlags
 
-	background bool
+	cmdutil.ServerFlags
 
 	waitforHostPorts string
 
-	restart         bool
 	shutdownTimeout time.Duration
-
-	logDir   string
-	logDebug bool
 
 	noPprof              bool
 	noResume             bool
@@ -56,26 +51,28 @@ type Run struct {
 	maxHttpClientTimeout time.Duration
 
 	secretsPath string
-	dataDir     string
 }
 
 func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
-	fset := flag.NewFlagSet("run", flag.ContinueOnError)
+	if c.RunFlags.DataDir == "" {
+		c.RunFlags.DataDir = defaults.DataDir()
+	}
+	if c.RunFlags.LogDir == "" {
+		c.RunFlags.LogDir = defaults.LogDir()
+	}
+
+	fset := c.RunFlags.FlagSet()
+
 	c.ServerFlags.SetFlags(fset)
-	fset.BoolVar(&c.background, "background", false, "runs the daemon in background")
-	fset.BoolVar(&c.restart, "restart", false, "when true, kills any old instance")
 	fset.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "max timeout for shutdown when restarting")
-	fset.BoolVar(&c.logDebug, "log-debug", false, "when true, debug messages are logged")
 	fset.BoolVar(&c.noPprof, "no-pprof", false, "when true net/http/pprof handler is not registered")
 	fset.BoolVar(&c.noResume, "no-resume", false, "when true old jobs aren't resumed automatically")
 	fset.BoolVar(&c.noFetchCandles, "no-fetch-candles", true, "when true, candle data is not saved in the datastore")
 	fset.DurationVar(&c.maxFetchTimeLatency, "max-fetch-time-latency", 0, "max latency for fetch-time operation in finding time difference")
 	fset.DurationVar(&c.maxHttpClientTimeout, "max-http-client-timeout", 30*time.Second, "default max timeout for http requests")
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
-	fset.StringVar(&c.dataDir, "data-dir", defaults.DataDir(), "path to the data directory")
-	fset.StringVar(&c.logDir, "log-dir", defaults.LogDir(), "path to the logs directory")
 	fset.StringVar(&c.waitforHostPorts, "waitfor-host-ports", "api.coinex.com:443,api.coinbase.com:443", "startup waits till all host:port become reachable")
-	return "run", fset, cli.CmdFunc(c.run)
+	return "run", fset, c.RunFlags.WithRunFunc(c.run)
 }
 
 func (c *Run) Purpose() string {
@@ -107,7 +104,39 @@ the API keys.
 `
 }
 
-func (c *Run) run(ctx context.Context, args []string) error {
+func (c *Run) run(ctx context.Context, args []string) (status error) {
+	defer func() { runcmd.Report(ctx, status) }()
+
+	// TODO: Remove this lockfile block after all customers are moved to runcmd
+	// branch.
+	lockPath := filepath.Join(c.RunFlags.DataDir, "tradebot.lock")
+	flock, err := lockfile.New(lockPath)
+	if err != nil {
+		return fmt.Errorf("could not create lock file %q: %w", lockPath, err)
+	}
+	if err := flock.TryLock(); err != nil {
+		if !c.RunFlags.Restart {
+			return fmt.Errorf("could not get lock on file %q: %w", lockPath, err)
+		}
+		owner, err := flock.GetOwner()
+		if err != nil {
+			return fmt.Errorf("could not get current owner of the lock file: %w", err)
+		}
+		if err := owner.Signal(os.Interrupt); err == nil {
+			log.Printf("waiting for the previous instance to shutdown")
+			if err := ctxutil.RetryTimeout(ctx, time.Second, c.shutdownTimeout, flock.TryLock); err != nil {
+				if err := owner.Signal(os.Kill); err != nil {
+					return fmt.Errorf("could not kill current owner of the lock file: %w", err)
+				}
+				ctxutil.Sleep(ctx, time.Millisecond)
+			}
+		}
+		if err := flock.TryLock(); err != nil {
+			return fmt.Errorf("could not get lock on file %q after killing previous instance: %w", lockPath, err)
+		}
+	}
+	flock.Unlock()
+
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -133,35 +162,8 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		os.Setenv("PATH", newPath)
 	}
 
-	if len(c.dataDir) == 0 {
-		c.dataDir = filepath.Join(homeDir, ".tradebot")
-	}
-	if _, err := os.Stat(c.dataDir); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("could not stat data directory %q: %w", c.dataDir, err)
-		}
-		if err := os.MkdirAll(c.dataDir, 0700); err != nil {
-			return fmt.Errorf("could not create data directory %q: %w", c.dataDir, err)
-		}
-	}
-	dataDir, err := filepath.Abs(c.dataDir)
-	if err != nil {
-		return fmt.Errorf("could not determine data-dir %q absolute path: %w", c.dataDir, err)
-	}
-	if len(c.logDir) == 0 {
-		return fmt.Errorf("logs directory cannot be empty: %w", os.ErrInvalid)
-	}
-	if _, err := os.Stat(c.logDir); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("could not stat log directory %q: %w", c.logDir, err)
-		}
-		if err := os.MkdirAll(c.logDir, 0700); err != nil {
-			return fmt.Errorf("could not create log directory %q: %w", c.logDir, err)
-		}
-	}
-
 	if len(c.secretsPath) == 0 {
-		c.secretsPath = filepath.Join(dataDir, "secrets.json")
+		c.secretsPath = filepath.Join(c.RunFlags.DataDir, "secrets.json")
 	}
 	secrets, err := server.SecretsFromFile(c.secretsPath)
 	if err != nil {
@@ -179,38 +181,6 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		Port: c.Port(),
 	}
 
-	// Health checker for the background process initialization. We need to
-	// verify that responding http server is really our child and not an older
-	// instance.
-	check := func(ctx context.Context, child *os.Process) (bool, error) {
-		client := http.Client{Timeout: time.Second}
-		resp, err := client.Get(fmt.Sprintf("http://%s/pid", addr.String()))
-		if err != nil {
-			return true, err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return true, fmt.Errorf("http status: %d", resp.StatusCode)
-		}
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return true, err
-		}
-		if pid := string(data); pid != fmt.Sprintf("%d", child.Pid) {
-			if !c.restart {
-				return false, fmt.Errorf("is another instance already running? pid mismatch: want %d got %s", child.Pid, pid)
-			}
-			return true, fmt.Errorf("is another instance already running? pid mismatch: want %d got %s", child.Pid, pid)
-		}
-		return false, nil
-	}
-
-	if c.background {
-		if err := daemonize.Daemonize(ctx, "TRADEBOT_DAEMONIZE", check); err != nil {
-			return err
-		}
-	}
-
 	if err := c.waitforGlobalUnicastIP(ctx); err != nil {
 		return err
 	}
@@ -222,34 +192,6 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		}
 	}
 
-	lockPath := filepath.Join(dataDir, "tradebot.lock")
-	flock, err := lockfile.New(lockPath)
-	if err != nil {
-		return fmt.Errorf("could not create lock file %q: %w", lockPath, err)
-	}
-	if err := flock.TryLock(); err != nil {
-		if !c.restart {
-			return fmt.Errorf("could not get lock on file %q: %w", lockPath, err)
-		}
-		owner, err := flock.GetOwner()
-		if err != nil {
-			return fmt.Errorf("could not get current owner of the lock file: %w", err)
-		}
-		if err := owner.Signal(os.Interrupt); err == nil {
-			log.Printf("waiting for the previous instance to shutdown")
-			if err := ctxutil.RetryTimeout(ctx, time.Second, c.shutdownTimeout, flock.TryLock); err != nil {
-				if err := owner.Signal(os.Kill); err != nil {
-					return fmt.Errorf("could not kill current owner of the lock file: %w", err)
-				}
-				ctxutil.Sleep(ctx, time.Millisecond)
-			}
-		}
-		if err := flock.TryLock(); err != nil {
-			return fmt.Errorf("could not get lock on file %q after killing previous instance: %w", lockPath, err)
-		}
-	}
-	defer flock.Unlock()
-
 	// Make a copy of the binary into the data directory, so that /restart
 	// telegram command can guarantee to restart the same version.
 	if err := c.backupBinary(ctx); err != nil {
@@ -257,21 +199,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	log.SetFlags(log.Lshortfile)
-	backend := sglog.NewBackend(&sglog.Options{
-		LogFileHeader:        true,
-		LogDirs:              []string{c.logDir},
-		LogFileMaxSize:       100 * 1024 * 1024,
-		LogFileReuseDuration: time.Hour,
-	})
-	defer backend.Close()
-
-	slog.SetDefault(slog.New(backend.Handler()))
-	log.Printf("using data directory %s, log directory %s and secrets file %s", dataDir, c.logDir, c.secretsPath)
-
-	if c.logDebug {
-		backend.SetLevel(slog.LevelDebug)
-	}
+	log.Printf("using data directory %s, log directory %s and secrets file %s", c.RunFlags.DataDir, c.RunFlags.LogDir, c.secretsPath)
 
 	// Start HTTP server.
 	s, err := httputil.New(nil /* opts */)
@@ -293,17 +221,19 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		s.AddHandler("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
 		s.AddHandler("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 	}
+
+	last := slog.LevelInfo
 	s.AddHandler("/debug/logging/on", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		backend.SetLevel(slog.LevelDebug)
+		last = c.RunFlags.SetLoggerLevel(slog.LevelDebug)
 		slog.Info("debug logging is turned on by the user through REST endpoint")
 	}))
 	s.AddHandler("/debug/logging/off", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		slog.Info("debug logging is turned off by the user through REST endpoint")
-		backend.SetLevel(slog.LevelInfo)
+		c.RunFlags.SetLoggerLevel(last)
 	}))
 
 	// Open the database.
-	bopts := badger.DefaultOptions(dataDir)
+	bopts := badger.DefaultOptions(c.RunFlags.DataDir)
 	bdb, err := badger.Open(bopts)
 	if err != nil {
 		return fmt.Errorf("could not open the database: %w", err)
@@ -315,7 +245,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 	// Start other services.
 	topts := &server.Options{
-		DataDir:              c.dataDir,
+		DataDir:              c.RunFlags.DataDir,
 		NoResume:             c.noResume,
 		NoFetchCandles:       c.noFetchCandles,
 		MaxFetchTimeLatency:  c.maxFetchTimeLatency,
@@ -351,10 +281,8 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	// Wait for the signals
 
 	log.Printf("started tradebot server at %s", addr)
-	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
-	}))
 
+	runcmd.Report(ctx, nil)
 	<-ctx.Done()
 	log.Printf("tradebot server is shutting down")
 	return nil
@@ -365,7 +293,7 @@ func isGoodKey(k string) bool {
 }
 
 func (c *Run) binaryBackupPath() string {
-	return filepath.Join(c.dataDir, "tradebot")
+	return filepath.Join(c.RunFlags.DataDir, "tradebot")
 }
 
 func (c *Run) backupBinary(ctx context.Context) (status error) {
@@ -402,7 +330,7 @@ func (c *Run) backupBinary(ctx context.Context) (status error) {
 	}
 	defer sfp.Close()
 
-	dfp, err := os.CreateTemp(c.dataDir, "tradebot*****")
+	dfp, err := os.CreateTemp(c.RunFlags.DataDir, "tradebot*****")
 	if err != nil {
 		return err
 	}

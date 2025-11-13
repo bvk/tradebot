@@ -42,6 +42,8 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/visvasity/runcmd v0.0.0-20251112024142-d5e81b306be5 // indirect
+	github.com/visvasity/unixlock v0.0.0-20250930160023-4211ac5b542a // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.15.0 // indirect

@@ -108,10 +108,16 @@ github.com/tklauser/numcpus v0.6.1 h1:ng9scYS7az0Bk4OZLvrNXNSAO2Pxr1XXRAPyjhIx+F
 github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9fESEdAacY=
 github.com/visvasity/cli v0.0.0-20250729021438-02a4793adfad h1:qC4yIrwF7GYfYfRBUVZhJebzJEHTQrHysgmbNG5s/LU=
 github.com/visvasity/cli v0.0.0-20250729021438-02a4793adfad/go.mod h1:ILMwbw7ura6UQfgCh3IIKnXBa267vHTBP/qNn6gAnYA=
+github.com/visvasity/runcmd v0.0.0-20251111210716-bac5c6343995 h1:DdewXs33HwfXCTeh78Hrs04cj/BbNb47/UcBYKGpHmg=
+github.com/visvasity/runcmd v0.0.0-20251111210716-bac5c6343995/go.mod h1:tqRLzw2I28/vDAp8KET7Ore1M8FYpESZBrJGKDEgKrY=
+github.com/visvasity/runcmd v0.0.0-20251112024142-d5e81b306be5 h1:9l/AyPLgRBWCEskzRbix5WjBnpR9CN9K+xDOWNPrbjg=
+github.com/visvasity/runcmd v0.0.0-20251112024142-d5e81b306be5/go.mod h1:tqRLzw2I28/vDAp8KET7Ore1M8FYpESZBrJGKDEgKrY=
 github.com/visvasity/sglog v0.0.0-20250729151519-230bd74d3ef0 h1:rKJxIcjA+CGeyVu5vEwaCPw+NRxi+tYDW77Wndd+B1w=
 github.com/visvasity/sglog v0.0.0-20250729151519-230bd74d3ef0/go.mod h1:tbXJl3NRnZVv5ArHRSZeLW1nGJTofo3MxWTFBPQxcRM=
 github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71 h1:hAQJQrKhXaQ7BliKysI+8fxiPKzOrJgCXCSJiBKmE0w=
 github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71/go.mod h1:NyOYwkR2EadMlApKwhsVEWvIEIMJJMmsy9pwH2YAy28=
+github.com/visvasity/unixlock v0.0.0-20250930160023-4211ac5b542a h1:S8cacWQwX/tWynMePysYSIjhUDGsbxIbeH8bEvGjHHk=
+github.com/visvasity/unixlock v0.0.0-20250930160023-4211ac5b542a/go.mod h1:iK/xTQDtcPcZO6Iyzwfr6xuFrrcfp4atG6jgYk2HBtU=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yusufpapurcu/wmi v1.2.4 h1:zFUKzehAFReQwLys1b/iSMl+JQGSCSjtVqQn9bBrPo0=
