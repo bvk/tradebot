@@ -22,6 +22,7 @@ import (
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"github.com/visvasity/topic"
 )
 
 type Exchange struct {
@@ -147,6 +148,10 @@ func (ex *Exchange) ExchangeName() string {
 
 func (ex *Exchange) CanDedupOnClientUUID() bool {
 	return true
+}
+
+func (ex *Exchange) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
+	return nil, errors.New("TODO")
 }
 
 func (ex *Exchange) sync(ctx context.Context) error {

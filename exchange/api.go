@@ -56,6 +56,10 @@ type PriceUpdate interface {
 	PricePoint() (decimal.Decimal, gobs.RemoteTime)
 }
 
+type BalanceUpdate interface {
+	Balance() (string, decimal.Decimal)
+}
+
 type Product interface {
 	io.Closer
 
@@ -77,6 +81,11 @@ type Exchange interface {
 	io.Closer
 
 	ExchangeName() string
+
+	// GetBalanceUpdates is a channel that sends update notifications
+	// asynchronously when any asset balance (available for orders) changes on
+	// the exchange.
+	GetBalanceUpdates() (*topic.Receiver[BalanceUpdate], error)
 
 	// CanDedupOnClientUUID returns true if exchange back is able to maintain
 	// unique client-id constraint (eg: Coinbase). Must return false, if exchange

@@ -4,6 +4,7 @@ package coinex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
+	"github.com/visvasity/topic"
 )
 
 type Exchange struct {
@@ -62,6 +64,10 @@ func (v *Exchange) ExchangeName() string {
 
 func (v *Exchange) CanDedupOnClientUUID() bool {
 	return false
+}
+
+func (v *Exchange) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
+	return nil, errors.New("TODO")
 }
 
 func (v *Exchange) OpenSpotProduct(ctx context.Context, productID string) (exchange.Product, error) {
