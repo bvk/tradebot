@@ -43,7 +43,7 @@ const (
 
 	NamesKeyspace = "/names/"
 
-	serverStateKey = "/server/state"
+	ServerStateKey = "/server/state"
 )
 
 type Server struct {
@@ -140,7 +140,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		telegramClient = client
 	}
 
-	state, err := kvutil.GetDB[gobs.ServerState](newctx, db, serverStateKey)
+	state, err := kvutil.GetDB[gobs.ServerState](newctx, db, ServerStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("could not load trader state: %w", err)

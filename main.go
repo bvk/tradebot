@@ -14,6 +14,7 @@ import (
 	"github.com/bvk/tradebot/subcmds"
 	"github.com/bvk/tradebot/subcmds/coinbase"
 	"github.com/bvk/tradebot/subcmds/coinex"
+	"github.com/bvk/tradebot/subcmds/configure/alerts"
 	"github.com/bvk/tradebot/subcmds/db"
 	"github.com/bvk/tradebot/subcmds/exchange"
 	"github.com/bvk/tradebot/subcmds/fix"
@@ -64,6 +65,14 @@ func main() {
 		new(setup.CoinEx),
 		new(setup.PushOver),
 		new(setup.Telegram),
+	}
+
+	alertsCmds := []cli.Command{
+		new(alerts.LowBalanceLimits),
+	}
+
+	configureCmds := []cli.Command{
+		cli.NewGroup("alerts", "Configure Alerts", alertsCmds...),
 	}
 
 	fixCmds := []cli.Command{
@@ -127,6 +136,7 @@ func main() {
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
+		cli.NewGroup("configure", "Updates runtime configuration", configureCmds...),
 		cli.NewGroup("fix", "Fix misc. metadata issues", fixCmds...),
 		cli.NewGroup("job", "Control trader jobs", jobCmds...),
 		cli.NewGroup("db", "View/update database directly", dbCmds...),

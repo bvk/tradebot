@@ -110,7 +110,7 @@ func (s *Server) doExchangeUpdateProduct(ctx context.Context, req *api.ExchangeU
 	}
 	// TODO: Handle watch/unwatch mode.
 
-	if err := kvutil.SetDB[gobs.ServerState](ctx, s.db, serverStateKey, state); err != nil {
+	if err := kvutil.SetDB[gobs.ServerState](ctx, s.db, ServerStateKey, state); err != nil {
 		return nil, err
 	}
 
