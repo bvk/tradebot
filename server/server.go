@@ -72,6 +72,11 @@ type Server struct {
 	pushoverClient *pushover.Client
 
 	telegramClient *telegram.Client
+
+	// alertFreezeDeadlineMap holds unique alert key representing an alert to an
+	// expiry timestamp before which that specific alert must be suppressed
+	// because it was already sent to the user.
+	alertFreezeDeadlineMap map[string]time.Time
 }
 
 func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options) (_ *Server, status error) {
@@ -148,15 +153,16 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	}
 
 	t := &Server{
-		db:             db,
-		opts:           *opts,
-		secrets:        secrets,
-		state:          state,
-		exchangeMap:    exchangeMap,
-		handlerMap:     make(map[string]http.Handler),
-		runner:         job.NewRunner(),
-		pushoverClient: pushoverClient,
-		telegramClient: telegramClient,
+		db:                     db,
+		opts:                   *opts,
+		secrets:                secrets,
+		state:                  state,
+		exchangeMap:            exchangeMap,
+		handlerMap:             make(map[string]http.Handler),
+		runner:                 job.NewRunner(),
+		pushoverClient:         pushoverClient,
+		telegramClient:         telegramClient,
+		alertFreezeDeadlineMap: make(map[string]time.Time),
 	}
 
 	if t.state == nil {
@@ -219,6 +225,16 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 
 	for _, ex := range t.exchangeMap {
 		limiter.RunBackgroundTasks(&t.cg, t.db, ex)
+	}
+
+	// Configure background watchers for alerts.
+	for _, exchange := range t.exchangeMap {
+		exchange := exchange
+		t.cg.Go(func(ctx context.Context) {
+			if err := t.watchForLowBalance(ctx, exchange); err != nil {
+				slog.Error("could not alert on low asset balance (check stopped)", "exchange", exchange.ExchangeName())
+			}
+		})
 	}
 	return t, nil
 }

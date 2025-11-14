@@ -4,8 +4,11 @@ package alerts
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"maps"
+	"os"
 	"regexp"
 	"strings"
 
@@ -19,6 +22,8 @@ import (
 
 type LowBalanceLimits struct {
 	cmdutil.DBFlags
+
+	exchange string
 }
 
 func (c *LowBalanceLimits) Purpose() string {
@@ -28,6 +33,7 @@ func (c *LowBalanceLimits) Purpose() string {
 func (c *LowBalanceLimits) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := new(flag.FlagSet)
 	c.DBFlags.SetFlags(fset)
+	fset.StringVar(&c.exchange, "exchange", "", "Name of the target exchange")
 	return "low-balance-limits", fset, cli.CmdFunc(c.run)
 }
 
@@ -73,7 +79,10 @@ func (c *LowBalanceLimits) run(ctx context.Context, args []string) error {
 
 	state, err := kvutil.Get[gobs.ServerState](ctx, tx, server.ServerStateKey)
 	if err != nil {
-		return err
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		state = new(gobs.ServerState)
 	}
 	if state.AlertsConfig == nil {
 		state.AlertsConfig = new(gobs.AlertsConfig)
@@ -81,12 +90,25 @@ func (c *LowBalanceLimits) run(ctx context.Context, args []string) error {
 	if state.AlertsConfig.LowBalanceLimits == nil {
 		state.AlertsConfig.LowBalanceLimits = make(map[string]decimal.Decimal)
 	}
-	// Update or add SYMBOL=LIMIT entries.
-	for k, v := range limitsMap {
-		state.AlertsConfig.LowBalanceLimits[k] = v
+	// If exchange name is specified, then make the limit as an exchange specific limit.
+	exchange := strings.ToLower(c.exchange)
+	if len(exchange) != 0 {
+		if state.AlertsConfig.PerExchangeConfig == nil {
+			state.AlertsConfig.PerExchangeConfig = make(map[string]*gobs.AlertsConfig)
+		}
+		if _, ok := state.AlertsConfig.PerExchangeConfig[exchange]; !ok {
+			state.AlertsConfig.PerExchangeConfig[exchange] = new(gobs.AlertsConfig)
+		}
 	}
 
-	if err := kvutil.Set[gobs.ServerState](ctx, tx, server.ServerStateKey, state); err != nil {
+	cfg := state.AlertsConfig
+	if len(exchange) != 0 {
+		cfg = cfg.PerExchangeConfig[exchange]
+	}
+	// Update or add SYMBOL=LIMIT entries.
+	maps.Copy(cfg.LowBalanceLimits, limitsMap)
+
+	if err := kvutil.Set(ctx, tx, server.ServerStateKey, state); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

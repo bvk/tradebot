@@ -11,6 +11,8 @@ type ServerExchangeState struct {
 }
 
 type AlertsConfig struct {
+	PerExchangeConfig map[string]*AlertsConfig
+
 	LowBalanceLimits map[string]decimal.Decimal
 }
 
