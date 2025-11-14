@@ -32,6 +32,8 @@ type Exchange struct {
 
 	websocket *internal.Websocket
 
+	balanceUpdatesTopic *topic.Topic[*exchange.SimpleBalance]
+
 	// clientOrderIDMap holds client-order-id to exchange.Order mapping for all
 	// known orders. TODO: We should cleanup the oldest orders.
 	clientOrderIDMap syncmap.Map[uuid.UUID, *exchange.SimpleOrder]
@@ -95,9 +97,10 @@ func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_
 	}
 
 	exchange := &Exchange{
-		opts:      *opts,
-		client:    client,
-		datastore: NewDatastore(db),
+		opts:                *opts,
+		client:              client,
+		datastore:           NewDatastore(db),
+		balanceUpdatesTopic: topic.New[*exchange.SimpleBalance](),
 	}
 
 	// User channel is subscribed for all supported products in a separate
@@ -151,7 +154,8 @@ func (ex *Exchange) CanDedupOnClientUUID() bool {
 }
 
 func (ex *Exchange) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
-	return nil, errors.New("TODO")
+	convert := func(v *exchange.SimpleBalance) exchange.BalanceUpdate { return v }
+	return topic.SubscribeFunc(ex.balanceUpdatesTopic, convert, 1, true /* includeLast */)
 }
 
 func (ex *Exchange) sync(ctx context.Context) error {
@@ -277,6 +281,7 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 		}
 
 		// Update account balances.
+		stime := ex.client.Now()
 		accounts, err := ex.listRawAccounts(ctx)
 		if err != nil {
 			slog.Warn("could not fetch account balances (will retry)", "err", err)
@@ -297,6 +302,12 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 			accountHoldMap[a.Hold.Currency] = newHold
 			accountAvailableMap[a.AvailableBalance.Currency] = newAvail
 			slog.Info("coinbase account balance", "name", a.Name, "currency", a.Currency, "available", newAvail, "hold", newHold)
+			bupdate := &exchange.SimpleBalance{
+				ServerTime:  stime,
+				Symbol:      a.Currency,
+				FreeBalance: newAvail,
+			}
+			ex.balanceUpdatesTopic.Send(bupdate)
 		}
 	}
 }
