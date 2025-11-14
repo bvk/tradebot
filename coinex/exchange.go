@@ -4,7 +4,6 @@ package coinex
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -67,7 +66,8 @@ func (v *Exchange) CanDedupOnClientUUID() bool {
 }
 
 func (v *Exchange) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
-	return nil, errors.New("TODO")
+	fn := func(x *internal.BalanceUpdate) exchange.BalanceUpdate { return x }
+	return topic.SubscribeFunc(v.client.balanceUpdatesTopic, fn, 0, true)
 }
 
 func (v *Exchange) OpenSpotProduct(ctx context.Context, productID string) (exchange.Product, error) {

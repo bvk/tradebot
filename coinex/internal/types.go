@@ -245,6 +245,17 @@ type BBOUpdate struct {
 	BestAskSize  decimal.Decimal `json:"best_ask_size"`
 }
 
+type BalanceUpdate struct {
+	Currency  string          `json:"ccy"`
+	Available decimal.Decimal `json:"available"`
+	Frozen    decimal.Decimal `json:"frozen"`
+	UpdatedAt int64           `json:"updated_at"`
+}
+
+func (v *BalanceUpdate) Balance() (string, decimal.Decimal) {
+	return v.Currency, v.Available
+}
+
 var _ exchange.PriceUpdate = &BBOUpdate{}
 
 var d2 = decimal.NewFromInt(2)

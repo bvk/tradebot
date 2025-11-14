@@ -49,7 +49,8 @@ type Client struct {
 
 	timeOffsetMillis atomic.Int64
 
-	refreshOrdersTopic *topic.Topic[*internal.Order]
+	refreshOrdersTopic  *topic.Topic[*internal.Order]
+	balanceUpdatesTopic *topic.Topic[*internal.BalanceUpdate]
 
 	marketOrderUpdateMap syncmap.Map[string, *topic.Topic[*internal.Order]]
 	marketBBOUpdateMap   syncmap.Map[string, *topic.Topic[*internal.BBOUpdate]]
@@ -83,9 +84,11 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 		websocketHandlerMap: make(map[string]websocketNoticeHandler),
 		websocketCallCh:     make(chan *internal.WebsocketCall, 10),
 		refreshOrdersTopic:  topic.New[*internal.Order](),
+		balanceUpdatesTopic: topic.New[*internal.BalanceUpdate](),
 	}
 	c.websocketHandlerMap["bbo.update"] = c.onBBOUpdate
 	c.websocketHandlerMap["order.update"] = c.onOrderUpdate
+	c.websocketHandlerMap["balance.update"] = c.onBalanceUpdate
 
 	if err := c.updateTimeAdjustment(ctx); err != nil {
 		return nil, err

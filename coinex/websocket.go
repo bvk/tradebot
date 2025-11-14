@@ -162,6 +162,10 @@ func (c *Client) getMessages(ctx context.Context) (status error) {
 		return err
 	}
 
+	if err := c.websocketBalanceUpdatesSubscribe(ctx); err != nil {
+		return err
+	}
+
 	// Subscribe for state.update messages on markets.
 	var markets []string
 	for m, _ := range c.marketBBOUpdateMap.Range {
@@ -365,6 +369,49 @@ func (c *Client) websocketSign(ctx context.Context) error {
 	return nil
 }
 
+func (c *Client) websocketBalanceUpdatesSubscribe(ctx context.Context) error {
+	type Params struct {
+		CurrencyList []string `json:"ccy_list"`
+	}
+	p := &Params{
+		CurrencyList: []string{},
+	}
+	params, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
+	method := "balance.subscribe"
+	if resp, err := c.websocketCall(ctx, method, params); err != nil {
+		log.Printf("subscribe to all currency balance updates request failed: response=%s err=%v", resp, err)
+		slog.Error("could not subscribe to asset updates channel", "method", method, "err", err)
+		return err
+	}
+	slog.Info("subscribed to asset balance update notifications")
+	return nil
+}
+
+func (c *Client) websocketBalanceUpdatesUnsubscribe(ctx context.Context) error {
+	type Params struct {
+		CurrencyList []string `json:"ccy_list"`
+	}
+	p := &Params{
+		CurrencyList: []string{},
+	}
+	params, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
+	method := "balance.unsubscribe"
+	if resp, err := c.websocketCall(ctx, method, params); err != nil {
+		log.Printf("unsubscribe from all currency balance updates request failed: response=%s err=%v", resp, err)
+		slog.Error("could not unsubscribe to asset updates channel", "method", method, "err", err)
+		return err
+	}
+	return nil
+}
+
 func (c *Client) websocketMarketListSubscribe(ctx context.Context, method string, markets []string) error {
 	type Params struct {
 		MarketList []string `json:"market_list"`
@@ -443,6 +490,24 @@ func (c *Client) onOrderUpdate(ctx context.Context, notice *internal.WebsocketNo
 	c.getMarketOrdersTopic(update.Order.Market).Send(update.Order)
 	if update.Order.HasFinishEvent && !update.Order.FilledAmount.IsZero() {
 		c.refreshOrdersTopic.Send(update.Order)
+	}
+	return nil
+}
+
+func (c *Client) onBalanceUpdate(ctx context.Context, notice *internal.WebsocketNotice) error {
+	log.Printf("balance-update: %s", notice.Data)
+
+	type Data struct {
+		BalanceList []*internal.BalanceUpdate `json:"balance_list"`
+	}
+	update := new(Data)
+	if err := json.Unmarshal([]byte(notice.Data), update); err != nil {
+		slog.Error("could not unmarshal balance.update data", "err", err)
+		log.Printf("balance.update notice data=%s", notice.Data)
+		return err
+	}
+	for _, v := range update.BalanceList {
+		c.balanceUpdatesTopic.Send(v)
 	}
 	return nil
 }
