@@ -46,6 +46,10 @@ const (
 	ServerStateKey = "/server/state"
 )
 
+// ErrUnconfigured error indicates that no exchanges credentials are
+// configured.
+var ErrUnconfigured = errors.New("unconfigured")
+
 var initServerState = &gobs.ServerState{
 	ExchangeMap: map[string]*gobs.ServerExchangeState{
 		"coinbase": {
@@ -120,63 +124,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		return nil, err
 	}
 
-	exchangeMap := make(map[string]exchange.Exchange)
-	defer func() {
-		if status != nil {
-			for _, exch := range exchangeMap {
-				exch.Close()
-			}
-		}
-	}()
-
-	if secrets.Coinbase != nil {
-		cbopts := &coinbase.Options{
-			MaxFetchTimeLatency: opts.MaxFetchTimeLatency,
-			HttpClientTimeout:   opts.MaxHttpClientTimeout,
-		}
-		if opts.NoFetchCandles {
-			cbopts.FetchCandlesInterval = -1
-		}
-		client, err := coinbase.New(newctx, db, secrets.Coinbase.KID, secrets.Coinbase.PEM, cbopts)
-		if err != nil {
-			return nil, fmt.Errorf("could not create coinbase client: %w", err)
-		}
-		exchangeMap["coinbase"] = client
-	}
-
-	if secrets.CoinEx != nil {
-		opts := &coinex.Options{
-			HttpClientTimeout: opts.MaxHttpClientTimeout,
-		}
-		exchange, err := coinex.NewExchange(newctx, secrets.CoinEx.Key, secrets.CoinEx.Secret, opts)
-		if err != nil {
-			return nil, fmt.Errorf("could not create coinex exchange: %w", err)
-		}
-		exchangeMap["coinex"] = exchange
-	}
-
-	if len(exchangeMap) == 0 {
-		return nil, fmt.Errorf("no credentials found for any supported exchange")
-	}
-
-	var pushoverClient *pushover.Client
-	if secrets.Pushover != nil {
-		client, err := pushover.New(secrets.Pushover)
-		if err != nil {
-			return nil, fmt.Errorf("could not create pushover client: %w", err)
-		}
-		pushoverClient = client
-	}
-
-	var telegramClient *telegram.Client
-	if secrets.Telegram != nil {
-		client, err := telegram.New(newctx, db, secrets.Telegram)
-		if err != nil {
-			return nil, fmt.Errorf("could not create telegram client: %w", err)
-		}
-		telegramClient = client
-	}
-
 	state, err := kvutil.GetDB[gobs.ServerState](newctx, db, ServerStateKey)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -193,33 +140,9 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		opts:                   *opts,
 		secrets:                secrets,
 		state:                  state,
-		exchangeMap:            exchangeMap,
 		handlerMap:             make(map[string]http.Handler),
 		runner:                 job.NewRunner(),
-		pushoverClient:         pushoverClient,
-		telegramClient:         telegramClient,
 		alertFreezeDeadlineMap: make(map[string]time.Time),
-	}
-
-	if err := t.loadProducts(newctx); err != nil {
-		return nil, fmt.Errorf("could not load default products: %w", err)
-	}
-
-	// TODO: Setup a fund
-
-	if err := t.AddTelegramCommand(newctx, "profit", "Prints profit information", t.profitTelegramCmd); err != nil {
-		slog.Error("could not add profit telegram command (ignored)", "err", err)
-	}
-	if len(t.opts.BinaryBackupPath) != 0 {
-		if err := t.AddTelegramCommand(newctx, "restart", "Restarts current process", t.restartCmd); err != nil {
-			slog.Error("could not add restart telegram command (ignored)", "err", err)
-		}
-	}
-	if err := t.AddTelegramCommand(newctx, "upgrade", "Upgrades tradebot service", t.upgradeCmd); err != nil {
-		slog.Error("could not add upgrade telegram command (ignored)", "err", err)
-	}
-	if err := t.AddTelegramCommand(newctx, "stats", "Prints system and service stats", t.statsCmd); err != nil {
-		slog.Error("could not add stats telegram command (ignored)", "err", err)
 	}
 
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
@@ -237,19 +160,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
 	t.handlerMap[api.ExchangeUpdateProductPath] = httpPostJSONHandler(t.doExchangeUpdateProduct)
 
-	for _, ex := range t.exchangeMap {
-		limiter.RunBackgroundTasks(&t.cg, t.db, ex)
-	}
-
-	// Configure background watchers for alerts.
-	for _, exchange := range t.exchangeMap {
-		exchange := exchange
-		t.cg.Go(func(ctx context.Context) {
-			if err := t.watchForLowBalance(ctx, exchange); err != nil {
-				slog.Error("could not alert on low asset balance (check stopped)", "exchange", exchange.ExchangeName())
-			}
-		})
-	}
 	return t, nil
 }
 
@@ -304,6 +214,10 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
+// Start initializes exchange and notification clients and resumes trade jobs
+// if any. Returns nil if at least one exchange is available and existing
+// runnable jobs (if any) are all resumed successfully. Returns ErrUnconfigured
+// if no exchange credentials are configured.
 func (s *Server) Start(ctx context.Context) (status error) {
 	defer func() {
 		hostname, _ := os.Hostname()
@@ -313,6 +227,99 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			s.SendMessage(ctx, time.Now(), "Trader has failed to start on host named '%s' with error `%v`.", hostname, status)
 		}
 	}()
+
+	// Create exchange objects.
+	if len(s.exchangeMap) == 0 {
+		exchangeMap := make(map[string]exchange.Exchange)
+		defer func() {
+			if status != nil {
+				for _, exch := range exchangeMap {
+					exch.Close()
+				}
+			}
+		}()
+
+		if s.secrets.Coinbase != nil {
+			cbopts := &coinbase.Options{
+				MaxFetchTimeLatency: s.opts.MaxFetchTimeLatency,
+				HttpClientTimeout:   s.opts.MaxHttpClientTimeout,
+			}
+			if s.opts.NoFetchCandles {
+				cbopts.FetchCandlesInterval = -1
+			}
+			client, err := coinbase.New(ctx, s.db, s.secrets.Coinbase.KID, s.secrets.Coinbase.PEM, cbopts)
+			if err != nil {
+				return fmt.Errorf("could not create coinbase client: %w", err)
+			}
+			exchangeMap["coinbase"] = client
+		}
+
+		if s.secrets.CoinEx != nil {
+			opts := &coinex.Options{
+				HttpClientTimeout: s.opts.MaxHttpClientTimeout,
+			}
+			exchange, err := coinex.NewExchange(ctx, s.secrets.CoinEx.Key, s.secrets.CoinEx.Secret, opts)
+			if err != nil {
+				return fmt.Errorf("could not create coinex exchange: %w", err)
+			}
+			exchangeMap["coinex"] = exchange
+		}
+
+		if len(exchangeMap) == 0 {
+			return fmt.Errorf("no credentials found for any supported exchange: %w", ErrUnconfigured)
+		}
+
+		// Fix any missing final-timestamp for filled orders.
+		for _, ex := range exchangeMap {
+			limiter.RunBackgroundTasks(&s.cg, s.db, ex)
+		}
+
+		// Configure background watchers for alerts.
+		for _, exchange := range exchangeMap {
+			exchange := exchange
+			s.cg.Go(func(ctx context.Context) {
+				if err := s.watchForLowBalance(ctx, exchange); err != nil {
+					slog.Error("could not alert on low asset balance (check stopped)", "exchange", exchange.ExchangeName())
+				}
+			})
+		}
+		s.exchangeMap = exchangeMap
+	}
+
+	if err := s.loadProducts(ctx); err != nil {
+		return fmt.Errorf("could not load default products: %w", err)
+	}
+
+	if s.pushoverClient == nil && s.secrets.Pushover != nil {
+		client, err := pushover.New(s.secrets.Pushover)
+		if err != nil {
+			return fmt.Errorf("could not create pushover client: %w", err)
+		}
+		s.pushoverClient = client
+	}
+
+	if s.telegramClient == nil && s.secrets.Telegram != nil {
+		client, err := telegram.New(ctx, s.db, s.secrets.Telegram)
+		if err != nil {
+			return fmt.Errorf("could not create telegram client: %w", err)
+		}
+		s.telegramClient = client
+
+		if err := s.AddTelegramCommand(ctx, "profit", "Prints profit information", s.profitTelegramCmd); err != nil {
+			slog.Error("could not add profit telegram command (ignored)", "err", err)
+		}
+		if len(s.opts.BinaryBackupPath) != 0 {
+			if err := s.AddTelegramCommand(ctx, "restart", "Restarts current process", s.restartCmd); err != nil {
+				slog.Error("could not add restart telegram command (ignored)", "err", err)
+			}
+		}
+		if err := s.AddTelegramCommand(ctx, "upgrade", "Upgrades tradebot service", s.upgradeCmd); err != nil {
+			slog.Error("could not add upgrade telegram command (ignored)", "err", err)
+		}
+		if err := s.AddTelegramCommand(ctx, "stats", "Prints system and service stats", s.statsCmd); err != nil {
+			slog.Error("could not add stats telegram command (ignored)", "err", err)
+		}
+	}
 
 	if s.opts.RunFixes {
 		if err := s.runFixes(ctx); err != nil {

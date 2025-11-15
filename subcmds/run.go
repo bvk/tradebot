@@ -167,7 +167,10 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	}
 	secrets, err := server.SecretsFromFile(c.secretsPath)
 	if err != nil {
-		return err
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		secrets = new(server.Secrets)
 	}
 
 	if ip := net.ParseIP(c.IP); ip == nil {
@@ -342,9 +345,28 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		}
 	}()
 
-	if err := trader.Start(ctx); err != nil {
-		return err
+	// Following /pid handler is required by the -background flag to successfully
+	// identify service initialization.
+	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
+	}))
+
+	for {
+		if err := trader.Start(ctx); err != nil {
+			if !errors.Is(err, server.ErrUnconfigured) {
+				return err
+			}
+			slog.Info("tradebot is unconfigured")
+			select {
+			case <-ctx.Done():
+				return context.Cause(ctx)
+			case <-time.After(time.Minute):
+			}
+			continue
+		}
+		break
 	}
+
 	defer func() {
 		if err := trader.Stop(context.Background()); err != nil {
 			log.Printf("could not stop all jobs (ignored): %v", err)
@@ -352,12 +374,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	}()
 
 	// Wait for the signals
-
 	log.Printf("started tradebot server at %s", addr)
-	s.AddHandler("/pid", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, fmt.Sprintf("%d", os.Getpid()))
-	}))
-
 	<-ctx.Done()
 	log.Printf("tradebot server is shutting down")
 	return nil
