@@ -46,6 +46,38 @@ const (
 	ServerStateKey = "/server/state"
 )
 
+var initServerState = &gobs.ServerState{
+	ExchangeMap: map[string]*gobs.ServerExchangeState{
+		"coinbase": {
+			EnabledProductIDs: []string{
+				"BCH-USD",
+				"BTC-USD",
+				"ETH-USD",
+				"AVAX-USD",
+				"DOGE-USD",
+				"SHIB-USD",
+
+				"BCH-USDC",
+				"BTC-USDC",
+				"ETH-USDC",
+				"AVAX-USDC",
+				"DOGE-USDC",
+				"SHIB-USDC",
+			},
+		},
+		"coinex": {
+			EnabledProductIDs: []string{
+				"BCHUSDT",
+				"BTCUSDT",
+				"ETHUSDT",
+				"AVAXUSDT",
+				"DOGEUSDT",
+				"SHIBUSDT",
+			},
+		},
+	},
+}
+
 type Server struct {
 	cg ctxutil.CloseGroup
 
@@ -150,6 +182,10 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("could not load trader state: %w", err)
 		}
+		state = initServerState
+		if err := kvutil.SetDB(newctx, db, ServerStateKey, state); err != nil {
+			return nil, err
+		}
 	}
 
 	t := &Server{
@@ -165,28 +201,6 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		alertFreezeDeadlineMap: make(map[string]time.Time),
 	}
 
-	if t.state == nil {
-		t.state = &gobs.ServerState{
-			ExchangeMap: make(map[string]*gobs.ServerExchangeState),
-		}
-		t.state.ExchangeMap["coinbase"] = &gobs.ServerExchangeState{
-			EnabledProductIDs: []string{
-				"BCH-USD",
-				"BTC-USD",
-				"ETH-USD",
-				"AVAX-USD",
-				"DOGE-USD",
-				"SHIB-USD",
-
-				"BCH-USDC",
-				"BTC-USDC",
-				"ETH-USDC",
-				"AVAX-USDC",
-				"DOGE-USDC",
-				"SHIB-USDC",
-			},
-		}
-	}
 	if err := t.loadProducts(newctx); err != nil {
 		return nil, fmt.Errorf("could not load default products: %w", err)
 	}
