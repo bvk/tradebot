@@ -47,6 +47,7 @@ type Run struct {
 	shutdownTimeout time.Duration
 
 	logDir   string
+	logName  string
 	logDebug bool
 
 	noPprof              bool
@@ -74,6 +75,7 @@ func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.dataDir, "data-dir", defaults.DataDir(), "path to the data directory")
 	fset.StringVar(&c.logDir, "log-dir", defaults.LogDir(), "path to the logs directory")
+	fset.StringVar(&c.logName, "log-name", "tradebot", "application name prefix for the log files")
 	fset.StringVar(&c.waitforHostPorts, "waitfor-host-ports", "api.coinex.com:443,api.coinbase.com:443", "startup waits till all host:port become reachable")
 	return "run", fset, cli.CmdFunc(c.run)
 }
@@ -259,6 +261,7 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 	log.SetFlags(log.Lshortfile)
 	backend := sglog.NewBackend(&sglog.Options{
+		Name:                 c.logName,
 		LogFileHeader:        true,
 		LogDirs:              []string{c.logDir},
 		LogFileMaxSize:       100 * 1024 * 1024,
