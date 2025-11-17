@@ -17,6 +17,7 @@ import (
 )
 
 const SaveClientIDOffsetSize = 10
+const CancelOffsetTimeout = time.Minute
 
 func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	v.runtimeLock.Lock()
@@ -58,8 +59,10 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 	}
 
 	var activeOrderID string
+	var activeOrderAt time.Time
 	if nlive != 0 {
 		activeOrderID = live[0].ServerOrderID
+		activeOrderAt = live[0].CreateTime.Time
 		log.Printf("%s:%s: reusing existing order %s as the active order", v.uid, v.point, activeOrderID)
 	}
 
@@ -130,16 +133,21 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			}
 
 		case ticker := <-tickerCh:
+			now := time.Now()
 			tickerPrice, _ := ticker.PricePoint()
 
 			if v.IsSell() {
 				if tickerPrice.LessThanOrEqual(v.point.Cancel) {
-					if activeOrderID != "" {
+					// Cancel an order after a minute has passed and cancel price is
+					// breached. One minute timeout reduces number of overall exchange
+					// operations.
+					if activeOrderID != "" && activeOrderAt.Add(CancelOffsetTimeout).Before(now) {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
 						}
 						dirty++
 						activeOrderID = ""
+						activeOrderAt = time.Time{}
 					}
 				}
 				if tickerPrice.GreaterThan(v.point.Cancel) {
@@ -150,6 +158,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						}
 						dirty++
 						activeOrderID = id
+						activeOrderAt = now
 					}
 				}
 				continue
@@ -157,12 +166,16 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 
 			if v.IsBuy() {
 				if tickerPrice.GreaterThanOrEqual(v.point.Cancel) {
-					if activeOrderID != "" {
+					// Cancel an order after a minute has passed and cancel price is
+					// breached. One minute timeout reduces number of overall exchange
+					// operations.
+					if activeOrderID != "" && activeOrderAt.Add(CancelOffsetTimeout).Before(now) {
 						if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
 							return err
 						}
 						dirty++
 						activeOrderID = ""
+						activeOrderAt = time.Time{}
 					}
 				}
 				if tickerPrice.GreaterThanOrEqual(v.point.Price) && tickerPrice.LessThan(v.point.Cancel) {
@@ -173,6 +186,7 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 						}
 						dirty++
 						activeOrderID = id
+						activeOrderAt = now
 					}
 				}
 				continue
