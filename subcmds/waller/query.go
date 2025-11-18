@@ -51,6 +51,7 @@ func (c *Query) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("query", flag.ContinueOnError)
 	c.spec.SetFlags(fset)
 	fset.BoolVar(&c.printPairs, "print-pairs", false, "when true, prints buy-sell points")
+	fset.BoolVar(&skipVolatilityTable, "skip-volatility-table", true, "when false, prints analysis based on volatility")
 	return "query", fset, cli.CmdFunc(c.run)
 }
 
