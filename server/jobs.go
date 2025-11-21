@@ -213,8 +213,11 @@ func (s *Server) doJobSetOption(ctx context.Context, req *api.JobSetOptionReques
 		if err != nil {
 			return fmt.Errorf("could not load trader job %q: %w", req.UID, err)
 		}
-		if err := job.SetOption(req.OptionKey, req.OptionValue); err != nil {
+		if _, err := job.SetOption(req.OptionKey, req.OptionValue); err != nil {
 			return fmt.Errorf("could not set job option: %w", err)
+		}
+		if err := job.Save(ctx, rw); err != nil {
+			return fmt.Errorf("could not save the job options: %w", err)
 		}
 		return nil
 	}

@@ -30,9 +30,12 @@ type Trader interface {
 	// given fee percentage.
 	BudgetAt(feePct decimal.Decimal) decimal.Decimal
 
-	// SetOption updates trader job's customize-able parameters. Parameters can
-	// only set or changed for paused jobs.
-	SetOption(opt, val string) error
-
 	GetSummary(*timerange.Range) *gobs.Summary
+
+	// SetOption updates a trader job's customize-able runtime parameters.
+	// Options can only set/changed when a job is *not* running. If successful
+	// change, returns an undo-value for the option. An immediate SetOption call
+	// with the returned undo-value (without running the job) *must* be
+	// successful -- which serves as an undo mechanism.
+	SetOption(opt, val string) (string, error)
 }

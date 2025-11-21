@@ -47,8 +47,6 @@ type Limiter struct {
 	// Save methods, so it needs to be thread-safe.
 	orderMap syncmap.Map[string, *exchange.SimpleOrder]
 
-	optionMap map[string]string
-
 	// holdOpt when true, pauses the buy/sell operations by this job. This flag
 	// can be updated while job is running, so it needs to be an atomic.
 	holdOpt atomic.Bool
@@ -78,7 +76,6 @@ func New(uid, exchangeName, productID string, point *point.Point) (*Limiter, err
 		uid:          uid,
 		point:        *point,
 		idgen:        idgen.New(uid, 0),
-		optionMap:    make(map[string]string),
 	}
 	if err := v.check(); err != nil {
 		return nil, err
@@ -324,7 +321,6 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 				Cancel: v.point.Cancel,
 			},
 			ServerIDOrderMap: make(map[string]*gobs.Order),
-			Options:          v.optionMap,
 		},
 	}
 	for k, v := range v.dupOrderMap() {
@@ -391,7 +387,6 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
 		idgen:        idgen.New(seed, gv.V2.ClientIDOffset+SaveClientIDOffsetSize),
-		optionMap:    make(map[string]string),
 
 		point: point.Point{
 			Size:   gv.V2.TradePoint.Size,
@@ -423,7 +418,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		return nil, err
 	}
 	for opt, val := range gv.V2.Options {
-		if err := v.SetOption(opt, val); err != nil {
+		if _, err := v.SetOption(opt, val); err != nil {
 			return nil, fmt.Errorf("could not set options: %v", err)
 		}
 	}

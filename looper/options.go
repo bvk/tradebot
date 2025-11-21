@@ -6,6 +6,6 @@ import (
 	"fmt"
 )
 
-func (v *Looper) SetOption(opt, val string) error {
-	return fmt.Errorf("TODO")
+func (v *Looper) SetOption(opt, val string) (string, error) {
+	return "", fmt.Errorf("TODO")
 }

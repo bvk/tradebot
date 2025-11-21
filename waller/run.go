@@ -69,7 +69,10 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 						log.Printf("wall-looper %v has failed (retry): %v", loop, err)
 						time.Sleep(time.Second)
 					}
+					continue
 				}
+				// Looper job is completed successfully.
+				return
 			}
 		}()
 	}

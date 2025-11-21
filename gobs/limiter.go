@@ -7,14 +7,14 @@ type LimiterState struct {
 }
 
 type LimiterStateV2 struct {
+	Options map[string]string
+
 	ProductID        string
 	ExchangeName     string
 	ClientIDSeed     string
 	ClientIDOffset   uint64
 	TradePoint       Point
 	ServerIDOrderMap map[string]*Order
-
-	Options map[string]string // Deprecated
 }
 
 func (v *LimiterState) Upgrade() {
