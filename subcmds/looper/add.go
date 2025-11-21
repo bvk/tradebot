@@ -28,6 +28,8 @@ type Add struct {
 	sellSize         float64
 	sellPrice        float64
 	sellCancelOffset float64
+
+	paused bool
 }
 
 func (c *Add) check() error {
@@ -79,6 +81,7 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 			Price:  decimal.NewFromFloat(c.sellPrice),
 			Cancel: decimal.NewFromFloat(c.sellPrice - c.sellCancelOffset),
 		},
+		Pause: c.paused,
 	}
 	resp, err := cmdutil.Post[api.LoopResponse](ctx, &c.ClientFlags, api.LoopPath, req)
 	if err != nil {
@@ -100,6 +103,7 @@ func (c *Add) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.sellSize, "sell-size", 0, "sell-size for the trade")
 	fset.Float64Var(&c.sellPrice, "sell-price", 0, "limit sell-price for the trade")
 	fset.Float64Var(&c.sellCancelOffset, "sell-cancel-offset", 0, "sell-cancel price offset for the trade")
+	fset.BoolVar(&c.paused, "paused", false, "When true, job is created as paused and should be resumed manually")
 	return "add", fset, cli.CmdFunc(c.Run)
 }
 

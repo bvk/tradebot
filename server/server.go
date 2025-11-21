@@ -566,6 +566,9 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		if err := loop.Save(ctx, rw); err != nil {
 			return fmt.Errorf("could not save new looper: %v", err)
 		}
+		if req.Pause {
+			return nil
+		}
 		if err := s.runner.Add(ctx, rw, uid, "Looper"); err != nil {
 			return fmt.Errorf("could not add new looper as a job: %w", err)
 		}

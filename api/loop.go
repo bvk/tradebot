@@ -17,6 +17,8 @@ type LoopRequest struct {
 
 	Buy  *point.Point
 	Sell *point.Point
+
+	Pause bool
 }
 
 type LoopResponse struct {
