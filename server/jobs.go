@@ -193,18 +193,13 @@ func (s *Server) doJobSetOption(ctx context.Context, req *api.JobSetOptionReques
 		return nil, fmt.Errorf("job uid must be an uuid: %w", err)
 	}
 
-	// Job can be running or in paused state.
 	update := func(ctx context.Context, rw kv.ReadWriter) error {
-		if v, ok := s.jobMap.Load(req.UID); ok {
-			if err := v.SetOption(req.OptionKey, req.OptionValue); err != nil {
-				return err
-			}
-			if err := v.Save(ctx, rw); err != nil {
-				return fmt.Errorf("could not save option change (deferred): %w", err)
-			}
-			return nil
+		// Job must not be running.
+		if _, ok := s.jobMap.Load(req.UID); ok {
+			return fmt.Errorf("job is currently running: %w", os.ErrInvalid)
 		}
 
+		// Job must not be complete already.
 		jd, err := s.runner.Get(ctx, rw, req.UID)
 		if err != nil {
 			return err
@@ -218,7 +213,6 @@ func (s *Server) doJobSetOption(ctx context.Context, req *api.JobSetOptionReques
 		if err != nil {
 			return fmt.Errorf("could not load trader job %q: %w", req.UID, err)
 		}
-
 		if err := job.SetOption(req.OptionKey, req.OptionValue); err != nil {
 			return fmt.Errorf("could not set job option: %w", err)
 		}
