@@ -7,6 +7,8 @@ type LooperState struct {
 }
 
 type LooperStateV2 struct {
+	Options map[string]string
+
 	ProductID    string
 	ExchangeName string
 	LimiterIDs   []string

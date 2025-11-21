@@ -6,6 +6,6 @@ import (
 	"fmt"
 )
 
-func (w *Waller) SetOption(opt, val string) error {
-	return fmt.Errorf("TODO")
+func (w *Waller) SetOption(opt, val string) (string, error) {
+	return "", fmt.Errorf("TODO")
 }

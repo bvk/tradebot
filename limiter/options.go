@@ -2,8 +2,8 @@
 
 package limiter
 
-import "errors"
+import "fmt"
 
-func (v *Limiter) SetOption(key, value string) error {
-	return errors.New("TODO")
+func (v *Limiter) SetOption(opt, value string) (string, error) {
+	return "", fmt.Errorf("limiter option %q is invalid", opt)
 }

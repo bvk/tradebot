@@ -146,8 +146,8 @@ func (w *Watcher) ExchangeName() string {
 	return w.state.ExchangeName
 }
 
-func (w *Watcher) SetOption(key, value string) error {
-	return fmt.Errorf("watcher job doesn't support option %q", key)
+func (w *Watcher) SetOption(key, value string) (string, error) {
+	return "", fmt.Errorf("watcher job doesn't support option %q", key)
 }
 
 func (w *Watcher) Actions() []*gobs.Action {

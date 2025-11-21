@@ -304,6 +304,8 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	}
 	gv := &gobs.LooperState{
 		V2: &gobs.LooperStateV2{
+			Options: make(map[string]string),
+
 			ProductID:    v.productID,
 			ExchangeName: v.exchangeName,
 			LimiterIDs:   limiters,
@@ -397,6 +399,12 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 	v.summary.Store(gv.V2.LifetimeSummary)
 	if err := v.check(); err != nil {
 		return nil, err
+	}
+	for opt, val := range gv.V2.Options {
+		if _, err := v.SetOption(opt, val); err != nil {
+			slog.Error("could not set looper option", "looper", v, "option", opt, "value", val, "err", err)
+			return nil, fmt.Errorf("could not set looper option (%s=%q): %v", opt, val, err)
+		}
 	}
 	return v, nil
 }
