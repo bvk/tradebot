@@ -587,8 +587,10 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		return nil, err
 	}
 
-	if err := s.runner.Resume(ctx, uid, s.makeJobFunc(loop), s.cg.Context()); err != nil {
-		slog.Error("could not resume newly added looper job (ignored)", "err", err)
+	if !req.Pause {
+		if err := s.runner.Resume(ctx, uid, s.makeJobFunc(loop), s.cg.Context()); err != nil {
+			slog.Error("could not resume newly added looper job (ignored)", "err", err)
+		}
 	}
 
 	resp := &api.LoopResponse{
