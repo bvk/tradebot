@@ -48,6 +48,8 @@ type Looper struct {
 
 	// summary caches the job summary for full time period.
 	summary atomic.Pointer[gobs.Summary]
+
+	retireOpt bool
 }
 
 var _ trader.Trader = &Looper{}
@@ -324,9 +326,13 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 			LifetimeSummary: v.GetSummary(nil),
 		},
 	}
+	if v.retireOpt {
+		gv.V2.Options["retire"] = "true"
+	}
 	if !slices.IsSorted(gv.V2.LimiterIDs) {
 		log.Printf("error: %s: limiter ids are not found in the sorted order", v.uid)
 	}
+
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(gv); err != nil {
 		return fmt.Errorf("could not encode looper state: %w", err)

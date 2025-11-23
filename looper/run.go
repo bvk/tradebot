@@ -120,6 +120,12 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			action = "BUY"
 		}
 
+		// If retire option is set, then do not start a new buy. This looper job is complete effectively.
+		if v.retireOpt && action == "BUY" && pbuy.IsZero() {
+			slog.Info("looper job is retired without starting a new buy", "looper", v, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
+			return nil
+		}
+
 		slog.Info("", "looper", v, "next-action", action, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
 
 		switch action {
