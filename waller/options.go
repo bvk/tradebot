@@ -13,6 +13,8 @@ func (w *Waller) SetOption(opt, val string) (_ string, status error) {
 	switch key := strings.ToLower(opt); key {
 	case "retire":
 		return w.setRetireOption(key, val)
+	case "freeze":
+		return w.setFreezeOption(key, val)
 	default:
 		return "", fmt.Errorf("waller option %q is invalid", key)
 	}
@@ -49,4 +51,22 @@ func (w *Waller) setRetireOption(opt, val string) (_ string, status error) {
 	}
 
 	return undo, nil
+}
+
+func (w *Waller) setFreezeOption(opt, val string) (_ string, status error) {
+	for _, loop := range w.loopers {
+		loop := loop
+		undoValue, err := loop.SetOption(opt, val)
+		if err != nil {
+			return "", err
+		}
+		defer func() {
+			if status != nil {
+				if _, err := loop.SetOption(opt, undoValue); err != nil {
+					slog.Error("could not undo set-option on looper (needs manual fix)", "looper", loop, "opt", opt, "val", val, "err", err)
+				}
+			}
+		}()
+	}
+	return "", nil
 }

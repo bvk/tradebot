@@ -49,7 +49,9 @@ type Looper struct {
 	// summary caches the job summary for full time period.
 	summary atomic.Pointer[gobs.Summary]
 
-	retireOpt bool
+	retireOpt      bool
+	freezeBuysOpt  bool
+	freezeSellsOpt bool
 }
 
 var _ trader.Trader = &Looper{}
@@ -329,6 +331,9 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	if v.retireOpt {
 		gv.V2.Options["retire"] = "true"
 	}
+	if v.freezeBuysOpt || v.freezeSellsOpt {
+		gv.V2.Options["freeze"] = v.currentFreezeValue()
+	}
 	if !slices.IsSorted(gv.V2.LimiterIDs) {
 		log.Printf("error: %s: limiter ids are not found in the sorted order", v.uid)
 	}
@@ -408,7 +413,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 	}
 	for opt, val := range gv.V2.Options {
 		if _, err := v.SetOption(opt, val); err != nil {
-			return nil, fmt.Errorf("could not set options: %v", err)
+			return nil, fmt.Errorf("could not set option %s=%s: %v", opt, val, err)
 		}
 	}
 	return v, nil

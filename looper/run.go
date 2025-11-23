@@ -120,12 +120,21 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 			action = "BUY"
 		}
 
-		// If retire option is set, then do not start a new buy. This looper job is complete effectively.
+		// Handle job specific options.
 		if v.retireOpt && action == "BUY" && pbuy.IsZero() {
 			slog.Info("looper job is retired without starting a new buy", "looper", v, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
 			return nil
 		}
-
+		if v.freezeBuysOpt && action == "BUY" {
+			slog.Info("looper job is frozen without starting a new buy due to freeze=buys option", "looper", v, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
+			<-ctx.Done()
+			return context.Cause(ctx)
+		}
+		if v.freezeSellsOpt && action == "SELL" {
+			slog.Info("looper job is frozen without starting a new sell due to freeze=sells option", "looper", v, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
+			<-ctx.Done()
+			return context.Cause(ctx)
+		}
 		slog.Info("", "looper", v, "next-action", action, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
 
 		switch action {
