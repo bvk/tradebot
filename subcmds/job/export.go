@@ -66,8 +66,8 @@ func (c *Export) run(ctx context.Context, args []string) error {
 
 	var trader trader.Trader
 	loader := func(ctx context.Context, r kv.Reader) error {
-		runner := job.NewRunner()
-		if err := runner.Export(ctx, r, export); err != nil {
+		runner := job.NewRunner(db)
+		if err := runner.Export(ctx, r, export.UID, export); err != nil {
 			return fmt.Errorf("could not export job data: %w", err)
 		}
 

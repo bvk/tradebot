@@ -1,4 +1,4 @@
-// Copyright (c) 2023 BVK Chaitanya
+// Copyright (c) 2025 BVK Chaitanya
 
 // Package job implements an api to manage jobs. Jobs are activities that can
 // be canceled, paused or resumed through the context.Context argument.
@@ -7,129 +7,88 @@ package job
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"os"
-	"runtime/debug"
-	"sync"
+
+	"github.com/bvk/tradebot/gobs"
 )
 
 type Func func(ctx context.Context) error
 
+var errDone = errors.New("no error")
 var errPause = errors.New("ErrPause")
 var errCancel = errors.New("ErrCancel")
 
 type Job struct {
-	cancel context.CancelCauseFunc
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
 
-	wg sync.WaitGroup
-
-	f Func
-
-	mu sync.Mutex
-
-	err  error
-	done bool
+	controlCtx    context.Context
+	controlCancel context.CancelCauseFunc
 }
 
-func Run(fn Func, ctx context.Context) *Job {
-	jctx, jcancel := context.WithCancelCause(ctx)
+func Run(fn Func, fctx context.Context) *Job {
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
+	controlCtx, controlCancel := context.WithCancelCause(fctx)
 
-	j := &Job{
-		cancel: jcancel,
-		f:      fn,
+	v := &Job{
+		lifeCtx:       lifeCtx,
+		lifeCancel:    lifeCancel,
+		controlCtx:    controlCtx,
+		controlCancel: controlCancel,
 	}
+	go func() {
+		defer lifeCancel()
 
-	j.wg.Add(1)
-	go j.goRun(jctx)
-	return j
-}
-
-func (j *Job) Wait() {
-	j.wg.Wait()
-}
-
-func (j *Job) State() State {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-
-	return j.stateLocked()
-}
-
-func (j *Job) stateLocked() State {
-	if !j.done {
-		return RUNNING
-	}
-	if j.err == nil {
-		return COMPLETED
-	}
-	if errors.Is(j.err, errPause) {
-		return PAUSED
-	}
-	if errors.Is(j.err, errCancel) {
-		return CANCELED
-	}
-	return FAILED
-}
-
-func (j *Job) Err() error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-
-	return j.err
-}
-
-func (j *Job) Resume(ctx context.Context) error {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-
-	state := j.stateLocked()
-	if state != PAUSED {
-		if state == RUNNING {
-			return os.ErrInvalid
+		if err := fn(controlCtx); err != nil {
+			controlCancel(err)
+			return
 		}
-		return os.ErrClosed
-	}
-
-	jctx, jcancel := context.WithCancelCause(ctx)
-
-	j.done = false
-	j.cancel = jcancel
-
-	j.wg.Add(1)
-	go j.goRun(jctx)
-	return nil
-}
-
-func (j *Job) Pause() {
-	if j.cancel != nil {
-		j.cancel(errPause)
-		j.cancel = nil
-	}
-}
-
-func (j *Job) Cancel() {
-	if j.cancel != nil {
-		j.cancel(errCancel)
-		j.cancel = nil
-	}
-}
-
-func (j *Job) goRun(ctx context.Context) {
-	defer j.wg.Done()
-
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("CAUGHT PANIC", "panic", r)
-			slog.Error(string(debug.Stack()))
-			panic(r)
-		}
+		controlCancel(errDone)
 	}()
 
-	err := j.f(ctx)
+	return v
+}
 
-	j.mu.Lock()
-	defer j.mu.Unlock()
+func (v *Job) Wait(ctx context.Context) error {
+	var doneCh <-chan struct{}
+	if ctx != nil {
+		doneCh = ctx.Done()
+	}
+	select {
+	case <-doneCh:
+		return context.Cause(ctx)
+	case <-v.lifeCtx.Done():
+		return nil
+	}
+}
 
-	j.err = err
-	j.done = true
+func (v *Job) Err() error {
+	status := context.Cause(v.controlCtx)
+	if status == nil || errors.Is(status, errDone) {
+		return nil
+	}
+	return status
+}
+
+func (v *Job) state() gobs.State {
+	status := context.Cause(v.controlCtx)
+	switch {
+	case status == nil:
+		return gobs.RUNNING
+	case errors.Is(status, errDone):
+		return gobs.COMPLETED
+	case errors.Is(status, errPause):
+		return gobs.PAUSED
+	case errors.Is(status, errCancel):
+		return gobs.CANCELED
+	default:
+		return gobs.FAILED
+	}
+}
+
+func (v *Job) Pause() {
+	v.controlCancel(errPause)
+}
+
+func (v *Job) Cancel() {
+	v.controlCancel(errCancel)
 }

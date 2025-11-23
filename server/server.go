@@ -141,7 +141,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 		secrets:                secrets,
 		state:                  state,
 		handlerMap:             make(map[string]http.Handler),
-		runner:                 job.NewRunner(),
+		runner:                 job.NewRunner(db),
 		alertFreezeDeadlineMap: make(map[string]time.Time),
 	}
 
@@ -206,7 +206,7 @@ func (s *Server) SendMessage(ctx context.Context, at time.Time, msgfmt string, a
 }
 
 func (s *Server) Stop(ctx context.Context) error {
-	if err := job.StopAllDB(ctx, s.runner, s.db); err != nil {
+	if err := s.runner.PauseAll(ctx); err != nil {
 		return fmt.Errorf("could not stop all jobs: %w", err)
 	}
 	hostname, _ := os.Hostname()
@@ -331,10 +331,10 @@ func (s *Server) Start(ctx context.Context) (status error) {
 		return nil
 	}
 
-	var uids []string
-	collect := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
-		uid := jd.UID
-		if job.IsDone(jd.State) {
+	traders := make(map[string]trader.Trader)
+	collect := func(ctx context.Context, r kv.Reader, jd *gobs.JobData) error {
+		uid := jd.ID
+		if jd.State.IsDone() {
 			log.Printf("job %q is already completed to %q", uid, jd.State)
 			return nil
 		}
@@ -344,51 +344,24 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			return nil
 		}
 
-		uids = append(uids, uid)
+		trader, err := Load(ctx, r, uid, jd.Typename)
+		if err != nil {
+			return fmt.Errorf("could not load trader job %q: %w", uid, err)
+		}
+		traders[uid] = trader
 		return nil
 	}
-
-	if err := job.ScanDB(ctx, s.runner, s.db, collect); err != nil {
+	if err := s.runner.Scan(ctx, nil /* kv.Reader */, collect); err != nil {
 		return fmt.Errorf("could not resume all jobs: %w", err)
 	}
 
-	resume := func(ctx context.Context, rw kv.ReadWriter) error {
-		for _, uid := range uids {
-			jd, err := s.runner.Get(ctx, rw, uid)
-			if err != nil {
-				return fmt.Errorf("could not get job data for %q: %w", uid, err)
-			}
-			if _, err := s.resume(ctx, rw, jd); err != nil {
-				log.Printf("could not resume job %q (skipped): %v", uid, err)
-			}
+	for uid, trader := range traders {
+		if err := s.runner.Resume(ctx, uid, s.makeJobFunc(trader), s.cg.Context()); err != nil {
+			return fmt.Errorf("could not resume job %q: %w", uid, err)
 		}
-		return nil
+		log.Printf("resumed job with id %q", uid)
 	}
-	kv.WithReadWriter(ctx, s.db, resume)
 	return nil
-}
-
-func (s *Server) resume(ctx context.Context, rw kv.ReadWriter, jdata *job.JobData) (job.State, error) {
-	uid := jdata.UID
-	if job.IsDone(jdata.State) {
-		return "", fmt.Errorf("job %q is already completed (%q)", uid, jdata.State)
-	}
-
-	if jdata.Flags&ManualFlag != 0 {
-		return "", fmt.Errorf("job %q needs to be resumed manually", uid)
-	}
-
-	trader, err := Load(ctx, rw, uid, jdata.Typename)
-	if err != nil {
-		return "", fmt.Errorf("could not load trader job %q: %w", uid, err)
-	}
-
-	state, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(trader), s.cg.Context())
-	if err != nil {
-		return "", fmt.Errorf("could not resume job %q: %w", uid, err)
-	}
-	log.Printf("resumed job with id %q", uid)
-	return state, nil
 }
 
 func (s *Server) runFixes(ctx context.Context) (status error) {
@@ -396,10 +369,10 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 		Fix(context.Context, *trader.Runtime) error
 	}
 
-	fix := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
-		trader, err := Load(ctx, r, jd.UID, jd.Typename)
+	fix := func(ctx context.Context, r kv.Reader, jd *gobs.JobData) error {
+		trader, err := Load(ctx, r, jd.ID, jd.Typename)
 		if err != nil {
-			return fmt.Errorf("could not load trader %q: %w", jd.UID, err)
+			return fmt.Errorf("could not load trader %q: %w", jd.ID, err)
 		}
 
 		fixer, ok := trader.(Fixer)
@@ -410,15 +383,15 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 		ename, pid := trader.ExchangeName(), trader.ProductID()
 		product, err := s.getProduct(ctx, ename, pid)
 		if err != nil {
-			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", jd.UID, pid, ename, err)
+			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", jd.ID, pid, ename, err)
 		}
 
 		if err := fixer.Fix(ctx, s.Runtime(product)); err != nil {
-			return fmt.Errorf("could not fix trader %q: %w", jd.UID, err)
+			return fmt.Errorf("could not fix trader %q: %w", jd.ID, err)
 		}
 		return nil
 	}
-	return job.ScanDB(ctx, s.runner, s.db, fix)
+	return s.runner.Scan(ctx, nil /* kv.Reader */, fix)
 }
 
 func (s *Server) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
@@ -550,13 +523,14 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		if err := s.runner.Add(ctx, rw, uid, "Limiter"); err != nil {
 			return fmt.Errorf("could not add new limiter as a job: %w", err)
 		}
-		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(limit), s.cg.Context()); err != nil {
-			return fmt.Errorf("could not resume new limiter job: %w", err)
-		}
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
 		return nil, err
+	}
+
+	if err := s.runner.Resume(ctx, uid, s.makeJobFunc(limit), s.cg.Context()); err != nil {
+		slog.Error("could not resume newly added limiter job (ignored)", "err", err)
 	}
 
 	resp := &api.LimitResponse{
@@ -593,13 +567,14 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		if err := s.runner.Add(ctx, rw, uid, "Looper"); err != nil {
 			return fmt.Errorf("could not add new looper as a job: %w", err)
 		}
-		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(loop), s.cg.Context()); err != nil {
-			return fmt.Errorf("could not resume new looper job: %w", err)
-		}
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
 		return nil, err
+	}
+
+	if err := s.runner.Resume(ctx, uid, s.makeJobFunc(loop), s.cg.Context()); err != nil {
+		slog.Error("could not resume newly added looper job (ignored)", "err", err)
 	}
 
 	resp := &api.LoopResponse{
@@ -636,13 +611,14 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		if err := s.runner.Add(ctx, rw, uid, "Waller"); err != nil {
 			return fmt.Errorf("could not add new waller as a job: %w", err)
 		}
-		if _, err := s.runner.Resume(ctx, rw, uid, s.makeJobFunc(wall), s.cg.Context()); err != nil {
-			return fmt.Errorf("could not resume new waller job: %w", err)
-		}
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
 		return nil, err
+	}
+
+	if err := s.runner.Resume(ctx, uid, s.makeJobFunc(wall), s.cg.Context()); err != nil {
+		slog.Error("could not resume newly added waller job (ignored)", "err", err)
 	}
 
 	resp := &api.WallResponse{

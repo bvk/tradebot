@@ -17,6 +17,7 @@ import (
 
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/coinex"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/looper"
@@ -209,7 +210,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 	var runningStatuses []*trader.Status
 	for _, s := range statuses {
-		if status, ok := uid2statusMap[s.UID]; ok && status == string(job.RUNNING) {
+		if status, ok := uid2statusMap[s.UID]; ok && status == string(gobs.RUNNING) {
 			runningStatuses = append(runningStatuses, s)
 		}
 	}

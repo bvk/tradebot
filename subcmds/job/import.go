@@ -56,7 +56,7 @@ func (c *Import) run(ctx context.Context, args []string) error {
 	}
 	defer closer()
 
-	runner := job.NewRunner()
+	runner := job.NewRunner(db)
 
 	// Verify that name, job id and all other keys doesn't exist in the target db.
 	verifier := func(ctx context.Context, r kv.Reader) error {

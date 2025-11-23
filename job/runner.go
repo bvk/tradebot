@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
+	"maps"
 	"os"
 	"path"
-	"strings"
+	"slices"
 	"sync"
 
 	"github.com/bvk/tradebot/gobs"
@@ -19,211 +21,244 @@ import (
 
 const Keyspace = "/jobs/"
 
-type State string
-
-const (
-	PAUSED    State = "PAUSED"
-	RUNNING   State = "RUNNING"
-	COMPLETED State = "COMPLETED"
-	CANCELED  State = "CANCELED"
-	FAILED    State = "FAILED"
-)
-
-func IsStopped(s State) bool {
-	return s != RUNNING
-}
-
-func IsDone(s State) bool {
-	return s == COMPLETED || s == CANCELED || s == FAILED
-}
-
-type JobData struct {
-	UID      string
-	Typename string
-	Flags    uint64
-
-	State State
-}
-
-func toGob(v *JobData) *gobs.JobData {
-	if v.State == "" {
-		v.State = PAUSED
-	}
-	return &gobs.JobData{
-		ID:       v.UID,
-		Typename: v.Typename,
-		Flags:    v.Flags,
-		State:    string(v.State),
-	}
-}
-
-func fromGob(v *gobs.JobData) *JobData {
-	if v.State == "" {
-		v.State = string(PAUSED)
-	}
-	return &JobData{
-		UID:      v.ID,
-		Typename: v.Typename,
-		Flags:    v.Flags,
-		State:    State(v.State),
-	}
-}
-
 type Runner struct {
 	mu sync.Mutex
 
-	// jobMap holds metadata for all running jobs.
-	jobMap map[string]*Job
+	db kv.Database
 
-	// dataMap holds metadata for all running jobs and also more jobs, like
-	// completed, canceled, etc. Metadata in this map is always newer than the
-	// metadata in the database. This in-memory map is necessary cause runner's
-	// wrapJobFunc has no db access (to save the completed state) when the job is
-	// completed.
-	dataMap map[string]*JobData
+	// jobMap holds running jobs.
+	jobMap map[string]*Job
 }
 
-func NewRunner() *Runner {
+// NewRunner creates a job runner that uses the input database for persistency.
+func NewRunner(db kv.Database) *Runner {
 	return &Runner{
-		jobMap:  make(map[string]*Job),
-		dataMap: make(map[string]*JobData),
+		db:     db,
+		jobMap: make(map[string]*Job),
 	}
 }
 
-func (r *Runner) syncLocked(ctx context.Context, rw kv.ReadWriter) error {
-	for uid, jd := range r.dataMap {
-		if err := r.setLocked(ctx, rw, uid, jd); err != nil {
-			return fmt.Errorf("could not sync metadata for job %q: %w", uid, err)
+// PauseAll pauses all running jobs and waits for the goroutines to complete or
+// the input context to expire.
+func (r *Runner) PauseAll(ctx context.Context) error {
+	r.mu.Lock()
+	jobs := slices.Collect(maps.Values(r.jobMap))
+	r.mu.Unlock()
+
+	for _, v := range jobs {
+		v.Pause()
+	}
+
+	for _, v := range jobs {
+		if err := v.Wait(ctx); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (r *Runner) StopAll(ctx context.Context, rw kv.ReadWriter) error {
-	var jobs []*Job
-
-	r.mu.Lock()
-	for uid, job := range r.jobMap {
-		job.Pause()
-		delete(r.jobMap, uid)
-		jobs = append(jobs, job)
-	}
-	r.mu.Unlock()
-
-	for _, job := range jobs {
-		job.Wait()
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return r.syncLocked(ctx, rw)
-}
-
-func (r *Runner) wrapJobFunc(uid string, fn Func) Func {
-	return func(ctx context.Context) error {
+// Resume starts a paused job.
+func (r *Runner) Resume(ctx context.Context, uid string, fn Func, fctx context.Context) error {
+	wrapper := func(ctx context.Context) error {
+		// Run the input function as the job.
 		status := fn(ctx)
 		log.Printf("job %q has returned with status: %v", uid, status)
+
+		// Update the job state as FAILED/COMPLETE/PAUSED in the database. If the
+		// database update fails, we will end up with persistent state as RUNNING
+		// but with the user-level function finished, in which case, we won't
+		// remove it from the running jobMap, so that it is still running.
+
+		tx, err := r.db.NewTransaction(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+
+		key := path.Join(Keyspace, uid)
+		jd, err := kvutil.Get[gobs.JobData](ctx, tx, key)
+		if err != nil {
+			return err
+		}
+
+		switch {
+		default:
+			jd.State = gobs.FAILED
+		case status == nil:
+			jd.State = gobs.COMPLETED
+		case errors.Is(status, errPause):
+			jd.State = gobs.PAUSED
+		case errors.Is(status, errCancel):
+			jd.State = gobs.CANCELED
+
+		case errors.Is(status, errDone):
+			slog.Error("unexpected: private errDone return status from the user function", "err", err)
+			jd.State = gobs.COMPLETED
+		}
+
+		if err := kvutil.Set(ctx, tx, key, jd); err != nil {
+			return err
+		}
 
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		if job, ok := r.jobMap[uid]; ok {
-			data := r.dataMap[uid]
-			data.State = job.State()
-
-			delete(r.jobMap, uid)
+		if err := tx.Commit(ctx); err != nil {
+			return err
 		}
 
-		return status
+		// Remove the job only after its final state is successfully written to
+		// database.
+		delete(r.jobMap, uid)
+		return errDone
 	}
-}
 
-// Get returns a job's information.
-func (r *Runner) Get(ctx context.Context, reader kv.Reader, uid string) (*JobData, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	jd, err := r.getLocked(ctx, reader, uid)
-	if err != nil {
-		return nil, fmt.Errorf("could not load job data: %w", err)
+	if _, ok := r.jobMap[uid]; ok {
+		return fmt.Errorf("job %q is already running", uid)
 	}
-	return jd, nil
-}
 
-func (r *Runner) getLocked(ctx context.Context, reader kv.Reader, uid string) (*JobData, error) {
-	jd, ok := r.dataMap[uid]
-	if ok {
-		if job, ok := r.jobMap[uid]; ok {
-			jd.State = job.State()
-		}
-		return jd, nil
+	// Update job as RUNNING in the database. We don't begin the job if this
+	// database update fails, so that DB state and runtime state are consistent.
+	tx, err := r.db.NewTransaction(ctx)
+	if err != nil {
+		return err
 	}
+	defer tx.Rollback(ctx)
 
 	key := path.Join(Keyspace, uid)
-	gob, err := kvutil.Get[gobs.JobData](ctx, reader, key)
+	jd, err := kvutil.Get[gobs.JobData](ctx, tx, key)
 	if err != nil {
-		return nil, fmt.Errorf("could not read job data from db: %w", err)
+		return fmt.Errorf("could not read job data from db: %w", err)
 	}
 
-	jd = fromGob(gob)
-	r.dataMap[uid] = jd
-	return jd, nil
-}
+	if jd.State.IsDone() {
+		return fmt.Errorf("job %q is already complete", uid)
+	}
 
-func (r *Runner) setLocked(ctx context.Context, writer kv.ReadWriter, uid string, jd *JobData) error {
-	key := path.Join(Keyspace, uid)
-	if err := kvutil.Set(ctx, writer, key, toGob(jd)); err != nil {
-		return fmt.Errorf("could not update metadata for job %q: %w", uid, err)
+	jd.State = gobs.RUNNING
+	if err := kvutil.Set(ctx, tx, key, jd); err != nil {
+		return err
 	}
-	// Database is synced with the latest version, so we can drop the in-memory
-	// data for non-running jobs.
-	if _, ok := r.jobMap[uid]; !ok {
-		delete(r.dataMap, uid)
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
+
+	r.jobMap[uid] = Run(wrapper, fctx)
 	return nil
 }
 
-func (r *Runner) UpdateFlags(ctx context.Context, rw kv.ReadWriter, uid string, flags uint64) error {
+// Get returns an existing job's information.
+func (r *Runner) Get(ctx context.Context, reader kv.Reader, uid string) (*gobs.JobData, error) {
+	if reader == nil {
+		snap, err := r.db.NewSnapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer snap.Discard(ctx)
+
+		reader = snap
+	}
+
+	key := path.Join(Keyspace, uid)
+	jd, err := kvutil.Get[gobs.JobData](ctx, reader, key)
+	if err != nil {
+		return nil, fmt.Errorf("could not read job data from db: %w", err)
+	}
+	return jd, nil
+}
+
+// UpdateFlags updates the user-defined flags of an existing job.
+func (r *Runner) UpdateFlags(ctx context.Context, writer kv.ReadWriter, uid string, flags uint64) (status error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	jd, err := r.getLocked(ctx, rw, uid)
-	if err != nil {
-		return fmt.Errorf("could not load job data: %w", err)
+	rw := writer
+	var tx kv.Transaction
+	if writer == nil {
+		tmp, err := r.db.NewTransaction(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+
+		rw, tx = tmp, tmp
 	}
+
+	key := path.Join(Keyspace, uid)
+	jd, err := kvutil.Get[gobs.JobData](ctx, rw, key)
+	if err != nil {
+		return fmt.Errorf("could not read job data from db: %w", err)
+	}
+
 	jd.Flags = flags
-	if err := r.setLocked(ctx, rw, uid, jd); err != nil {
-		return fmt.Errorf("could not update flags: %w", err)
+	if err := kvutil.Set(ctx, rw, key, jd); err != nil {
+		return fmt.Errorf("could not update metadata for job %q: %w", uid, err)
+	}
+
+	if writer == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // Add creates a new job in the database. Jobs are created in PAUSED state and
-// must be resumed to begin execution.
+// must be resumed to begin execution. If writer is non-nil, then job is added
+// to the database within the input writer's transaction and database update
+// depends on the result of the writer transaction's commit operation.
 func (r *Runner) Add(ctx context.Context, writer kv.ReadWriter, uid, typename string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, err := r.getLocked(ctx, writer, uid); err == nil || !errors.Is(err, os.ErrNotExist) {
+	if _, ok := r.jobMap[uid]; ok {
+		return fmt.Errorf("job with uid %s already exists and is running: %w", uid, os.ErrExist)
+	}
+
+	// create a local transaction if necessary.
+	rw := writer
+	var tx kv.Transaction
+	if writer == nil {
+		tmp, err := r.db.NewTransaction(ctx)
+		if err != nil {
+			return err
+		}
+		defer tmp.Rollback(ctx)
+
+		tx, rw = tmp, tmp
+	}
+
+	key := path.Join(Keyspace, uid)
+	if _, err := kvutil.Get[gobs.JobData](ctx, rw, key); err == nil || !errors.Is(err, os.ErrNotExist) {
 		if err == nil {
 			return fmt.Errorf("job with uid already exists: %w", os.ErrExist)
 		}
-		return fmt.Errorf("could not check if uid already exists: %w", err)
+		return fmt.Errorf("could not read job data from db: %w", err)
 	}
 
-	jd := &JobData{
-		UID:      uid,
+	jd := &gobs.JobData{
+		ID:       uid,
 		Typename: typename,
-		State:    PAUSED,
+		State:    gobs.PAUSED,
 	}
-	if err := r.setLocked(ctx, writer, uid, jd); err != nil {
-		return fmt.Errorf("could not save new job entry: %w", err)
+	if err := kvutil.Set(ctx, rw, key, jd); err != nil {
+		return err
+	}
+
+	if writer == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// Remove deletes a job from the database. Running jobs cannot be removed.
+// Remove deletes a job from the database. Running jobs cannot be removed. If
+// writer is non-nil, then removal depends on the result of input writer's
+// commit operation.
 func (r *Runner) Remove(ctx context.Context, writer kv.ReadWriter, uid string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -232,112 +267,118 @@ func (r *Runner) Remove(ctx context.Context, writer kv.ReadWriter, uid string) e
 		return fmt.Errorf("running job %q cannot be removed", uid)
 	}
 
+	rw := writer
+	var tx kv.Transaction
+	if writer == nil {
+		tmp, err := r.db.NewTransaction(ctx)
+		if err != nil {
+			return err
+		}
+		defer tmp.Rollback(ctx)
+
+		tx, rw = tmp, tmp
+	}
+
 	key := path.Join(Keyspace, uid)
-	if err := writer.Delete(ctx, key); err != nil {
+	if err := rw.Delete(ctx, key); err != nil {
 		return fmt.Errorf("could not delete key %q: %w", key, err)
 	}
-	delete(r.dataMap, uid)
+
+	if writer == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// Scan invokes the callback function with all jobs defined in the database.
-func (r *Runner) Scan(ctx context.Context, reader kv.Reader, fn func(ctx context.Context, r kv.Reader, item *JobData) error) error {
+// Scan invokes the callback function with all jobs defined in the database. If
+// the reader is nil, then a new snapshot will be used for reading the
+// database.
+func (r *Runner) Scan(ctx context.Context, reader kv.Reader, fn func(ctx context.Context, r kv.Reader, item *gobs.JobData) error) error {
+	if reader == nil {
+		snap, err := r.db.NewSnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		defer snap.Discard(ctx)
+
+		reader = snap
+	}
+
+	// Database state is the most up to date even for the running jobs.
+
 	begin, end := kvutil.PathRange(Keyspace)
-	cb := func(ctx context.Context, _ kv.Reader, key string, value *gobs.JobData) error {
-		uid := strings.TrimPrefix(key, Keyspace)
-
-		r.mu.Lock()
-		jd, ok := r.dataMap[uid]
-		if ok {
-			if job, ok := r.jobMap[uid]; ok {
-				jd.State = job.State()
-			}
-		}
-		r.mu.Unlock()
-
-		if jd == nil {
-			jd = fromGob(value)
-		}
-		return fn(ctx, reader, jd)
+	cb := func(ctx context.Context, reader kv.Reader, key string, value *gobs.JobData) error {
+		return fn(ctx, reader, value)
 	}
 	return kvutil.Ascend(ctx, reader, begin, end, cb)
 }
 
-// Resume runs a job. Job must be in PAUSED state.
-func (r *Runner) Resume(ctx context.Context, writer kv.ReadWriter, uid string, fn Func, fctx context.Context) (State, error) {
+// Pause stops a running job. Paused jobs can be resumed later. Returns
+// os.ErrNotExist if job is not running.
+func (r *Runner) Pause(ctx context.Context, uid string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, ok := r.jobMap[uid]; ok {
-		return "", fmt.Errorf("job %q is already resumed: %w", uid, os.ErrExist)
+	job, ok := r.jobMap[uid]
+	if !ok {
+		return fmt.Errorf("job %s is not running: %w", uid, os.ErrNotExist)
 	}
 
-	jd, err := r.getLocked(ctx, writer, uid)
-	if err != nil {
-		return "", fmt.Errorf("could not load job data for %q: %w", uid, err)
-	}
+	// Wrapper function needs to acquire the lock before the goroutine completes.
+	r.mu.Unlock()
+	defer r.mu.Lock()
 
-	if IsDone(jd.State) {
-		return "", fmt.Errorf("job %q is already completed", uid)
+	job.Pause()
+	if err := job.Wait(ctx); err != nil {
+		return err
 	}
-
-	job := Run(r.wrapJobFunc(uid, fn), fctx)
-	r.jobMap[uid] = job
-
-	jd.State = job.State()
-	if err := r.setLocked(ctx, writer, uid, jd); err != nil {
-		log.Printf("could not update job state in the db (ignored): %v", err)
-	}
-	return jd.State, nil
+	return nil
 }
 
-// Pause stops a running job. Job can be resumed later.
-func (r *Runner) Pause(ctx context.Context, writer kv.ReadWriter, uid string) (State, error) {
+// Cancel forces a job to it's finished state. If a job is running or not, it
+// will be marked as canceled. Canceled jobs cannot be resumed later.
+func (r *Runner) Cancel(ctx context.Context, uid string) (*gobs.JobData, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if job, ok := r.jobMap[uid]; ok {
-		job.Pause()
-		r.mu.Unlock()
-		job.Wait()
-		r.mu.Lock()
-	}
-
-	jd, err := r.getLocked(ctx, writer, uid)
-	if err != nil {
-		return "", fmt.Errorf("could not load job state: %w", err)
-	}
-	if !IsDone(jd.State) {
-		jd.State = PAUSED
-	}
-	if err := r.setLocked(ctx, writer, uid, jd); err != nil {
-		return "", fmt.Errorf("could not mark job %q as paused: %w", uid, err)
-	}
-	return jd.State, nil
-}
-
-// Cancel stops the job if it is running and marks it as canceled. Job cannot
-// be resumed after it is canceled.
-func (r *Runner) Cancel(ctx context.Context, writer kv.ReadWriter, uid string) (State, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+	// Running jobs.
 	if job, ok := r.jobMap[uid]; ok {
 		job.Cancel()
+
 		r.mu.Unlock()
-		job.Wait()
-		r.mu.Lock()
+		defer r.mu.Lock()
+
+		if err := job.Wait(ctx); err != nil {
+			return nil, err
+		}
+		return r.Get(ctx, nil, uid)
 	}
 
-	jd, err := r.getLocked(ctx, writer, uid)
+	tx, err := r.db.NewTransaction(ctx)
 	if err != nil {
-		return "", fmt.Errorf("could not load job state: %w", err)
+		return nil, err
 	}
-	if !IsDone(jd.State) {
-		jd.State = CANCELED
+	defer tx.Rollback(ctx)
+
+	key := path.Join(Keyspace, uid)
+	jd, err := kvutil.Get[gobs.JobData](ctx, tx, key)
+	if err != nil {
+		return nil, fmt.Errorf("could not read job data from db: %w", err)
 	}
-	if err := r.setLocked(ctx, writer, uid, jd); err != nil {
-		return "", fmt.Errorf("could not mark job %q as canceled: %w", uid, err)
+
+	if jd.State.IsDone() {
+		return jd, nil
 	}
-	return jd.State, nil
+
+	jd.State = gobs.CANCELED
+	if err := kvutil.Set(ctx, tx, key, jd); err != nil {
+		return nil, fmt.Errorf("could not mark job %q as canceled: %w", uid, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return jd, nil
 }

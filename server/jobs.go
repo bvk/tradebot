@@ -13,6 +13,7 @@ import (
 
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/trader"
@@ -55,14 +56,14 @@ func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 // doPause pauses a running job. If the job is not running and is not final
 // it's state is updated to manually-paused state.
 func (s *Server) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.JobPauseResponse, error) {
-	var state job.State
-	pause := func(ctx context.Context, rw kv.ReadWriter) error {
-		nstate, err := s.runner.Pause(ctx, rw, req.UID)
-		if err != nil {
-			return fmt.Errorf("could not pause job %q: %w", req.UID, err)
+	if err := s.runner.Pause(ctx, req.UID); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("could not pause job %q: %w", req.UID, err)
 		}
-		state = nstate
+	}
 
+	var state gobs.State
+	pause := func(ctx context.Context, rw kv.ReadWriter) error {
 		jd, err := s.runner.Get(ctx, rw, req.UID)
 		if err != nil {
 			return fmt.Errorf("could not get job %q data: %w", req.UID, err)
@@ -70,6 +71,7 @@ func (s *Server) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.Jo
 		if err := s.runner.UpdateFlags(ctx, rw, req.UID, jd.Flags|ManualFlag); err != nil {
 			log.Printf("job is paused, but could not mark job %q as manual (ignored): %v", req.UID, err)
 		}
+		state = jd.State
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, pause); err != nil {
@@ -84,7 +86,7 @@ func (s *Server) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.Jo
 
 // doResume resumes a non-final job.
 func (s *Server) doResume(ctx context.Context, req *api.JobResumeRequest) (*api.JobResumeResponse, error) {
-	var state job.State
+	var trader trader.Trader
 	resume := func(ctx context.Context, rw kv.ReadWriter) error {
 		jd, err := s.runner.Get(ctx, rw, req.UID)
 		if err != nil {
@@ -99,53 +101,51 @@ func (s *Server) doResume(ctx context.Context, req *api.JobResumeRequest) (*api.
 			}
 		}
 
-		nstate, err := s.resume(ctx, rw, jd)
+		v, err := Load(ctx, rw, req.UID, jd.Typename)
 		if err != nil {
-			return fmt.Errorf("could not resume job: %w", err)
+			return fmt.Errorf("could not load trader job %q: %w", req.UID, err)
 		}
-
-		state = nstate
+		trader = v
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, resume); err != nil {
 		return nil, err
 	}
 
+	if err := s.runner.Resume(ctx, req.UID, s.makeJobFunc(trader), s.cg.Context()); err != nil {
+		return nil, fmt.Errorf("could not resume job %q: %w", req.UID, err)
+	}
+	log.Printf("resumed job with id %q", req.UID)
+
 	resp := &api.JobResumeResponse{
-		FinalState: string(state),
+		FinalState: string(gobs.RUNNING),
 	}
 	return resp, nil
 }
 
 // doCancel cancels a non-final job. If job is running, it will be stopped.
 func (s *Server) doCancel(ctx context.Context, req *api.JobCancelRequest) (*api.JobCancelResponse, error) {
-	state, err := job.CancelDB(ctx, s.runner, s.db, req.UID)
+	jd, err := s.runner.Cancel(ctx, req.UID)
 	if err != nil {
 		return nil, err
 	}
 	resp := &api.JobCancelResponse{
-		FinalState: string(state),
+		FinalState: string(jd.State),
 	}
 	return resp, nil
 }
 
 func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobListResponse, error) {
-	snap, err := s.db.NewSnapshot(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not create a db snapshot: %w", err)
-	}
-	defer snap.Discard(ctx)
-
 	resp := new(api.JobListResponse)
-	collect := func(ctx context.Context, r kv.Reader, jd *job.JobData) error {
-		name, _, _, err := namer.Resolve(ctx, snap, jd.UID)
+	collect := func(ctx context.Context, r kv.Reader, jd *gobs.JobData) error {
+		name, _, _, err := namer.Resolve(ctx, r, jd.ID)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("could not resolve job id %q: %w", jd.UID, err)
+				return fmt.Errorf("could not resolve job id %q: %w", jd.ID, err)
 			}
 		}
 		item := &api.JobListResponseItem{
-			UID:        jd.UID,
+			UID:        jd.ID,
 			Type:       jd.Typename,
 			State:      string(jd.State),
 			Name:       name,
@@ -154,7 +154,7 @@ func (s *Server) doList(ctx context.Context, req *api.JobListRequest) (*api.JobL
 		resp.Jobs = append(resp.Jobs, item)
 		return nil
 	}
-	if err := job.ScanDB(ctx, s.runner, s.db, collect); err != nil {
+	if err := s.runner.Scan(ctx, nil /* kv.Reader */, collect); err != nil {
 		return nil, fmt.Errorf("could not scan all jobs: %w", err)
 	}
 	return resp, nil
@@ -174,7 +174,7 @@ func (s *Server) doSetJobName(ctx context.Context, req *api.SetJobNameRequest) (
 		if err != nil {
 			return fmt.Errorf("could not load job %q: %w", req.UID, err)
 		}
-		if err := namer.SetName(ctx, rw, req.JobName, jd.UID, jd.Typename); err != nil {
+		if err := namer.SetName(ctx, rw, req.JobName, jd.ID, jd.Typename); err != nil {
 			return fmt.Errorf("could not assign name: %w", err)
 		}
 		return nil
@@ -212,7 +212,7 @@ func (s *Server) doJobSetOption(ctx context.Context, req *api.JobSetOptionReques
 			return err
 		}
 
-		if job.IsDone(jd.State) {
+		if jd.State.IsDone() {
 			return fmt.Errorf("job %q is already completed (%q)", req.UID, jd.State)
 		}
 
