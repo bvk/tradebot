@@ -72,6 +72,14 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	v.runtimeLock.Lock()
 	defer v.runtimeLock.Unlock()
 
+	if v.summary.Load() == nil {
+		if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
+			return err
+		}
+	}
+
+	jobUpdatesCh := trader.GetJobUpdateChannel(ctx)
+
 	for ctx.Err() == nil {
 		var bought decimal.Decimal
 		for _, b := range v.buys {
@@ -146,13 +154,21 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 			}
 
-			if err := v.buys[len(v.buys)-1].Run(ctx, rt); err != nil {
+			buyer := v.buys[len(v.buys)-1]
+			v.dirtyLimiters.Store(buyer, struct{}{})
+			if err := buyer.Run(ctx, rt); err != nil {
 				if ctx.Err() == nil {
 					slog.Error("could not resume last buyer (will retry)", "looper", v, "nbuys", nbuys, "err", err)
 					ctxutil.Sleep(ctx, time.Second)
 					continue
 				}
 				continue
+			}
+
+			// Force an update to the job summary.
+			v.summary.Store(nil)
+			if jobUpdatesCh != nil {
+				jobUpdatesCh <- v.UID()
 			}
 
 		case "SELL":
@@ -171,13 +187,21 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 					}
 				}
 
-				if err := v.sells[len(v.sells)-1].Run(ctx, rt); err != nil {
+				seller := v.sells[len(v.sells)-1]
+				v.dirtyLimiters.Store(seller, struct{}{})
+				if err := seller.Run(ctx, rt); err != nil {
 					if ctx.Err() == nil {
 						slog.Error("could not resume last sell limiter (will retry)", "looper", v, "nsells", nsells, "err", err)
 						ctxutil.Sleep(ctx, time.Second)
 						continue
 					}
 					continue
+				}
+
+				// Force an update to the job summary.
+				v.summary.Store(nil)
+				if jobUpdatesCh != nil {
+					jobUpdatesCh <- v.UID()
 				}
 
 				sell, buy := v.sells[len(v.sells)-1], v.buys[len(v.buys)-1]
@@ -199,8 +223,9 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 	if err != nil {
 		return err
 	}
-
 	v.buys = append(v.buys, b)
+	v.dirtyLimiters.Store(b, struct{}{})
+
 	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		v.buys = v.buys[:len(v.buys)-1]
 		return err
@@ -217,6 +242,8 @@ func (v *Looper) addNewSell(ctx context.Context, rt *trader.Runtime) error {
 		return err
 	}
 	v.sells = append(v.sells, s)
+	v.dirtyLimiters.Store(s, struct{}{})
+
 	if err := kv.WithReadWriter(ctx, rt.Database, v.Save); err != nil {
 		v.sells = v.sells[:len(v.sells)-1]
 		return err
