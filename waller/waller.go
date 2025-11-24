@@ -14,6 +14,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -84,6 +85,22 @@ func (w *Waller) ProductID() string {
 
 func (w *Waller) ExchangeName() string {
 	return w.exchangeName
+}
+
+func (w *Waller) GetSummary(r *timerange.Range) *gobs.Summary {
+	s := &gobs.Summary{
+		Exchange:  w.exchangeName,
+		ProductID: w.productID,
+	}
+	for _, loop := range w.loopers {
+		sum := loop.GetSummary(r)
+		s.Add(sum)
+	}
+
+	if r != nil && !r.InRange(s.EndAt) {
+		return &gobs.Summary{}
+	}
+	return s
 }
 
 func (w *Waller) BudgetAt(feePct decimal.Decimal) decimal.Decimal {

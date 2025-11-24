@@ -19,6 +19,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -165,6 +166,96 @@ func (v *Looper) UnsoldValue() decimal.Decimal {
 		return d.Mul(v.buyPoint.Price)
 	}
 	return decimal.Zero
+}
+
+func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
+	s := &gobs.Summary{
+		Exchange:  v.exchangeName,
+		ProductID: v.productID,
+		Budget:    v.buyPoint.Value(),
+	}
+	for i := range max(len(v.buys), len(v.sells)) {
+		var ss *gobs.Summary
+		if i < len(v.sells) {
+			ss = v.sells[i].GetSummary(r)
+		}
+
+		var bs *gobs.Summary
+		if i < len(v.buys) {
+			if ss != nil && !ss.SoldValue.IsZero() {
+				bs = v.buys[i].GetSummary(nil)
+			} else {
+				bs = v.buys[i].GetSummary(r)
+			}
+		}
+
+		if ss != nil {
+			s.Add(ss)
+		}
+		if bs != nil {
+			s.Add(bs)
+		}
+
+		switch {
+		case ss == nil && bs == nil:
+			continue
+
+		case ss == nil && bs != nil:
+			s.UnsoldFees = s.UnsoldFees.Add(bs.BoughtFees)
+			s.UnsoldSize = s.UnsoldSize.Add(bs.BoughtSize)
+			s.UnsoldValue = s.UnsoldValue.Add(bs.BoughtValue)
+			continue
+
+		case ss != nil && bs == nil:
+			slog.Warn("looper job had oversold without buyer", "looper", v, "sell", v.sells[i].UID(), "sold-size", ss.SoldSize, "sold-value", ss.SoldValue, "sold-fees", ss.SoldFees)
+			s.OversoldFees = s.OversoldFees.Add(ss.SoldFees)
+			s.OversoldSize = s.OversoldSize.Add(ss.SoldSize)
+			s.OversoldValue = s.OversoldValue.Add(ss.SoldValue)
+			continue
+
+			// case ss != nil && bs != nil: continues below
+		}
+
+		switch {
+		case ss.SoldSize.Equal(bs.BoughtSize):
+			continue
+
+		case ss.SoldSize.IsZero():
+			s.UnsoldFees = s.UnsoldFees.Add(bs.BoughtFees)
+			s.UnsoldSize = s.UnsoldSize.Add(bs.BoughtSize)
+			s.UnsoldValue = s.UnsoldValue.Add(bs.BoughtValue)
+			continue
+
+		case bs.BoughtSize.IsZero():
+			slog.Warn("looper job had oversold without corresponding buy", "looper", v, "buy", v.buys[i].UID(), "sell", v.sells[i].UID(), "bought-size", bs.BoughtSize, "sold-size", ss.SoldSize, "bought-value", bs.BoughtValue, "sold-value", ss.SoldValue, "bought-fees", bs.BoughtFees, "sold-fees", ss.SoldFees)
+			s.OversoldFees = s.OversoldFees.Add(ss.SoldFees)
+			s.OversoldSize = s.OversoldSize.Add(ss.SoldSize)
+			s.OversoldValue = s.OversoldValue.Add(ss.SoldValue)
+			continue
+
+		case ss.SoldSize.LessThan(bs.BoughtSize):
+			feeRate := bs.BoughtFees.Div(bs.BoughtValue)
+			unsoldFees := feeRate.Mul(bs.BoughtValue.Sub(ss.SoldValue))
+			s.UnsoldFees = s.UnsoldFees.Add(unsoldFees)
+			s.UnsoldSize = s.UnsoldSize.Add(bs.BoughtSize.Sub(ss.SoldSize))
+			s.UnsoldValue = s.UnsoldValue.Add(bs.BoughtValue.Sub(ss.SoldValue))
+			continue
+
+		case ss.SoldSize.GreaterThan(bs.BoughtSize):
+			slog.Warn("looper job had oversold", "looper", v, "buy", v.buys[i].UID(), "sell", v.sells[i].UID(), "bought-size", bs.BoughtSize, "sold-size", ss.SoldSize, "bought-value", bs.BoughtValue, "sold-value", ss.SoldValue, "bought-fees", bs.BoughtFees, "sold-fees", ss.SoldFees)
+			feeRate := ss.SoldFees.Div(ss.SoldValue)
+			oversoldFees := feeRate.Mul(ss.SoldValue.Sub(bs.BoughtValue))
+			s.OversoldFees = s.OversoldFees.Add(oversoldFees)
+			s.OversoldSize = s.OversoldSize.Add(ss.SoldSize.Sub(bs.BoughtSize))
+			s.OversoldValue = s.OversoldValue.Add(ss.SoldValue.Sub(bs.BoughtValue))
+			continue
+		}
+	}
+
+	if r != nil && !r.InRange(s.EndAt) {
+		return &gobs.Summary{}
+	}
+	return s
 }
 
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {

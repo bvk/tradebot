@@ -22,6 +22,7 @@ import (
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/point"
 	"github.com/bvk/tradebot/syncmap"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
@@ -175,6 +176,61 @@ func (v *Limiter) Actions() []*gobs.Action {
 		return nil
 	}
 	return []*gobs.Action{{UID: v.uid, Point: gobs.Point(v.point), Orders: orders}}
+}
+
+func (v *Limiter) GetSummary(r *timerange.Range) *gobs.Summary {
+	// Create a deterministic order.
+	var keys []string
+	for k := range v.orderMap.Range {
+		keys = append(keys, k)
+	}
+	// sort.Strings(keys)
+
+	s := &gobs.Summary{
+		Exchange:  v.exchangeName,
+		ProductID: v.productID,
+	}
+	for _, key := range keys {
+		order, ok := v.orderMap.Load(key)
+		if !ok {
+			continue
+		}
+		if s.BeginAt.IsZero() || order.CreateTime.Time.Before(s.BeginAt) {
+			s.BeginAt = order.CreateTime.Time
+			s.EndAt = order.CreateTime.Time
+		}
+		if !order.FinishTime.Time.IsZero() {
+			if order.FinishTime.Time.After(s.EndAt) {
+				s.EndAt = order.FinishTime.Time
+			}
+		}
+		if v.IsBuy() {
+			s.BoughtFees = s.BoughtFees.Add(order.Fee)
+			s.BoughtSize = s.BoughtSize.Add(order.FilledSize)
+			s.BoughtValue = s.BoughtValue.Add(order.FilledPrice.Mul(order.FilledSize))
+		}
+		if v.IsSell() {
+			s.SoldFees = s.SoldFees.Add(order.Fee)
+			s.SoldSize = s.SoldSize.Add(order.FilledSize)
+			s.SoldValue = s.SoldValue.Add(order.FilledPrice.Mul(order.FilledSize))
+		}
+	}
+	if v.IsBuy() {
+		s.NumBuys = s.BoughtSize.Div(v.point.Size)
+	}
+	if v.IsSell() {
+		s.NumSells = s.SoldSize.Div(v.point.Size)
+	}
+
+	// XXX: Fix for missing finish-time entries.
+	if !s.BeginAt.IsZero() && s.EndAt.IsZero() {
+		s.EndAt = s.BeginAt
+	}
+
+	if r != nil && !r.InRange(s.EndAt) {
+		return &gobs.Summary{}
+	}
+	return s
 }
 
 func (v *Limiter) Fees() decimal.Decimal {

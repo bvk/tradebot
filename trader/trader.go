@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/bvk/tradebot/gobs"
+	"github.com/bvk/tradebot/timerange"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
@@ -31,4 +32,6 @@ type Trader interface {
 
 	// SetOption updates trader job's customize-able parameters.
 	SetOption(opt, val string) error
+
+	GetSummary(*timerange.Range) *gobs.Summary
 }

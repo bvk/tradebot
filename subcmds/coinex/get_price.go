@@ -25,10 +25,11 @@ func (c *GetPrice) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *GetPrice) run(ctx context.Context, args []string) error {
-	priceMap, err := coinex.GetPriceMap(ctx)
+	prodPriceMap, err := coinex.GetProductPriceMap(ctx)
 	if err != nil {
 		return err
 	}
+	priceMap := coinex.GetPriceMap(prodPriceMap)
 
 	if len(args) == 0 {
 		for k, v := range priceMap {

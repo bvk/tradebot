@@ -12,11 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-func GetPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
-	productPriceMap, err := GetProductPriceMap(ctx)
-	if err != nil {
-		return nil, err
-	}
+func GetPriceMap(productPriceMap map[string]decimal.Decimal) map[string]decimal.Decimal {
 	cryptoPriceMap := make(map[string]decimal.Decimal)
 	for product, price := range productPriceMap {
 		if strings.HasSuffix(product, "USDT") {
@@ -24,7 +20,7 @@ func GetPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
 			cryptoPriceMap[ccy] = price
 		}
 	}
-	return cryptoPriceMap, nil
+	return cryptoPriceMap
 }
 
 func GetProductPriceMap(ctx context.Context) (map[string]decimal.Decimal, error) {
