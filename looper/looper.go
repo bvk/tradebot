@@ -14,11 +14,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/point"
+	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
@@ -41,6 +43,11 @@ type Looper struct {
 
 	buys  []*limiter.Limiter
 	sells []*limiter.Limiter
+
+	dirtyLimiters syncmap.Map[*limiter.Limiter, struct{}]
+
+	// summary caches the job summary for full time period.
+	summary atomic.Pointer[gobs.Summary]
 }
 
 var _ trader.Trader = &Looper{}
@@ -169,6 +176,12 @@ func (v *Looper) UnsoldValue() decimal.Decimal {
 }
 
 func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
+	if r == nil {
+		if s := v.summary.Load(); s != nil {
+			return s
+		}
+	}
+
 	s := &gobs.Summary{
 		Exchange:  v.exchangeName,
 		ProductID: v.productID,
@@ -252,7 +265,14 @@ func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
 		}
 	}
 
-	if r != nil && !r.InRange(s.EndAt) {
+	if r == nil {
+		if v.summary.CompareAndSwap(nil, s) {
+			return s
+		}
+		return v.GetSummary(nil)
+	}
+
+	if !r.InRange(s.EndAt) {
 		return &gobs.Summary{}
 	}
 	return s
@@ -261,14 +281,18 @@ func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
 func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 	var limiters []string
 	for _, b := range v.buys {
-		if err := b.Save(ctx, rw); err != nil {
-			return fmt.Errorf("could not save child limiter: %w", err)
+		if _, ok := v.dirtyLimiters.Load(b); ok {
+			if err := b.Save(ctx, rw); err != nil {
+				return fmt.Errorf("could not save child limiter: %w", err)
+			}
 		}
 		limiters = append(limiters, b.UID())
 	}
 	for _, s := range v.sells {
-		if err := s.Save(ctx, rw); err != nil {
-			return fmt.Errorf("could not save child limiter: %w", err)
+		if _, ok := v.dirtyLimiters.Load(s); ok {
+			if err := s.Save(ctx, rw); err != nil {
+				return fmt.Errorf("could not save child limiter: %w", err)
+			}
 		}
 		limiters = append(limiters, s.UID())
 	}
@@ -289,6 +313,7 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 					Cancel: v.sellPoint.Cancel,
 				},
 			},
+			LifetimeSummary: v.GetSummary(nil),
 		},
 	}
 	if !slices.IsSorted(gv.V2.LimiterIDs) {
@@ -363,6 +388,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 			Cancel: gv.V2.TradePair.Sell.Cancel,
 		},
 	}
+	v.summary.Store(gv.V2.LifetimeSummary)
 	if err := v.check(); err != nil {
 		return nil, err
 	}

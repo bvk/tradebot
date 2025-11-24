@@ -11,6 +11,8 @@ type LooperStateV2 struct {
 	ExchangeName string
 	LimiterIDs   []string
 	TradePair    Pair
+
+	LifetimeSummary *Summary
 }
 
 func (v *LooperState) Upgrade() {

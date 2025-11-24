@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/trader"
+	"github.com/bvkgo/kv"
 )
 
 func (w *Waller) Fix(ctx context.Context, rt *trader.Runtime) error {
@@ -35,8 +37,19 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 	log.Printf("started waller %s", w.uid)
 	var wg sync.WaitGroup
 
+	if w.summary.Load() == nil {
+		if err := kv.WithReadWriter(ctx, rt.Database, w.Save); err != nil {
+			return err
+		}
+	}
+
+	jobUpdatesCh := make(chan string, len(w.loopers))
+	ctx = trader.WithJobUpdateChannel(ctx, jobUpdatesCh)
+
+	loopMap := make(map[string]*looper.Looper)
 	for _, loop := range w.loopers {
 		loop := loop
+		loopMap[loop.UID()] = loop
 
 		wg.Add(1)
 		go func() {
@@ -59,6 +72,17 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 				}
 			}
 		}()
+	}
+
+	for ctx.Err() != nil {
+		select {
+		case uid := <-jobUpdatesCh:
+			if _, ok := loopMap[uid]; ok {
+				if err := kv.WithReadWriter(ctx, rt.Database, w.Save); err != nil {
+					slog.Error("could not save waller to the database (ignored; will retry)", "err", err)
+				}
+			}
+		}
 	}
 
 	wg.Wait()

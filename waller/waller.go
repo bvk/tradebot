@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync/atomic"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
@@ -32,6 +33,9 @@ type Waller struct {
 	pairs []*point.Pair
 
 	loopers []*looper.Looper
+
+	// summary caches the job summary for full time period.
+	summary atomic.Pointer[gobs.Summary]
 }
 
 var _ trader.Trader = &Waller{}
@@ -88,6 +92,12 @@ func (w *Waller) ExchangeName() string {
 }
 
 func (w *Waller) GetSummary(r *timerange.Range) *gobs.Summary {
+	if r == nil {
+		if s := w.summary.Load(); s != nil {
+			return s
+		}
+	}
+
 	s := &gobs.Summary{
 		Exchange:  w.exchangeName,
 		ProductID: w.productID,
@@ -97,7 +107,14 @@ func (w *Waller) GetSummary(r *timerange.Range) *gobs.Summary {
 		s.Add(sum)
 	}
 
-	if r != nil && !r.InRange(s.EndAt) {
+	if r == nil {
+		if w.summary.CompareAndSwap(nil, s) {
+			return s
+		}
+		return w.GetSummary(nil)
+	}
+
+	if !r.InRange(s.EndAt) {
 		return &gobs.Summary{}
 	}
 	return s
@@ -171,10 +188,11 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 	}
 	gv := &gobs.WallerState{
 		V2: &gobs.WallerStateV2{
-			ProductID:    w.productID,
-			ExchangeName: w.exchangeName,
-			LooperIDs:    loopers,
-			TradePairs:   make([]*gobs.Pair, len(w.pairs)),
+			ProductID:       w.productID,
+			ExchangeName:    w.exchangeName,
+			LooperIDs:       loopers,
+			TradePairs:      make([]*gobs.Pair, len(w.pairs)),
+			LifetimeSummary: w.GetSummary(nil),
 		},
 	}
 	for i, p := range w.pairs {
@@ -244,6 +262,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 			Sell: point.Point(p.Sell),
 		}
 	}
+	w.summary.Store(gv.V2.LifetimeSummary)
 	if err := w.check(); err != nil {
 		return nil, err
 	}

@@ -3,9 +3,30 @@
 package trader
 
 import (
+	"context"
+
 	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
+
+type jobUpdatesKeyType int
+
+var jobUpdatesKeyValue jobUpdatesKeyType
+
+// WithJobUpdateChannel returns a new context with an embedded channel where
+// job updates can be notified.
+func WithJobUpdateChannel(ctx context.Context, uidCh chan string) context.Context {
+	return context.WithValue(ctx, jobUpdatesKeyValue, uidCh)
+}
+
+// GetJobUpdateChannel returns the job updates channel from the input
+// context. Returns nil if input context has no embedded job updates channel.
+func GetJobUpdateChannel(ctx context.Context) chan string {
+	if v, ok := ctx.Value(jobUpdatesKeyValue).(chan string); ok {
+		return v
+	}
+	return nil
+}
 
 func filledSize(vs []*gobs.Order) decimal.Decimal {
 	var sum decimal.Decimal

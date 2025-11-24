@@ -11,6 +11,8 @@ type WallerStateV2 struct {
 	ExchangeName string
 	LooperIDs    []string
 	TradePairs   []*Pair
+
+	LifetimeSummary *Summary
 }
 
 func (v *WallerState) Upgrade() {

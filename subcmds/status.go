@@ -54,7 +54,7 @@ func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.endTime, "end-time", "", "End time for status time period")
 	fset.StringVar(&c.pricesFrom, "prices-from", "", "Deprecated flag; does nothing.")
 	fset.BoolVar(&c.accounts, "accounts", false, "When true, print account balances from the datastore.")
-	fset.BoolVar(&c.fixSummary, "fix-summary", false, "When true, job summary is recomputed and updated in the db.")
+	fset.BoolVar(&c.fixSummary, "fix-summary", false, "When true, job summary is updated for non-running jobs in the db.")
 	return "status", fset, cli.CmdFunc(c.run)
 }
 
@@ -156,12 +156,17 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	if c.fixSummary {
 		for _, jd := range uid2jdMap {
 			jd := jd
+			if jd.State.IsRunning() {
+				slog.Warn("job is currently running, so summary is not updated (skipped)", "uid", jd.ID)
+				continue
+			}
 			fix := func(ctx context.Context, rw kv.ReadWriter) error {
 				job, err := server.Load(ctx, rw, jd.ID, jd.Typename)
 				if err != nil {
 					return fmt.Errorf("could not load traders: %w", err)
 				}
 				if err := job.Save(ctx, rw); err != nil {
+					slog.Error("could not save job", "job", job, "err", err)
 					return err
 				}
 				return nil
