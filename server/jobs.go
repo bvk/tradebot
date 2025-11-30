@@ -57,9 +57,7 @@ func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 // it's state is updated to manually-paused state.
 func (s *Server) doPause(ctx context.Context, req *api.JobPauseRequest) (*api.JobPauseResponse, error) {
 	if err := s.runner.Pause(ctx, req.UID); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("could not pause job %q: %w", req.UID, err)
-		}
+		return nil, fmt.Errorf("could not pause job %q: %w", req.UID, err)
 	}
 
 	var state gobs.State

@@ -315,23 +315,48 @@ func (r *Runner) Scan(ctx context.Context, reader kv.Reader, fn func(ctx context
 	return kvutil.Ascend(ctx, reader, begin, end, cb)
 }
 
-// Pause stops a running job. Paused jobs can be resumed later. Returns
-// os.ErrNotExist if job is not running.
+// Pause stops a running job. Paused jobs can be resumed later.
 func (r *Runner) Pause(ctx context.Context, uid string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	job, ok := r.jobMap[uid]
-	if !ok {
-		return fmt.Errorf("job %s is not running: %w", uid, os.ErrNotExist)
+	if ok {
+		// Wrapper function needs to acquire the lock before the goroutine completes.
+		r.mu.Unlock()
+		defer r.mu.Lock()
+
+		job.Pause()
+		if err := job.Wait(ctx); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	// Wrapper function needs to acquire the lock before the goroutine completes.
-	r.mu.Unlock()
-	defer r.mu.Lock()
+	// Job is not running. Update the State to PAUSED in the database.
 
-	job.Pause()
-	if err := job.Wait(ctx); err != nil {
+	tx, err := r.db.NewTransaction(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	key := path.Join(Keyspace, uid)
+	jd, err := kvutil.Get[gobs.JobData](ctx, tx, key)
+	if err != nil {
+		return fmt.Errorf("could not read job data from db: %w", err)
+	}
+
+	if jd.State.IsDone() {
+		return fmt.Errorf("cannot pause an already completed job")
+	}
+
+	jd.State = gobs.PAUSED
+	if err := kvutil.Set(ctx, tx, key, jd); err != nil {
+		return fmt.Errorf("could not mark job %q as paused: %w", uid, err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 	return nil
