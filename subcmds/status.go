@@ -26,6 +26,7 @@ import (
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/timerange"
 	"github.com/bvk/tradebot/waller"
+	"github.com/bvk/tradebot/watcher"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/cli"
@@ -41,6 +42,8 @@ type Status struct {
 	accounts bool
 
 	fixSummary bool
+
+	ignoreJobTypes string
 }
 
 func (c *Status) Purpose() string {
@@ -55,6 +58,7 @@ func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.pricesFrom, "prices-from", "", "Deprecated flag; does nothing.")
 	fset.BoolVar(&c.accounts, "accounts", false, "When true, print account balances from the datastore.")
 	fset.BoolVar(&c.fixSummary, "fix-summary", false, "When true, job summary is updated for non-running jobs in the db.")
+	fset.StringVar(&c.ignoreJobTypes, "ignore-job-types", "limiter,watcher", "Comma separated list of job types to ignore.")
 	return "status", fset, cli.CmdFunc(c.run)
 }
 
@@ -89,6 +93,8 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		period.End = v
 	}
 
+	ignoreJobTypes := strings.Split(c.ignoreJobTypes, ",")
+
 	// Open the database.
 	db, closer, err := c.DBFlags.GetDatabase(ctx)
 	if err != nil {
@@ -115,6 +121,11 @@ func (c *Status) run(ctx context.Context, args []string) error {
 
 		var sum *gobs.Summary
 		switch {
+		case strings.EqualFold(jd.Typename, "watcher"):
+			sum, err = watcher.Summary(ctx, r, jd.ID, period)
+			if err != nil {
+				return err
+			}
 		case strings.EqualFold(jd.Typename, "waller"):
 			sum, err = waller.Summary(ctx, r, jd.ID, period)
 			if err != nil {
@@ -208,6 +219,10 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		runningSum := new(gobs.Summary)
 		var curUnsoldValue decimal.Decimal
 		for uid, sum := range uid2sumMap {
+			jd := uid2jdMap[uid]
+			if slices.Contains(ignoreJobTypes, strings.ToLower(jd.Typename)) {
+				continue
+			}
 			allSum.Add(sum)
 			if uid2jdMap[uid].State.IsRunning() {
 				runningSum.Add(sum)

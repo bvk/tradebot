@@ -23,6 +23,7 @@ import (
 	"github.com/bvk/tradebot/subcmds/looper"
 	"github.com/bvk/tradebot/subcmds/setup"
 	"github.com/bvk/tradebot/subcmds/waller"
+	"github.com/bvk/tradebot/subcmds/watcher"
 	"github.com/visvasity/cli"
 )
 
@@ -115,6 +116,10 @@ func main() {
 		new(waller.Simulate),
 	}
 
+	watcherCmds := []cli.Command{
+		new(watcher.Add),
+	}
+
 	exchangeCmds := []cli.Command{
 		new(exchange.GetOrder),
 		new(exchange.GetProduct),
@@ -144,6 +149,7 @@ func main() {
 		cli.NewGroup("limiter", "Manage limit buys/sells", limiterCmds...),
 		cli.NewGroup("looper", "Manage buy-sell loops", looperCmds...),
 		cli.NewGroup("waller", "Manage trades in a price range", wallerCmds...),
+		cli.NewGroup("watcher", "Simulate trades in a price range", watcherCmds...),
 		cli.NewGroup("exchange", "View/query exchange directly", exchangeCmds...),
 		cli.NewGroup("coinbase", "Coinbase exchange operations", coinbaseCmds...),
 		cli.NewGroup("coinex", "CoinEx exchange operations", coinexCmds...),

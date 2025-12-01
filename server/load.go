@@ -13,6 +13,7 @@ import (
 	"github.com/bvk/tradebot/namer"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
+	"github.com/bvk/tradebot/watcher"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
 )
@@ -56,6 +57,18 @@ func LoadAll(ctx context.Context, r kv.Reader) ([]trader.Trader, error) {
 		traders = append(traders, v)
 	}
 
+	watcherPick := func(k string) bool {
+		_, err := uuid.Parse(strings.TrimPrefix(k, watcher.DefaultKeyspace))
+		return err == nil
+	}
+	watchers, err := watcher.LoadFunc(ctx, r, watcherPick)
+	if err != nil {
+		return nil, fmt.Errorf("could not load all existing watchers: %w", err)
+	}
+	for _, v := range watchers {
+		traders = append(traders, v)
+	}
+
 	return traders, nil
 }
 
@@ -71,6 +84,7 @@ func Load(ctx context.Context, r kv.Reader, uid, typename string) (trader.Trader
 			{limiter.DefaultKeyspace, "limiter"},
 			{looper.DefaultKeyspace, "looper"},
 			{waller.DefaultKeyspace, "waller"},
+			{watcher.DefaultKeyspace, "watcher"},
 		}
 		for _, ks := range kss {
 			key := path.Join(ks[0], uid)
@@ -88,6 +102,8 @@ func Load(ctx context.Context, r kv.Reader, uid, typename string) (trader.Trader
 		return looper.Load(ctx, uid, r)
 	case strings.EqualFold(typename, "waller"):
 		return waller.Load(ctx, uid, r)
+	case strings.EqualFold(typename, "watcher"):
+		return watcher.Load(ctx, uid, r)
 	}
 
 	return nil, fmt.Errorf("unsupported trader type %q", typename)

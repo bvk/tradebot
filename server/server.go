@@ -32,6 +32,7 @@ import (
 	"github.com/bvk/tradebot/telegram"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvk/tradebot/waller"
+	"github.com/bvk/tradebot/watcher"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
 )
@@ -155,6 +156,7 @@ func New(newctx context.Context, secrets *Secrets, db kv.Database, opts *Options
 	t.handlerMap[api.LimitPath] = httpPostJSONHandler(t.doLimit)
 	t.handlerMap[api.LoopPath] = httpPostJSONHandler(t.doLoop)
 	t.handlerMap[api.WallPath] = httpPostJSONHandler(t.doWall)
+	t.handlerMap[api.WatchPath] = httpPostJSONHandler(t.doWatch)
 
 	t.handlerMap[api.ExchangeGetOrderPath] = httpPostJSONHandler(t.doExchangeGetOrder)
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
@@ -622,6 +624,50 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 	}
 
 	resp := &api.WallResponse{
+		UID: uid,
+	}
+	return resp, nil
+}
+
+func (s *Server) doWatch(ctx context.Context, req *api.WatchRequest) (_ *api.WatchResponse, status error) {
+	defer func() {
+		if status != nil {
+			slog.ErrorContext(ctx, "watch job request has failed", "error", status)
+		}
+	}()
+
+	if err := req.Check(); err != nil {
+		return nil, fmt.Errorf("invalid watch job request: %w", err)
+	}
+
+	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
+		return nil, err
+	}
+
+	uid := uuid.New().String()
+	watch, err := watcher.New(uid, req.ExchangeName, req.ProductID, req.FeePct, req.Pairs)
+	if err != nil {
+		return nil, err
+	}
+
+	start := func(ctx context.Context, rw kv.ReadWriter) error {
+		if err := watch.Save(ctx, rw); err != nil {
+			return fmt.Errorf("could not save new watcher: %v", err)
+		}
+		if err := s.runner.Add(ctx, rw, uid, "Watcher"); err != nil {
+			return fmt.Errorf("could not add new watcher as a job: %w", err)
+		}
+		return nil
+	}
+	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
+		return nil, err
+	}
+
+	if err := s.runner.Resume(ctx, uid, s.makeJobFunc(watch), s.cg.Context()); err != nil {
+		slog.Error("could not resume newly added watcher job (ignored)", "err", err)
+	}
+
+	resp := &api.WatchResponse{
 		UID: uid,
 	}
 	return resp, nil
