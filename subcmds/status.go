@@ -61,6 +61,7 @@ func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 func (c *Status) run(ctx context.Context, args []string) error {
 	// Prepare a time-period if it was given.
 	now := time.Now()
+	var period *timerange.Range
 	parseTime := func(s string) (time.Time, error) {
 		if d, err := time.ParseDuration(s); err == nil {
 			return now.Add(d), nil
@@ -70,7 +71,9 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		}
 		return time.Parse(time.RFC3339, s)
 	}
-	var period timerange.Range
+	if len(c.beginTime) != 0 || len(c.endTime) != 0 {
+		period = &timerange.Range{End: now}
+	}
 	if len(c.beginTime) > 0 {
 		v, err := parseTime(c.beginTime)
 		if err != nil {
@@ -110,20 +113,15 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			return nil // Skip the job
 		}
 
-		p := &period
-		if period.IsZero() {
-			p = nil
-		}
-
 		var sum *gobs.Summary
 		switch {
 		case strings.EqualFold(jd.Typename, "waller"):
-			sum, err = waller.Summary(ctx, r, jd.ID, p)
+			sum, err = waller.Summary(ctx, r, jd.ID, period)
 			if err != nil {
 				return err
 			}
 		case strings.EqualFold(jd.Typename, "looper"):
-			sum, err = looper.Summary(ctx, r, jd.ID, p)
+			sum, err = looper.Summary(ctx, r, jd.ID, period)
 			if err != nil {
 				return err
 			}
@@ -132,13 +130,16 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		}
 
 		// Adjust to reflect the user chosen time periods.
-		if !period.IsZero() {
-			sum.BeginAt, sum.EndAt = period.Begin, period.End
-		} else {
-			sum.EndAt = time.Now()
+		if period == nil {
+			sum.EndAt = now
 			if sum.BeginAt.IsZero() {
 				sum.BeginAt = sum.EndAt
 			}
+		} else {
+			if !period.Begin.IsZero() {
+				sum.BeginAt = period.Begin
+			}
+			sum.EndAt = period.End
 		}
 
 		uid2jdMap[jd.ID] = jd
@@ -197,7 +198,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	var d365 = decimal.NewFromInt(365)
 
 	// Print overall summary when no time period is specified and all jobs are requested.
-	if period.IsZero() && len(args) == 0 {
+	if period == nil && len(args) == 0 {
 		allSum := new(gobs.Summary)
 		runningSum := new(gobs.Summary)
 		var curUnsoldValue decimal.Decimal
@@ -244,25 +245,23 @@ func (c *Status) run(ctx context.Context, args []string) error {
 		fmt.Printf("Unsold Current Value: %s\n", curUnsoldValue.StringFixed(3))
 
 		fmt.Println()
-		profitPosition := allSum.Profit().Add(curUnsoldPosition)
-		profitPositionPerDay := profitPosition.Div(allSum.NumDays())
-		fmt.Printf("Profit w Unsold Position: %s\n", profitPosition.StringFixed(3))
+		fmt.Printf("Profit + Unsold Position: %s\n", allSum.Profit().Add(curUnsoldPosition).StringFixed(3))
 		if !allSum.UnsoldValue.IsZero() {
-			fmt.Printf("Return Percent w Unsold Value: %s%%\n", profitPosition.Div(allSum.UnsoldValue).Mul(d100).StringFixed(3))
-			fmt.Printf("Annual Return Percent w Unsold Value: %s%%\n", profitPositionPerDay.Mul(d365).Div(allSum.UnsoldValue).Mul(d100).StringFixed(3))
+			fmt.Printf("Return Percent w Unsold Value: %s%%\n", allSum.Profit().Div(allSum.UnsoldValue).Mul(d100).StringFixed(3))
+			fmt.Printf("Annual Return Percent w Unsold Value: %s%%\n", allSum.ProfitPerDay().Mul(d365).Div(allSum.UnsoldValue).Mul(d100).StringFixed(3))
 		}
 
 		fmt.Println()
-		fmt.Printf("Running Profit: %s\n", runningSum.Profit().StringFixed(3))
-		fmt.Printf("Running Profit Per Day: %s\n", runningSum.ProfitPerDay().StringFixed(3))
-		fmt.Printf("Running Profit Per Month: %s\n", runningSum.ProfitPerDay().Mul(d30).StringFixed(3))
-		fmt.Printf("Running Profit Per Year: %s\n", runningSum.ProfitPerDay().Mul(d365).StringFixed(3))
+		fmt.Printf("Running Jobs Profit: %s\n", runningSum.Profit().StringFixed(3))
+		fmt.Printf("Running Jobs Profit Per Day: %s\n", runningSum.ProfitPerDay().StringFixed(3))
+		fmt.Printf("Running Jobs Profit Per Month: %s\n", runningSum.ProfitPerDay().Mul(d30).StringFixed(3))
+		fmt.Printf("Running Jobs Profit Per Year: %s\n", runningSum.ProfitPerDay().Mul(d365).StringFixed(3))
 
 		fmt.Println()
-		fmt.Printf("Running Profit: %s\n", runningSum.Profit().StringFixed(3))
-		fmt.Printf("Running Budget: %s\n", runningSum.Budget.StringFixed(3))
-		fmt.Printf("Running Return Percent: %s%%\n", runningSum.ReturnPct().StringFixed(3))
-		fmt.Printf("Running Annual Return Percent: %s%%\n", runningSum.AnnualPct().StringFixed(3))
+		fmt.Printf("Running Jobs Profit: %s\n", runningSum.Profit().StringFixed(3))
+		fmt.Printf("Running Jobs Budget: %s\n", runningSum.Budget.StringFixed(3))
+		fmt.Printf("Running Jobs Return Percent: %s%%\n", runningSum.ReturnPct().StringFixed(3))
+		fmt.Printf("Running Jobs Annual Return Percent: %s%%\n", runningSum.AnnualPct().StringFixed(3))
 	}
 
 	// FIXME: The following doesn't work for CoinEx.
@@ -292,7 +291,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			}
 			return vs
 		}
-		if len(availMap) > 0 && period.IsZero() {
+		if len(availMap) > 0 && period == nil {
 			fmt.Println()
 			ids := []any{""}
 			avails := []any{"Available"}
@@ -356,7 +355,9 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			name = jd.ID
 		}
 		s := uid2sumMap[uid]
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, jd.State, s.ProductID, s.Budget.StringFixed(3), s.ReturnPct().StringFixed(3), s.AnnualPct().StringFixed(3), s.NumDays().StringFixed(2), s.NumBuys.StringFixed(1), s.NumSells.StringFixed(1), s.Profit().StringFixed(3), s.BoughtValue.StringFixed(3), s.BoughtSize.StringFixed(3), s.BoughtFees.StringFixed(3), s.SoldValue.StringFixed(3), s.SoldSize.StringFixed(3), s.SoldFees.StringFixed(3), s.UnsoldValue.StringFixed(3), s.UnsoldSize.StringFixed(3), s.UnsoldFees.StringFixed(3), s.OversoldValue.StringFixed(3), s.OversoldSize.StringFixed(3), s.OversoldFees.StringFixed(3))
+		if !s.IsZero() {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, jd.State, s.ProductID, s.Budget.StringFixed(3), s.ReturnPct().StringFixed(3), s.AnnualPct().StringFixed(3), s.NumDays().StringFixed(2), s.NumBuys.StringFixed(1), s.NumSells.StringFixed(1), s.Profit().StringFixed(3), s.BoughtValue.StringFixed(3), s.BoughtSize.StringFixed(3), s.BoughtFees.StringFixed(3), s.SoldValue.StringFixed(3), s.SoldSize.StringFixed(3), s.SoldFees.StringFixed(3), s.UnsoldValue.StringFixed(3), s.UnsoldSize.StringFixed(3), s.UnsoldFees.StringFixed(3), s.OversoldValue.StringFixed(3), s.OversoldSize.StringFixed(3), s.OversoldFees.StringFixed(3))
+		}
 	}
 	tw.Flush()
 	return nil
