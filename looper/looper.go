@@ -275,7 +275,11 @@ func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
 	}
 
 	if !r.InRange(s.EndAt) {
-		return &gobs.Summary{}
+		return &gobs.Summary{
+			Exchange:  s.Exchange,
+			ProductID: s.ProductID,
+			Budget:    s.Budget,
+		}
 	}
 	return s
 }

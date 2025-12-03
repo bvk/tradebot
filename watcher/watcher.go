@@ -220,7 +220,11 @@ func (w *Watcher) GetSummary(r *timerange.Range) *gobs.Summary {
 	s.UnsoldFees = s.UnsoldValue.Mul(w.state.FeePct).Div(d100)
 
 	if r != nil && !r.InRange(s.EndAt) {
-		return &gobs.Summary{}
+		return &gobs.Summary{
+			Exchange:  s.Exchange,
+			ProductID: s.ProductID,
+			Budget:    s.Budget,
+		}
 	}
 	return s
 }

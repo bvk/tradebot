@@ -189,6 +189,7 @@ func (v *Limiter) GetSummary(r *timerange.Range) *gobs.Summary {
 	s := &gobs.Summary{
 		Exchange:  v.exchangeName,
 		ProductID: v.productID,
+		Budget:    decimal.Zero,
 	}
 	for _, key := range keys {
 		order, ok := v.orderMap.Load(key)

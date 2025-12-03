@@ -375,7 +375,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			name = jd.ID
 		}
 		s := uid2sumMap[uid]
-		if !s.IsZero() {
+		if !s.IsZero() || jd.State.IsRunning() {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, jd.State, s.ProductID, s.Budget.StringFixed(3), s.ReturnPct().StringFixed(3), s.AnnualPct().StringFixed(3), s.NumDays().StringFixed(2), s.NumBuys.StringFixed(1), s.NumSells.StringFixed(1), s.Profit().StringFixed(3), s.BoughtValue.StringFixed(3), s.BoughtSize.StringFixed(3), s.BoughtFees.StringFixed(3), s.SoldValue.StringFixed(3), s.SoldSize.StringFixed(3), s.SoldFees.StringFixed(3), s.UnsoldValue.StringFixed(3), s.UnsoldSize.StringFixed(3), s.UnsoldFees.StringFixed(3), s.OversoldValue.StringFixed(3), s.OversoldSize.StringFixed(3), s.OversoldFees.StringFixed(3))
 		}
 	}
