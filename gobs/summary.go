@@ -45,7 +45,7 @@ type Summary struct {
 }
 
 func (s *Summary) IsZero() bool {
-	return s.NumSells.IsZero() && s.NumBuys.IsZero() && s.BeginAt.IsZero() && s.EndAt.IsZero()
+	return s.BoughtValue.IsZero() && s.SoldValue.IsZero()
 }
 
 func (s *Summary) Add(v *Summary) {

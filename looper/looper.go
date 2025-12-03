@@ -220,10 +220,12 @@ func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
 			continue
 
 		case ss != nil && bs == nil:
-			slog.Warn("looper job had oversold without buyer", "looper", v, "sell", v.sells[i].UID(), "sold-size", ss.SoldSize, "sold-value", ss.SoldValue, "sold-fees", ss.SoldFees)
-			s.OversoldFees = s.OversoldFees.Add(ss.SoldFees)
-			s.OversoldSize = s.OversoldSize.Add(ss.SoldSize)
-			s.OversoldValue = s.OversoldValue.Add(ss.SoldValue)
+			if !ss.SoldSize.IsZero() {
+				slog.Warn("looper job had oversold without buyer", "looper", v, "sell", v.sells[i].UID(), "sold-size", ss.SoldSize, "sold-value", ss.SoldValue, "sold-fees", ss.SoldFees)
+				s.OversoldFees = s.OversoldFees.Add(ss.SoldFees)
+				s.OversoldSize = s.OversoldSize.Add(ss.SoldSize)
+				s.OversoldValue = s.OversoldValue.Add(ss.SoldValue)
+			}
 			continue
 
 			// case ss != nil && bs != nil: continues below
