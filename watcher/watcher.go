@@ -206,12 +206,15 @@ func (w *Watcher) GetSummary(r *timerange.Range) *gobs.Summary {
 		s.SoldSize = s.SoldSize.Add(spoint.Size.Mul(numSells))
 		s.SoldValue = s.SoldValue.Add(spoint.Value().Mul(numSells))
 
+		if n := len(buys) - len(sells); n > 0 {
+			usize := decimal.NewFromInt(int64(n))
+			s.UnsoldSize = s.UnsoldSize.Add(usize)
+			s.UnsoldValue = s.UnsoldValue.Add(usize.Mul(loop.Pair.Buy.Price))
+		}
+
 		s.NumBuys = s.NumBuys.Add(numBuys)
 		s.NumSells = s.NumSells.Add(numSells)
 	}
-	s.UnsoldSize = s.UnsoldSize.Add(s.BoughtSize.Sub(s.SoldSize))
-	s.UnsoldValue = s.UnsoldValue.Add(s.BoughtValue.Sub(s.SoldValue))
-
 	s.SoldFees = s.SoldValue.Mul(w.state.FeePct).Div(d100)
 	s.BoughtFees = s.BoughtValue.Mul(w.state.FeePct).Div(d100)
 	s.UnsoldFees = s.UnsoldValue.Mul(w.state.FeePct).Div(d100)
