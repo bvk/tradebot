@@ -79,6 +79,9 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 	}
 
 	jobUpdatesCh := trader.GetJobUpdateChannel(ctx)
+	if jobUpdatesCh == nil {
+		slog.Warn("jobs updates channel is nil (ignored)", "looper", v)
+	}
 
 	for ctx.Err() == nil {
 		var bought decimal.Decimal

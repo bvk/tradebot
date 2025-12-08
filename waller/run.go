@@ -78,6 +78,7 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 		select {
 		case uid := <-jobUpdatesCh:
 			if _, ok := loopMap[uid]; ok {
+				w.summary.Store(nil)
 				if err := kv.WithReadWriter(ctx, rt.Database, w.Save); err != nil {
 					slog.Error("could not save waller to the database (ignored; will retry)", "err", err)
 				}
