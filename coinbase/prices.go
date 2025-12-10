@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/shopspring/decimal"
 )
 
@@ -42,8 +43,8 @@ func GetProductPriceMap(ctx context.Context) (map[string]decimal.Decimal, error)
 		return nil, fmt.Errorf("http.Get failed with non-ok status %d", resp.StatusCode)
 	}
 	type Product struct {
-		ProductID string          `json:"product_id"`
-		Price     decimal.Decimal `json:"price"`
+		ProductID string               `json:"product_id"`
+		Price     exchange.NullDecimal `json:"price"`
 	}
 	type Response struct {
 		Products []*Product `json:"products"`
@@ -54,7 +55,7 @@ func GetProductPriceMap(ctx context.Context) (map[string]decimal.Decimal, error)
 	}
 	marketPriceMap := make(map[string]decimal.Decimal)
 	for _, p := range reply.Products {
-		marketPriceMap[p.ProductID] = p.Price
+		marketPriceMap[p.ProductID] = p.Price.Decimal
 	}
 	return marketPriceMap, nil
 }
