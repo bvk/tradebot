@@ -535,6 +535,22 @@ func (c *Client) CancelOrder(ctx context.Context, request *CancelOrderRequest) (
 	return resp, nil
 }
 
+func (c *Client) EditOrder(ctx context.Context, request *EditOrderRequest) (*EditOrderResponse, error) {
+	url := &url.URL{
+		Scheme: "https",
+		Host:   c.opts.RestHostname,
+		Path:   "/api/v3/brokerage/orders/edit",
+	}
+	resp := new(EditOrderResponse)
+	if err := c.postJSON(ctx, url, request, resp); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("could not edit order", "url", url, "err", err)
+		}
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (c *Client) GetProductCandles(ctx context.Context, productID string, values url.Values) (*GetProductCandlesResponse, error) {
 	url := &url.URL{
 		Scheme:   "https",

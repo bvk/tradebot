@@ -296,3 +296,14 @@ type CancelOrderResultResponse struct {
 	FailureReason string `json:"failure_reason"`
 	OrderID       string `json:"order_id"`
 }
+
+type EditOrderRequest struct {
+	OrderID string               `json:"order_id"`
+	Price   exchange.NullDecimal `json:"price"`
+	Size    exchange.NullDecimal `json:"size"`
+}
+
+type EditOrderResponse struct {
+	Success bool            `json:"success"`
+	Errors  json.RawMessage `json:"errors"`
+}
