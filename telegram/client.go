@@ -213,8 +213,11 @@ func (c *Client) SendMessage(ctx context.Context, at time.Time, text string) err
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	msg := at.Format("2006-01-02 15:04:05 MST") + " " + text
-	slog.Info("sending notification", "at", at, "message", text)
+	msg := text
+	if !at.IsZero() {
+		msg = at.Format("2006-01-02 15:04:05 MST") + " " + text
+		slog.Info("sending notification", "at", at, "message", text)
+	}
 
 	receivers := append([]string{c.secrets.OwnerID}, c.secrets.OtherIDs...)
 	for _, receiver := range receivers {

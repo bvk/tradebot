@@ -35,6 +35,7 @@ import (
 	"github.com/bvk/tradebot/watcher"
 	"github.com/bvkgo/kv"
 	"github.com/google/uuid"
+	"github.com/visvasity/cli"
 )
 
 const (
@@ -362,6 +363,17 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			return fmt.Errorf("could not resume job %q: %w", uid, err)
 		}
 		log.Printf("resumed job with id %q", uid)
+	}
+
+	// Send a profit status notification to telegram upon every successful
+	// restart.
+	if s.telegramClient != nil {
+		var sb strings.Builder
+		if err := s.profitTelegramCmd(cli.WithStdout(ctx, &sb), nil); err != nil {
+			slog.Warn("could not calculate profit upon every restart (ignored)", "err", err)
+		} else {
+			s.telegramClient.SendMessage(ctx, time.Time{}, "Current Profit Status\n\n"+sb.String())
+		}
 	}
 	return nil
 }
