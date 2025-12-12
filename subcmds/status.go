@@ -367,7 +367,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 	// Print the job summary table.
 	fmt.Println()
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-	fmt.Fprintf(tw, "Name/UID\tStatus\tProduct\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tBoughtValue\tBoughtSize\tBoughtFees\tSoldValue\tSoldSize\tSoldFees\tUnsoldValue\tUnsoldSize\tUnsoldFees\tOversoldValue\tOversoldSize\tOversoldFees\t\n")
+	fmt.Fprintf(tw, "Name/UID\tKind\tStatus\tProduct\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tBoughtValue\tBoughtSize\tBoughtFees\tSoldValue\tSoldSize\tSoldFees\tUnsoldValue\tUnsoldSize\tUnsoldFees\tOversoldValue\tOversoldSize\tOversoldFees\t\n")
 	for _, uid := range uids {
 		jd := uid2jdMap[uid]
 		name, ok := uid2nameMap[uid]
@@ -375,7 +375,7 @@ func (c *Status) run(ctx context.Context, args []string) error {
 			name = jd.ID
 		}
 		s := uid2sumMap[uid]
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s%%\t%s%%\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, jd.State, s.ProductID, s.Budget.StringFixed(3), s.ReturnPct().StringFixed(3), s.AnnualPct().StringFixed(3), s.NumDays().StringFixed(2), s.NumBuys.StringFixed(1), s.NumSells.StringFixed(1), s.Profit().StringFixed(3), s.BoughtValue.StringFixed(3), s.BoughtSize.StringFixed(3), s.BoughtFees.StringFixed(3), s.SoldValue.StringFixed(3), s.SoldSize.StringFixed(3), s.SoldFees.StringFixed(3), s.UnsoldValue.StringFixed(3), s.UnsoldSize.StringFixed(3), s.UnsoldFees.StringFixed(3), s.OversoldValue.StringFixed(3), s.OversoldSize.StringFixed(3), s.OversoldFees.StringFixed(3))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s%%\t%s%%\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", name, jd.Typename, jd.State, s.ProductID, s.Budget.StringFixed(3), s.ReturnPct().StringFixed(3), s.AnnualPct().StringFixed(3), s.NumDays().StringFixed(2), s.NumBuys.StringFixed(1), s.NumSells.StringFixed(1), s.Profit().StringFixed(3), s.BoughtValue.StringFixed(3), s.BoughtSize.StringFixed(3), s.BoughtFees.StringFixed(3), s.SoldValue.StringFixed(3), s.SoldSize.StringFixed(3), s.SoldFees.StringFixed(3), s.UnsoldValue.StringFixed(3), s.UnsoldSize.StringFixed(3), s.UnsoldFees.StringFixed(3), s.OversoldValue.StringFixed(3), s.OversoldSize.StringFixed(3), s.OversoldFees.StringFixed(3))
 	}
 	tw.Flush()
 	return nil
