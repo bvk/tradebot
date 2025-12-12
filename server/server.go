@@ -581,6 +581,12 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		if err := s.runner.Add(ctx, rw, uid, "Looper"); err != nil {
 			return fmt.Errorf("could not add new looper as a job: %w", err)
 		}
+		if req.Pause {
+			if err := s.runner.UpdateFlags(ctx, rw, uid, ManualFlag); err != nil {
+				slog.Error("could not mark job as paused manually", "err", err)
+				return err
+			}
+		}
 		return nil
 	}
 	if err := kv.WithReadWriter(ctx, s.db, start); err != nil {
