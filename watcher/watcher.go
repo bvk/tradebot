@@ -184,10 +184,13 @@ func (w *Watcher) GetSummary(r *timerange.Range) *gobs.Summary {
 			}
 		}
 
-		var smallest, largest time.Time
+		smallest := time.Now()
+		largest := time.Time{}
 		if len(buys)+len(sells) != 0 {
-			smallest = slices.MinFunc(append(buys, sells...), func(a, b time.Time) int { return a.Compare(b) })
-			largest = slices.MaxFunc(append(buys, sells...), func(a, b time.Time) int { return a.Compare(b) })
+			timestamps := append(buys, sells...)
+			cmp := func(a, b time.Time) int { return a.Compare(b) }
+			smallest = slices.MinFunc(timestamps, cmp)
+			largest = slices.MaxFunc(timestamps, cmp)
 		}
 		if s.BeginAt.IsZero() || smallest.Before(s.BeginAt) {
 			s.BeginAt = smallest
