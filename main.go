@@ -142,6 +142,7 @@ func main() {
 	cmds := []cli.Command{
 		new(subcmds.Run),
 		new(subcmds.Status),
+		new(subcmds.Summary),
 		cli.NewGroup("configure", "Updates runtime configuration", configureCmds...),
 		cli.NewGroup("fix", "Fix misc. metadata issues", fixCmds...),
 		cli.NewGroup("job", "Control trader jobs", jobCmds...),
