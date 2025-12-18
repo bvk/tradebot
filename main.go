@@ -111,6 +111,7 @@ func main() {
 		new(waller.Add),
 		new(waller.List),
 		new(waller.Get),
+		new(waller.Print),
 		new(waller.Query),
 		new(waller.Upgrade),
 		new(waller.Simulate),
