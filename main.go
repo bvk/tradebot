@@ -99,12 +99,14 @@ func main() {
 		new(limiter.Add),
 		new(limiter.List),
 		new(limiter.Get),
+		new(limiter.Print),
 	}
 
 	looperCmds := []cli.Command{
 		new(looper.Add),
 		new(looper.List),
 		new(looper.Get),
+		new(looper.Print),
 	}
 
 	wallerCmds := []cli.Command{
@@ -119,6 +121,7 @@ func main() {
 
 	watcherCmds := []cli.Command{
 		new(watcher.Add),
+		new(watcher.Print),
 	}
 
 	exchangeCmds := []cli.Command{
