@@ -4,6 +4,7 @@ package looper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -155,8 +156,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
 				slog.Warn("looper sell history", "looper", v, "seller", i, "limiter", s, "filled-size", size)
 				sold = sold.Add(size)
 			}
-			<-ctx.Done()
-			return context.Cause(ctx)
+			return errors.New("STOPPED")
 
 		case "BUY":
 			slog.Debug("starting/resuming a limiter buy", "looper", v, "bought", bought, "sold", sold, "holdings", holdings)

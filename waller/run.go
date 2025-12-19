@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"sync/atomic"
-	"time"
 
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/trader"
@@ -69,8 +68,8 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 			for ctx.Err() == nil {
 				if err := loop.Run(ctx, rt); err != nil {
 					if ctx.Err() == nil {
-						log.Printf("wall-looper %v has failed (retry): %v", loop, err)
-						time.Sleep(time.Second)
+						log.Printf("wall-looper %v has failed (fix manually): %v", loop, err)
+						return
 					}
 					continue
 				}
