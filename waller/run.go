@@ -7,7 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"runtime/debug"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bvk/tradebot/looper"
@@ -35,7 +35,6 @@ func (w *Waller) Refresh(ctx context.Context, rt *trader.Runtime) error {
 
 func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 	log.Printf("started waller %s", w.uid)
-	var wg sync.WaitGroup
 
 	if w.summary.Load() == nil {
 		if err := kv.WithReadWriter(ctx, rt.Database, w.Save); err != nil {
@@ -46,21 +45,25 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 	jobUpdatesCh := make(chan string, len(w.loopers))
 	ctx = trader.WithJobUpdateChannel(ctx, jobUpdatesCh)
 
+	var nloopers atomic.Int64
 	loopMap := make(map[string]*looper.Looper)
 	for _, loop := range w.loopers {
 		loop := loop
 		loopMap[loop.UID()] = loop
 
-		wg.Add(1)
+		nloopers.Add(1)
 		go func() {
-			defer wg.Done()
-
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("CAUGHT PANIC", "panic", r)
 					slog.Error(string(debug.Stack()))
 					panic(r)
 				}
+			}()
+
+			defer func() {
+				nloopers.Add(-1)
+				jobUpdatesCh <- loop.UID()
 			}()
 
 			for ctx.Err() == nil {
@@ -77,7 +80,7 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 		}()
 	}
 
-	for ctx.Err() == nil {
+	for ctx.Err() == nil && nloopers.Load() > 0 {
 		select {
 		case <-ctx.Done():
 			continue
@@ -91,6 +94,5 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 		}
 	}
 
-	wg.Wait()
 	return context.Cause(ctx)
 }
