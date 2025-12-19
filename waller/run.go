@@ -77,7 +77,7 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 		}()
 	}
 
-	for ctx.Err() != nil {
+	for ctx.Err() == nil {
 		select {
 		case uid := <-jobUpdatesCh:
 			if _, ok := loopMap[uid]; ok {
