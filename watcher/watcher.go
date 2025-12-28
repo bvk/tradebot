@@ -364,7 +364,7 @@ func LoadFunc(ctx context.Context, r kv.Reader, pickf func(string) bool) ([]*Wat
 	return watchers, nil
 }
 
-func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Range) (*gobs.Summary, error) {
+func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Range, recal bool) (*gobs.Summary, error) {
 	v, err := Load(ctx, uid, r)
 	if err != nil {
 		return nil, err

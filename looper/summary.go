@@ -13,8 +13,8 @@ import (
 	"github.com/bvkgo/kv"
 )
 
-func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Range) (*gobs.Summary, error) {
-	if period == nil {
+func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Range, recal bool) (*gobs.Summary, error) {
+	if recal == false && period == nil {
 		key := path.Join(DefaultKeyspace, uid)
 		gv, err := kvutil.Get[gobs.LooperState](ctx, r, key)
 		if err != nil {
@@ -24,9 +24,11 @@ func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Ran
 			return gv.V2.LifetimeSummary, nil
 		}
 	}
+
 	v, err := Load(ctx, uid, r)
 	if err != nil {
 		return nil, err
 	}
+	v.summary.Store(nil)
 	return v.GetSummary(period), nil
 }

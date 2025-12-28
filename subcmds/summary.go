@@ -44,6 +44,8 @@ type Summary struct {
 	fixSummary bool
 
 	ignoreJobTypes string
+
+	recal bool
 }
 
 func (c *Summary) Purpose() string {
@@ -56,6 +58,7 @@ func (c *Summary) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for summary time period")
 	fset.StringVar(&c.endTime, "end-time", "", "End time for summary time period")
 	fset.StringVar(&c.pricesFrom, "prices-from", "", "Deprecated flag; does nothing.")
+	fset.BoolVar(&c.recal, "recalculate", false, "When true, summary information is recalculated")
 	fset.BoolVar(&c.accounts, "accounts", false, "When true, print account balances from the datastore.")
 	fset.BoolVar(&c.fixSummary, "fix-summary", false, "When true, job summary is updated for non-running jobs in the db.")
 	fset.StringVar(&c.ignoreJobTypes, "ignore-job-types", "limiter,watcher", "Comma separated list of job types to ignore.")
@@ -122,17 +125,17 @@ func (c *Summary) run(ctx context.Context, args []string) error {
 		var sum *gobs.Summary
 		switch {
 		case strings.EqualFold(jd.Typename, "watcher"):
-			sum, err = watcher.Summary(ctx, r, jd.ID, period)
+			sum, err = watcher.Summary(ctx, r, jd.ID, period, c.recal)
 			if err != nil {
 				return err
 			}
 		case strings.EqualFold(jd.Typename, "waller"):
-			sum, err = waller.Summary(ctx, r, jd.ID, period)
+			sum, err = waller.Summary(ctx, r, jd.ID, period, c.recal)
 			if err != nil {
 				return err
 			}
 		case strings.EqualFold(jd.Typename, "looper"):
-			sum, err = looper.Summary(ctx, r, jd.ID, period)
+			sum, err = looper.Summary(ctx, r, jd.ID, period, c.recal)
 			if err != nil {
 				return err
 			}

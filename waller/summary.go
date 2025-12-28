@@ -13,8 +13,8 @@ import (
 	"github.com/bvkgo/kv"
 )
 
-func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Range) (*gobs.Summary, error) {
-	if period == nil {
+func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Range, recal bool) (*gobs.Summary, error) {
+	if recal == false && period == nil {
 		key := path.Join(DefaultKeyspace, uid)
 		gv, err := kvutil.Get[gobs.WallerState](ctx, r, key)
 		if err != nil {
@@ -28,5 +28,6 @@ func Summary(ctx context.Context, r kv.Reader, uid string, period *timerange.Ran
 	if err != nil {
 		return nil, err
 	}
+	v.summary.Store(nil)
 	return v.GetSummary(period), nil
 }
