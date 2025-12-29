@@ -37,11 +37,16 @@ type WallerSummaryItem struct {
 	UID  string
 	Name string
 
+	FirstBuyPrice  decimal.Decimal
+	FirstSellPrice decimal.Decimal
+	LastBuyPrice   decimal.Decimal
+	LastSellPrice  decimal.Decimal
+
 	Profit    decimal.Decimal
 	ReturnPct decimal.Decimal
 	APR       decimal.Decimal
-
-	NumDays decimal.Decimal
+	NumDays   decimal.Decimal
+	FeePct    decimal.Decimal
 
 	*gobs.JobData
 	*gobs.Summary
@@ -180,6 +185,7 @@ func (c *Summary) run(ctx context.Context, args []string) error {
 	uid2nameMap := make(map[string]string)
 	uid2jdMap := make(map[string]*gobs.JobData)
 	uid2sumMap := make(map[string]*gobs.Summary)
+	uid2stateMap := make(map[string]*gobs.WallerState)
 	collect := func(ctx context.Context, r kv.Reader, key string, wstate *gobs.WallerState) error {
 		uid := strings.TrimPrefix(key, waller.DefaultKeyspace)
 		fs := strings.Split(uid, "/")
@@ -252,6 +258,7 @@ func (c *Summary) run(ctx context.Context, args []string) error {
 		uid2jdMap[uid] = jd
 		uid2sumMap[uid] = sum
 		uid2nameMap[uid] = jobName
+		uid2stateMap[uid] = wstate
 		return nil
 	}
 	beg, end := kvutil.PathRange(waller.DefaultKeyspace)
@@ -280,6 +287,8 @@ func (c *Summary) run(ctx context.Context, args []string) error {
 
 	var items []*WallerSummaryItem
 	for _, uid := range uids {
+		state := uid2stateMap[uid]
+
 		item := &WallerSummaryItem{
 			UID:     uid,
 			Name:    uid2nameMap[uid],
@@ -290,6 +299,11 @@ func (c *Summary) run(ctx context.Context, args []string) error {
 		item.Profit = item.Summary.Profit()
 		item.ReturnPct = item.Summary.ReturnPct()
 		item.APR = item.Summary.AnnualPct()
+		item.FeePct = item.Summary.FeePct()
+		item.FirstBuyPrice = state.V2.TradePairs[0].Buy.Price
+		item.FirstSellPrice = state.V2.TradePairs[0].Sell.Price
+		item.LastBuyPrice = state.V2.TradePairs[len(state.V2.TradePairs)-1].Buy.Price
+		item.LastSellPrice = state.V2.TradePairs[len(state.V2.TradePairs)-1].Sell.Price
 		items = append(items, item)
 	}
 
