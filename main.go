@@ -117,6 +117,7 @@ func main() {
 		new(waller.Query),
 		new(waller.Upgrade),
 		new(waller.Simulate),
+		new(waller.Summary),
 	}
 
 	watcherCmds := []cli.Command{
