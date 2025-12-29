@@ -95,14 +95,15 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 
 	fmt.Println()
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
-	fmt.Fprintf(tw, "Pair\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
-	for _, p := range wall.Pairs() {
+	fmt.Fprintf(tw, "Index\tPair\tBudget\tReturn\tAnnualReturn\tDays\tBuys\tSells\tProfit\tFees\tBoughtValue\tSoldValue\tUnsoldValue\tSoldSize\tUnsoldSize\t\n")
+	for i, p := range wall.Pairs() {
 		s := wall.PairStatus(p, nil)
 		if c.skipZeroBuys && s.NumBuys == 0 {
 			continue
 		}
 		id := fmt.Sprintf("%s-%s", p.Buy.Price.StringFixed(5), p.Sell.Price.StringFixed(5))
-		fmt.Fprintf(tw, "%s\t%s\t%s%%\t%s%%\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s%%\t%s%%\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n",
+			i,
 			id,
 			s.Budget.StringFixed(5),
 			s.ReturnRate().StringFixed(5),
