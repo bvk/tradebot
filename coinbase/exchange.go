@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bvk/tradebot/coinbase/internal"
+	"github.com/bvk/tradebot/coinbase/advanced"
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
@@ -28,9 +28,9 @@ import (
 type Exchange struct {
 	opts Options
 
-	client *internal.Client
+	client *advanced.Client
 
-	websocket *internal.Websocket
+	websocket *advanced.Websocket
 
 	balanceUpdatesTopic *topic.Topic[*exchange.SimpleBalance]
 
@@ -65,7 +65,7 @@ func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_
 	}
 	opts.setDefaults()
 
-	copts := &internal.Options{
+	copts := &advanced.Options{
 		RestHostname:           opts.RestHostname,
 		WebsocketHostname:      opts.WebsocketHostname,
 		HttpClientTimeout:      opts.HttpClientTimeout,
@@ -73,7 +73,7 @@ func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_
 		MaxTimeAdjustment:      opts.MaxTimeAdjustment,
 		MaxFetchTimeLatency:    opts.MaxFetchTimeLatency,
 	}
-	client, err := internal.New(ctx, kid, pem, copts)
+	client, err := advanced.New(ctx, kid, pem, copts)
 	if err != nil {
 		slog.Error("could not create coinbase client", "err", err)
 		return nil, fmt.Errorf("could not create coinbase client: %w", err)
@@ -251,7 +251,7 @@ func (ex *Exchange) goRunBackgroundTasks(ctx context.Context) {
 		}
 
 		failed := false
-		var orders []*internal.Order
+		var orders []*advanced.Order
 		for _, fill := range fills {
 			resp, err := ex.client.GetOrder(ctx, fill.OrderID)
 			if err != nil {
@@ -338,7 +338,7 @@ func (ex *Exchange) dispatchOrder(productID string, order *exchange.SimpleOrder)
 }
 
 // dispatchMessage relays the websocket message to appropriate product.
-func (ex *Exchange) dispatchMessage(msg *internal.Message) {
+func (ex *Exchange) dispatchMessage(msg *advanced.Message) {
 	if msg.Channel == "user" {
 		for _, event := range msg.Events {
 			if event.Type == "snapshot" || event.Type == "update" {
@@ -378,7 +378,7 @@ func (ex *Exchange) dispatchMessage(msg *internal.Message) {
 	}
 }
 
-func (ex *Exchange) createReadyOrder(ctx context.Context, req *internal.CreateOrderRequest) (*internal.CreateOrderResponse, error) {
+func (ex *Exchange) createReadyOrder(ctx context.Context, req *advanced.CreateOrderRequest) (*advanced.CreateOrderResponse, error) {
 	cuuid, err := uuid.Parse(req.ClientOrderID)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
@@ -465,8 +465,8 @@ func (ex *Exchange) SyncCancelled(ctx context.Context, from time.Time) error {
 	return nil
 }
 
-func (ex *Exchange) listFillsFrom(ctx context.Context, from time.Time) ([]*internal.Fill, error) {
-	var result []*internal.Fill
+func (ex *Exchange) listFillsFrom(ctx context.Context, from time.Time) ([]*advanced.Fill, error) {
+	var result []*advanced.Fill
 
 	values := make(url.Values)
 	values.Add("limit", "100")
@@ -488,8 +488,8 @@ func (ex *Exchange) listFillsFrom(ctx context.Context, from time.Time) ([]*inter
 	return result, nil
 }
 
-func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status string) ([]*internal.Order, error) {
-	var result []*internal.Order
+func (ex *Exchange) listRawOrders(ctx context.Context, from time.Time, status string) ([]*advanced.Order, error) {
+	var result []*advanced.Order
 
 	values := make(url.Values)
 	values.Add("limit", "100")
@@ -530,8 +530,8 @@ func (ex *Exchange) ListOrders(ctx context.Context, from time.Time, status strin
 	return orders, nil
 }
 
-func (ex *Exchange) listRawAccounts(ctx context.Context) ([]*internal.Account, error) {
-	var accounts []*internal.Account
+func (ex *Exchange) listRawAccounts(ctx context.Context) ([]*advanced.Account, error) {
+	var accounts []*advanced.Account
 
 	values := make(url.Values)
 	for i := 0; i == 0 || values != nil; i++ {
@@ -579,7 +579,7 @@ func (ex *Exchange) GetSpotProduct(ctx context.Context, base, quote string) (*go
 // SyncCandles fetches `ONE_MINUTE` candles from coinbase between the `begin`
 // and `end` timestamps for a single product and saves them to the datastore.
 func (ex *Exchange) SyncCandles(ctx context.Context, productID string, begin, end time.Time) error {
-	cmp := func(a, b *internal.Candle) int {
+	cmp := func(a, b *advanced.Candle) int {
 		if a.Start == b.Start {
 			return 0
 		}
@@ -612,7 +612,7 @@ func (ex *Exchange) SyncCandles(ctx context.Context, productID string, begin, en
 
 // getRawCandles fetches `ONE_MINUTE` candles from coinbase starting at `from`
 // timestamp. Returns maximum of 300 candles.
-func (ex *Exchange) getRawCandles(ctx context.Context, productID string, from time.Time) ([]*internal.Candle, error) {
+func (ex *Exchange) getRawCandles(ctx context.Context, productID string, from time.Time) ([]*advanced.Candle, error) {
 	// Coinbase is not returning the candle with start time exactly equal to the
 	// req.StartTime, so we adjust startTime by a second.
 	from = from.Add(-time.Second)

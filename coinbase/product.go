@@ -12,7 +12,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/bvk/tradebot/coinbase/internal"
+	"github.com/bvk/tradebot/coinbase/advanced"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -20,18 +20,18 @@ import (
 )
 
 type Product struct {
-	client *internal.Client
+	client *advanced.Client
 
 	exchange *Exchange
 
 	lastTicker *exchange.SimpleTicker
 
-	prodTickerTopic *topic.Topic[*internal.TickerEvent]
+	prodTickerTopic *topic.Topic[*advanced.TickerEvent]
 	prodOrderTopic  *topic.Topic[exchange.OrderUpdate]
 
-	productData *internal.GetProductResponse
+	productData *advanced.GetProductResponse
 
-	websocket *internal.Websocket
+	websocket *advanced.Websocket
 }
 
 func (ex *Exchange) OpenSpotProduct(ctx context.Context, pid string) (_ exchange.Product, status error) {
@@ -48,7 +48,7 @@ func (ex *Exchange) OpenSpotProduct(ctx context.Context, pid string) (_ exchange
 		client:          ex.client,
 		exchange:        ex,
 		productData:     product,
-		prodTickerTopic: topic.New[*internal.TickerEvent](),
+		prodTickerTopic: topic.New[*advanced.TickerEvent](),
 		prodOrderTopic:  topic.New[exchange.OrderUpdate](),
 		websocket:       ex.client.GetMessages("heartbeats", []string{pid}, ex.dispatchMessage),
 	}
@@ -77,7 +77,7 @@ func (p *Product) BaseMinSize() decimal.Decimal {
 }
 
 func (p *Product) GetPriceUpdates() (*topic.Receiver[exchange.PriceUpdate], error) {
-	convert := func(v *internal.TickerEvent) exchange.PriceUpdate { return v }
+	convert := func(v *advanced.TickerEvent) exchange.PriceUpdate { return v }
 	return topic.SubscribeFunc(p.prodTickerTopic, convert, 1, true /* includeLast */)
 }
 
@@ -105,12 +105,12 @@ func (p *Product) LimitBuy(ctx context.Context, clientOrderID uuid.UUID, size, p
 
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
 
-	req := &internal.CreateOrderRequest{
+	req := &advanced.CreateOrderRequest{
 		ClientOrderID: clientOrderID.String(),
 		ProductID:     p.productData.ProductID,
 		Side:          "BUY",
-		Order: &internal.OrderConfig{
-			LimitGTC: &internal.LimitLimitGTC{
+		Order: &advanced.OrderConfig{
+			LimitGTC: &advanced.LimitLimitGTC{
 				BaseSize:   exchange.NullDecimal{Decimal: size},
 				LimitPrice: exchange.NullDecimal{Decimal: roundPrice},
 			},
@@ -143,12 +143,12 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, 
 
 	roundPrice := price.Sub(price.Mod(p.productData.QuoteIncrement.Decimal))
 
-	req := &internal.CreateOrderRequest{
+	req := &advanced.CreateOrderRequest{
 		ClientOrderID: clientOrderID.String(),
 		ProductID:     p.productData.ProductID,
 		Side:          "SELL",
-		Order: &internal.OrderConfig{
-			LimitGTC: &internal.LimitLimitGTC{
+		Order: &advanced.OrderConfig{
+			LimitGTC: &advanced.LimitLimitGTC{
 				BaseSize:   exchange.NullDecimal{Decimal: size},
 				LimitPrice: exchange.NullDecimal{Decimal: roundPrice},
 			},
@@ -166,7 +166,7 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderID uuid.UUID, size, 
 }
 
 func (p *Product) Cancel(ctx context.Context, serverOrderID string) error {
-	req := &internal.CancelOrderRequest{
+	req := &advanced.CancelOrderRequest{
 		OrderIDs: []string{string(serverOrderID)},
 	}
 	resp, err := p.client.CancelOrder(ctx, req)
@@ -194,7 +194,7 @@ func (p *Product) Cancel(ctx context.Context, serverOrderID string) error {
 	return nil
 }
 
-func (p *Product) handleTickerEvent(timestamp time.Time, event *internal.TickerEvent) {
+func (p *Product) handleTickerEvent(timestamp time.Time, event *advanced.TickerEvent) {
 	if p.lastTicker != nil && timestamp.Before(p.lastTicker.ServerTime.Time) {
 		return
 	}

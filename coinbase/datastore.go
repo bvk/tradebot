@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bvk/tradebot/coinbase/internal"
+	"github.com/bvk/tradebot/coinbase/advanced"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvkgo/kv"
@@ -31,7 +31,7 @@ type Datastore struct {
 
 	mu sync.Mutex
 
-	recentlySaved []*internal.Order
+	recentlySaved []*advanced.Order
 }
 
 func NewDatastore(db kv.Database) *Datastore {
@@ -124,7 +124,7 @@ func (ds *Datastore) LastFilledTime(ctx context.Context) (time.Time, error) {
 	return time.Date(y, time.Month(m), d, h, 0, 0, 0, time.UTC), nil
 }
 
-func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles []*internal.Candle) error {
+func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles []*advanced.Candle) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
@@ -135,7 +135,7 @@ func (ds *Datastore) saveCandles(ctx context.Context, productID string, candles 
 		return a.UnixTime == b.UnixTime
 	}
 
-	kmap := make(map[string][]*internal.Candle)
+	kmap := make(map[string][]*advanced.Candle)
 	for _, v := range candles {
 		ts := time.Unix(v.Start, 0)
 		key := path.Join(Keyspace, "candles", ts.Format("2006-01-02/15"))
@@ -206,7 +206,7 @@ func (ds *Datastore) ScanCandles(ctx context.Context, productID string, begin, e
 				break
 			}
 
-			v := new(internal.Candle)
+			v := new(advanced.Candle)
 			if err := json.Unmarshal([]byte(c.Candle), v); err != nil {
 				return fmt.Errorf("could not json-unmarshal candle data: %w", err)
 			}
@@ -229,11 +229,11 @@ func (ds *Datastore) ScanCandles(ctx context.Context, productID string, begin, e
 	return kvutil.AscendDB[gobs.CoinbaseCandles](ctx, ds.db, minKey, maxKey, scanner)
 }
 
-func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Order) error {
+func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*advanced.Order) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
-	var filled []*internal.Order
+	var filled []*advanced.Order
 	for _, order := range orders {
 		if !slices.Contains(doneStatuses, order.Status) {
 			continue
@@ -259,9 +259,9 @@ func (ds *Datastore) maybeSaveOrders(ctx context.Context, orders []*internal.Ord
 // are saved in one key per hour layout. For example, orders in an hour are
 // saved at "{root}/filled/product-id/2023-12-01/24" where date and hour are
 // picked from the last fill timestamp.
-func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Order) error {
+func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*advanced.Order) error {
 	// Prepare hour-key to orders mapping, while also deduping the orders.
-	kmap := make(map[string][]*internal.Order)
+	kmap := make(map[string][]*advanced.Order)
 	for _, v := range orders {
 		if v.FilledSize.Decimal.IsZero() {
 			return fmt.Errorf("filled size of an order cannot be zero")
@@ -317,7 +317,7 @@ func (ds *Datastore) saveOrdersLocked(ctx context.Context, orders []*internal.Or
 	return nil
 }
 
-func (ds *Datastore) saveOrderLocked(ctx context.Context, rw kv.ReadWriter, v *internal.Order) error {
+func (ds *Datastore) saveOrderLocked(ctx context.Context, rw kv.ReadWriter, v *advanced.Order) error {
 	key := path.Join(Keyspace, "orders", v.OrderID)
 	js, err := json.Marshal(v)
 	if err != nil {
@@ -333,8 +333,8 @@ func (ds *Datastore) saveOrderLocked(ctx context.Context, rw kv.ReadWriter, v *i
 	return nil
 }
 
-func (ds *Datastore) GetOrder(ctx context.Context, orderID string) (*internal.Order, error) {
-	var order *internal.Order
+func (ds *Datastore) GetOrder(ctx context.Context, orderID string) (*advanced.Order, error) {
+	var order *advanced.Order
 	load := func(ctx context.Context, r kv.Reader) error {
 		v, err := ds.loadOrderLocked(ctx, r, orderID)
 		if err != nil {
@@ -349,20 +349,20 @@ func (ds *Datastore) GetOrder(ctx context.Context, orderID string) (*internal.Or
 	return order, nil
 }
 
-func (ds *Datastore) loadOrderLocked(ctx context.Context, r kv.Reader, orderID string) (*internal.Order, error) {
+func (ds *Datastore) loadOrderLocked(ctx context.Context, r kv.Reader, orderID string) (*advanced.Order, error) {
 	key := path.Join(Keyspace, "orders", orderID)
 	v, err := kvutil.Get[gobs.CoinbaseOrder](ctx, r, key)
 	if err != nil {
 		return nil, fmt.Errorf("could not load coinbase order: %w", err)
 	}
-	order := new(internal.Order)
+	order := new(advanced.Order)
 	if err := json.Unmarshal([]byte(v.Order), order); err != nil {
 		return nil, fmt.Errorf("could not json-marshal coinbase order: %w", err)
 	}
 	return order, nil
 }
 
-func (ds *Datastore) saveProducts(ctx context.Context, ps []*internal.Product) error {
+func (ds *Datastore) saveProducts(ctx context.Context, ps []*advanced.Product) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
@@ -371,7 +371,7 @@ func (ds *Datastore) saveProducts(ctx context.Context, ps []*internal.Product) e
 	})
 }
 
-func (ds *Datastore) saveProductsLocked(ctx context.Context, rw kv.ReadWriter, ps []*internal.Product) error {
+func (ds *Datastore) saveProductsLocked(ctx context.Context, rw kv.ReadWriter, ps []*advanced.Product) error {
 	sort.Slice(ps, func(i, j int) bool {
 		return ps[i].ProductID < ps[j].ProductID
 	})
@@ -418,7 +418,7 @@ func (ds *Datastore) ProductsPriceMap(ctx context.Context) (map[string]decimal.D
 	return pmap, nil
 }
 
-func (ds *Datastore) saveAccounts(ctx context.Context, as []*internal.Account) error {
+func (ds *Datastore) saveAccounts(ctx context.Context, as []*advanced.Account) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
@@ -427,7 +427,7 @@ func (ds *Datastore) saveAccounts(ctx context.Context, as []*internal.Account) e
 	})
 }
 
-func (ds *Datastore) saveAccountsLocked(ctx context.Context, rw kv.ReadWriter, as []*internal.Account) error {
+func (ds *Datastore) saveAccountsLocked(ctx context.Context, rw kv.ReadWriter, as []*advanced.Account) error {
 	sort.Slice(as, func(i, j int) bool {
 		return as[i].Currency < as[j].Currency
 	})
@@ -460,7 +460,7 @@ func (ds *Datastore) LoadAccounts(ctx context.Context) ([]*gobs.Account, error) 
 	}
 	var accounts []*gobs.Account
 	for _, a := range value.Accounts {
-		v := new(internal.Account)
+		v := new(advanced.Account)
 		if err := json.Unmarshal([]byte(a.Account), v); err != nil {
 			return nil, fmt.Errorf("could not json-unmarshal account data: %w", err)
 		}
@@ -511,7 +511,7 @@ func (ds *Datastore) pricesAtLocked(ctx context.Context, r kv.Reader, at time.Ti
 				break
 			}
 		}
-		candle := new(internal.Candle)
+		candle := new(advanced.Candle)
 		if err := json.Unmarshal([]byte(rawCandle), candle); err != nil {
 			return nil, fmt.Errorf("could not json-unmarshal %q candle at key %q: %w", p, key, err)
 		}

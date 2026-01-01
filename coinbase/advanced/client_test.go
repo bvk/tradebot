@@ -1,6 +1,6 @@
 // Copyright (c) 2023 BVK Chaitanya
 
-package internal
+package advanced
 
 import (
 	"context"

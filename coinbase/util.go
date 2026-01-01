@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bvk/tradebot/coinbase/internal"
+	"github.com/bvk/tradebot/coinbase/advanced"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/google/uuid"
@@ -21,7 +21,7 @@ var readyStatuses []string = []string{
 	"OPEN", "FILLED", "CANCELLED", "EXPIRED", "FAILED",
 }
 
-func gobOrderFromOrder(v *internal.Order) *gobs.Order {
+func gobOrderFromOrder(v *advanced.Order) *gobs.Order {
 	order := &gobs.Order{
 		ServerOrderID: v.OrderID,
 		ClientOrderID: v.ClientOrderID,
@@ -40,7 +40,7 @@ func gobOrderFromOrder(v *internal.Order) *gobs.Order {
 	return order
 }
 
-func exchangeOrderFromOrder(v *internal.Order) (*exchange.SimpleOrder, error) {
+func exchangeOrderFromOrder(v *advanced.Order) (*exchange.SimpleOrder, error) {
 	cuuid, err := uuid.Parse(v.ClientOrderID)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse client order id as uuid: %w", err)
@@ -63,7 +63,7 @@ func exchangeOrderFromOrder(v *internal.Order) (*exchange.SimpleOrder, error) {
 	return order, nil
 }
 
-func exchangeOrderFromEvent(event *internal.OrderEvent) (*exchange.SimpleOrder, error) {
+func exchangeOrderFromEvent(event *advanced.OrderEvent) (*exchange.SimpleOrder, error) {
 	cuuid, err := uuid.Parse(event.ClientOrderID)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse client order id from event as uuid: %w", err)
@@ -85,23 +85,23 @@ func exchangeOrderFromEvent(event *internal.OrderEvent) (*exchange.SimpleOrder, 
 	return order, nil
 }
 
-func compareFilledSize(a, b *internal.Order) int {
+func compareFilledSize(a, b *advanced.Order) int {
 	return a.FilledSize.Decimal.Cmp(b.FilledSize.Decimal)
 }
 
-func compareLastFillTime(a, b *internal.Order) int {
+func compareLastFillTime(a, b *advanced.Order) int {
 	return a.LastFillTime.Time.Compare(b.LastFillTime.Time)
 }
 
-func compareCreatedTime(a, b *internal.Order) int {
+func compareCreatedTime(a, b *advanced.Order) int {
 	return a.CreatedTime.Time.Compare(b.CreatedTime.Time)
 }
 
-func compareOrderID(a, b *internal.Order) int {
+func compareOrderID(a, b *advanced.Order) int {
 	return strings.Compare(a.OrderID, b.OrderID)
 }
 
-func compareInternalOrder(a, b *internal.Order) int {
+func compareAdvancedOrder(a, b *advanced.Order) int {
 	if a.OrderID == b.OrderID {
 		if v := compareFilledSize(a, b); v != 0 {
 			return v
@@ -114,6 +114,6 @@ func compareInternalOrder(a, b *internal.Order) int {
 	return 1
 }
 
-func equalLastFillTime(a, b *internal.Order) bool {
+func equalLastFillTime(a, b *advanced.Order) bool {
 	return compareLastFillTime(a, b) == 0
 }
