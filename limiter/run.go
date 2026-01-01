@@ -276,9 +276,24 @@ func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOr
 		slog.Error("cancel limit order has failed", "limiter", v, "point", v.point, "order-id", activeOrderID, "err", err)
 		return err
 	}
-	// FIXME: We should wait or fetch any partially executed amounts from the order.
-	// log.Printf("%s:%s: canceled the limit order %s", v.uid, v.point, activeOrderID)
-	return nil
+	for {
+		detail, err := product.Get(ctx, activeOrderID)
+		if err != nil {
+			slog.Error("could not fetch canceled order (will retry)", "order-id", activeOrderID, "err", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if !detail.IsDone() {
+			slog.Error("canceled order is still not done (will retry)", "order-id", activeOrderID, "err", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if _, err := v.updateOrderMap(detail); err != nil {
+			slog.Error("could not update limiter state with canceled order update", "limiter", v, "point", v.point, "order-id", activeOrderID, "err", err)
+			return err
+		}
+		return nil
+	}
 }
 
 func (v *Limiter) fetchOrderMap(ctx context.Context, product exchange.Product) (nupdated int, status error) {

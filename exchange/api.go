@@ -26,7 +26,6 @@ type OrderUpdate interface {
 	ClientID() uuid.UUID
 
 	CreatedAt() gobs.RemoteTime
-	UpdatedAt() gobs.RemoteTime
 
 	ExecutedFee() decimal.Decimal
 	ExecutedSize() decimal.Decimal
@@ -37,19 +36,10 @@ type OrderUpdate interface {
 }
 
 type OrderDetail interface {
-	ServerID() string
-	ClientID() uuid.UUID
+	Order
+	OrderUpdate
 
-	OrderSide() string
-	CreatedAt() gobs.RemoteTime
 	FinishedAt() gobs.RemoteTime
-
-	ExecutedFee() decimal.Decimal
-	ExecutedSize() decimal.Decimal
-	ExecutedValue() decimal.Decimal
-
-	IsDone() bool
-	OrderStatus() string
 }
 
 type PriceUpdate interface {
