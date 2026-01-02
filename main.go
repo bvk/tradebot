@@ -135,6 +135,8 @@ func main() {
 		new(coinbase.Sync),
 		new(coinbase.List),
 		new(coinbase.GetOrder),
+		new(coinbase.Download),
+		new(coinbase.Query),
 	}
 
 	coinexCmds := []cli.Command{

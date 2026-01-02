@@ -88,5 +88,5 @@ func (v *Options) setDefaults() {
 }
 
 func SubcommandOptions() *Options {
-	return &Options{subcmdMode: true}
+	return &Options{subcmdMode: true, MaxFetchTimeLatency: time.Second}
 }
