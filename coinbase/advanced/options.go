@@ -19,16 +19,6 @@ type Options struct {
 
 	// Timeout interval to create a new websocket session after a failure.
 	WebsocketRetryInterval time.Duration
-
-	// Max limit for time difference between local time and the server times.
-	MaxTimeAdjustment time.Duration
-
-	// Max time latency for fetching the server time from coinbase.
-	MaxFetchTimeLatency time.Duration
-
-	// Periodic timeout interval to recalculate time difference between local
-	// time and the exchange time.
-	SyncTimeInterval time.Duration
 }
 
 func (v *Options) setDefaults() {
@@ -43,14 +33,5 @@ func (v *Options) setDefaults() {
 	}
 	if v.WebsocketRetryInterval == 0 {
 		v.WebsocketRetryInterval = time.Second
-	}
-	if v.MaxTimeAdjustment == 0 {
-		v.MaxTimeAdjustment = time.Minute
-	}
-	if v.MaxFetchTimeLatency == 0 {
-		v.MaxFetchTimeLatency = 100 * time.Millisecond
-	}
-	if v.SyncTimeInterval == 0 {
-		v.SyncTimeInterval = 30 * time.Minute
 	}
 }

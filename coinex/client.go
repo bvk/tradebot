@@ -21,15 +21,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/bvk/tradebot/coinex/internal"
-	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 
+	"github.com/visvasity/ntpsync"
 	"github.com/visvasity/topic"
 )
 
@@ -46,8 +45,6 @@ type Client struct {
 	client http.Client
 
 	key, secret string
-
-	timeOffsetMillis atomic.Int64
 
 	refreshOrdersTopic  *topic.Topic[*internal.Order]
 	balanceUpdatesTopic *topic.Topic[*internal.BalanceUpdate]
@@ -90,10 +87,6 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 	c.websocketHandlerMap["order.update"] = c.onOrderUpdate
 	c.websocketHandlerMap["balance.update"] = c.onBalanceUpdate
 
-	if err := c.updateTimeAdjustment(ctx); err != nil {
-		return nil, err
-	}
-
 	// Check that credentials are valid.
 	if _, err := c.GetMarkets(ctx); err != nil {
 		return nil, err
@@ -106,9 +99,6 @@ func New(ctx context.Context, key, secret string, opts *Options) (*Client, error
 
 	c.wg.Add(1)
 	go c.goRefreshOrders(c.lifeCtx)
-
-	c.wg.Add(1)
-	go c.goUpdateTimeAdjustment(c.lifeCtx)
 	return c, nil
 }
 
@@ -119,57 +109,8 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) goUpdateTimeAdjustment(ctx context.Context) {
-	defer c.wg.Done()
-
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("CAUGHT PANIC", "panic", r)
-			slog.Error(string(debug.Stack()))
-			panic(r)
-		}
-	}()
-
-	for ctx.Err() == nil {
-		if err := c.updateTimeAdjustment(ctx); err != nil {
-			ctxutil.Sleep(ctx, time.Second)
-			continue
-		}
-		ctxutil.Sleep(ctx, time.Minute)
-	}
-}
-
-func (c *Client) updateTimeAdjustment(ctx context.Context) error {
-	for i := 0; ctx.Err() == nil; i = min(5, i+1) {
-		s := time.Now()
-		stime, err := c.GetSystemTime(ctx)
-		rtt := time.Since(s)
-		if err != nil {
-			slog.Error("could not fetch coinex server time (will retry)", "err", err)
-			ctxutil.Sleep(ctx, time.Second<<i)
-			continue
-		}
-		if rtt > c.opts.MaxFetchTimeLatency {
-			slog.Error("took too long to fetch coinex server time (will retry)", "rtt", rtt, "max-allowed", c.opts.MaxFetchTimeLatency)
-			ctxutil.Sleep(ctx, time.Second<<i)
-			continue
-		}
-		localTimestamp := s.Add(rtt / 2)
-		remoteTimestamp := time.UnixMilli(stime.TimestampMilli).Add(rtt / 2)
-		adjustment := remoteTimestamp.Sub(localTimestamp)
-		if adjustment > c.opts.MaxTimeAdjustment {
-			slog.Error("time adjustment required is too large", "required", adjustment, "max-allowed", c.opts.MaxTimeAdjustment)
-			return fmt.Errorf("time adjustment required is too large")
-		}
-		slog.Info("calculated time sync offset with coinex system time", "offset", adjustment)
-		c.timeOffsetMillis.Store(int64(adjustment / time.Millisecond))
-		return nil
-	}
-	return context.Cause(ctx)
-}
-
 func (c *Client) now() gobs.RemoteTime {
-	return gobs.RemoteTime{Time: time.Now().Add(time.Millisecond * time.Duration(c.timeOffsetMillis.Load()))}
+	return gobs.RemoteTime{Time: ntpsync.Now()}
 }
 
 func (c *Client) getMarketOrdersTopic(market string) *topic.Topic[*internal.Order] {

@@ -33,6 +33,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nightlyone/lockfile"
 	"github.com/visvasity/cli"
+	"github.com/visvasity/ntpsync"
 	"github.com/visvasity/sglog"
 )
 
@@ -278,6 +279,18 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	if c.logDebug {
 		backend.SetLevel(slog.LevelDebug)
 	}
+
+	// Start an NTP client.
+	ntpClient, err := ntpsync.New(ctx, "time.google.com")
+	if err != nil {
+		slog.Error("could not create NTP client", "err", err)
+		return err
+	}
+	ntpsync.DefaultClient = ntpClient
+	defer func() {
+		ntpsync.DefaultClient = nil
+		ntpClient.Close()
+	}()
 
 	// Start HTTP server.
 	s, err := httputil.New(nil /* opts */)

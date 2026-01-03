@@ -103,9 +103,7 @@ func (c *Download) run(ctx context.Context, args []string) error {
 	defer outp.Close()
 
 	opts := &advanced.Options{
-		HttpClientTimeout:   10 * time.Minute,
-		MaxFetchTimeLatency: time.Second,
-		MaxTimeAdjustment:   time.Second,
+		HttpClientTimeout: 10 * time.Minute,
 	}
 	client, err := advanced.New(ctx, secrets.Coinbase.KID, secrets.Coinbase.PEM, opts)
 	if err != nil {

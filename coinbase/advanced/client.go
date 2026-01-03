@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"math"
 	"math/big"
@@ -22,11 +21,11 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"sync/atomic"
 	"time"
 
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/visvasity/ntpsync"
 	"golang.org/x/time/rate"
 
 	jose "gopkg.in/square/go-jose.v2"
@@ -50,12 +49,6 @@ type Client struct {
 	client *http.Client
 
 	limiter *rate.Limiter
-
-	// timeAdjustment is positive when local time is found to be ahead of the
-	// server time, in which case, this value must be subtracted from the local
-	// time before the local time can be used as a timestamp in the signature
-	// calculations.
-	timeAdjustment atomic.Int64
 }
 
 type nonceSource struct{}
@@ -93,17 +86,6 @@ func New(ctx context.Context, kid, pemtext string, opts *Options) (*Client, erro
 		return nil, err
 	}
 
-	adjustment, err := findTimeAdjustment(ctx, opts.MaxFetchTimeLatency)
-	if err != nil {
-		slog.Error("could not determine time adjustment value", "err", err)
-		return nil, err
-	}
-	log.Printf("local time needs to be adjusted by -%s to match the coinbase server time", adjustment)
-	if adjustment > opts.MaxTimeAdjustment {
-		slog.Error("local time is out of sync by large amount", "required", adjustment)
-		return nil, fmt.Errorf("local time is out-of-sync by large amount with the server time")
-	}
-
 	jar, err := cookiejar.New(nil /* options */)
 	if err != nil {
 		slog.Error("could not create cookiejar", "err", err)
@@ -122,9 +104,6 @@ func New(ctx context.Context, kid, pemtext string, opts *Options) (*Client, erro
 		},
 		limiter: rate.NewLimiter(25, 1),
 	}
-
-	c.timeAdjustment.Store(int64(adjustment))
-	c.cg.Go(c.goFindTimeAdjustment)
 	return c, nil
 }
 
@@ -134,67 +113,8 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) goFindTimeAdjustment(ctx context.Context) {
-	for ctxutil.Sleep(ctx, c.opts.SyncTimeInterval); ctx.Err() == nil; ctxutil.Sleep(ctx, c.opts.SyncTimeInterval) {
-		if diff, err := findTimeAdjustment(ctx, c.opts.MaxFetchTimeLatency); err == nil && diff != 0 {
-			log.Printf("local time needs to be adjusted by -%s to match the coinbase server time", diff)
-			c.timeAdjustment.Store(int64(diff))
-		}
-	}
-}
-
-func findTimeAdjustment(ctx context.Context, maxLatency time.Duration) (time.Duration, error) {
-	type ServerTime struct {
-		ISO string `json:"iso"`
-	}
-
-	for ; ctx.Err() == nil; ctxutil.Sleep(ctx, time.Second) {
-		start := time.Now()
-		resp, err := http.Get("https://api.exchange.coinbase.com/time")
-		stop := time.Now()
-		if err != nil || resp.StatusCode != http.StatusOK {
-			continue
-		}
-
-		latency := stop.Sub(start)
-		if latency > maxLatency {
-			slog.Warn(fmt.Sprintf("get coinbase server time took %s > %s (too long; will retry)", latency, maxLatency))
-			continue // retry
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			slog.Error("could not read server time response body", "err", err)
-			return 0, fmt.Errorf("could not ready server time response: %w", err)
-		}
-
-		var st ServerTime
-		if err := json.Unmarshal(body, &st); err != nil {
-			slog.Error("could not unmarshal server time response", "err", err)
-			return 0, fmt.Errorf("could not unmarshal server time response: %w", err)
-		}
-
-		stime, err := time.Parse("2006-01-02T15:04:05.999Z", st.ISO)
-		if err != nil {
-			slog.Error("could not parse server timestap", "value", st.ISO, "err", err)
-			return 0, fmt.Errorf("could not parse server timestamp: %w", err)
-		}
-
-		ltime := start.Add(latency / 2).UTC()
-		adjust := ltime.Sub(stime)
-		// log.Println("localtime", ltime, "servertime", stime, "latency", latency, "diff", adjust)
-
-		if adjust < 0 {
-			return 0, nil
-		}
-		return adjust, nil
-	}
-
-	return 0, context.Cause(ctx)
-}
-
 func (c *Client) Now() exchange.RemoteTime {
-	return exchange.RemoteTime{Time: time.Now().Add(time.Duration(-c.timeAdjustment.Load()))}
+	return exchange.RemoteTime{Time: ntpsync.Now()}
 }
 
 type APIKeyClaims struct {
@@ -207,8 +127,8 @@ func (c *Client) signJWT(uri string) (string, error) {
 		Claims: &jwt.Claims{
 			Subject:   c.kid,
 			Issuer:    "cdp",
-			NotBefore: jwt.NewNumericDate(time.Now()),
-			Expiry:    jwt.NewNumericDate(time.Now().Add(2 * time.Minute)),
+			NotBefore: jwt.NewNumericDate(ntpsync.Now()),
+			Expiry:    jwt.NewNumericDate(ntpsync.Now().Add(2 * time.Minute)),
 		},
 		URI: uri,
 	}

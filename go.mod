@@ -1,8 +1,8 @@
 module github.com/bvk/tradebot
 
-go 1.23.2
+go 1.24.0
 
-toolchain go1.23.8
+toolchain go1.24.11
 
 require (
 	github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55
@@ -16,15 +16,17 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.6
 	github.com/shopspring/decimal v1.3.1
 	github.com/visvasity/cli v0.0.0-20250729021438-02a4793adfad
+	github.com/visvasity/ntpsync v0.0.0-20260103041111-e3067e5d9e6b
 	github.com/visvasity/sglog v0.0.0-20250729151519-230bd74d3ef0
 	github.com/visvasity/topic v0.0.0-20250528170819-6dbbdfad1e71
-	golang.org/x/sys v0.33.0
-	golang.org/x/term v0.32.0
+	golang.org/x/sys v0.36.0
+	golang.org/x/term v0.35.0
 	golang.org/x/time v0.4.0
 	gopkg.in/square/go-jose.v2 v2.6.0
 )
 
 require (
+	github.com/beevik/ntp v1.5.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -44,7 +46,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/crypto v0.15.0 // indirect
-	golang.org/x/net v0.18.0 // indirect
+	golang.org/x/crypto v0.42.0 // indirect
+	golang.org/x/net v0.44.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 )

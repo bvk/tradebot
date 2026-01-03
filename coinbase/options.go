@@ -30,12 +30,6 @@ type Options struct {
 	// the websocket.
 	MaxWebsocketOutOfOrderAllowance int
 
-	// Max limit for time difference between local time and the server times.
-	MaxTimeAdjustment time.Duration
-
-	// Max time latency for fetching the server time from coinbase.
-	MaxFetchTimeLatency time.Duration
-
 	// Timeout interval between successive fetching candles data.
 	FetchCandlesInterval time.Duration
 
@@ -70,9 +64,6 @@ func (v *Options) setDefaults() {
 	if v.MaxWebsocketOutOfOrderAllowance == 0 {
 		v.MaxWebsocketOutOfOrderAllowance = 10
 	}
-	if v.MaxTimeAdjustment == 0 {
-		v.MaxTimeAdjustment = time.Minute
-	}
 	if v.FetchCandlesInterval == 0 {
 		v.FetchCandlesInterval = 60 * time.Minute
 	}
@@ -88,5 +79,5 @@ func (v *Options) setDefaults() {
 }
 
 func SubcommandOptions() *Options {
-	return &Options{subcmdMode: true, MaxFetchTimeLatency: time.Second}
+	return &Options{subcmdMode: true}
 }

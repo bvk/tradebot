@@ -244,8 +244,7 @@ func (s *Server) Start(ctx context.Context) (status error) {
 
 		if s.secrets.Coinbase != nil {
 			cbopts := &coinbase.Options{
-				MaxFetchTimeLatency: s.opts.MaxFetchTimeLatency,
-				HttpClientTimeout:   s.opts.MaxHttpClientTimeout,
+				HttpClientTimeout: s.opts.MaxHttpClientTimeout,
 			}
 			if s.opts.NoFetchCandles {
 				cbopts.FetchCandlesInterval = -1

@@ -70,8 +70,6 @@ func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_
 		WebsocketHostname:      opts.WebsocketHostname,
 		HttpClientTimeout:      opts.HttpClientTimeout,
 		WebsocketRetryInterval: opts.WebsocketRetryInterval,
-		MaxTimeAdjustment:      opts.MaxTimeAdjustment,
-		MaxFetchTimeLatency:    opts.MaxFetchTimeLatency,
 	}
 	client, err := advanced.New(ctx, kid, pem, copts)
 	if err != nil {
