@@ -282,7 +282,7 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			exchange := exchange
 			s.cg.Go(func(ctx context.Context) {
 				if err := s.watchForLowBalance(ctx, exchange); err != nil {
-					slog.Error("could not alert on low asset balance (check stopped)", "exchange", exchange.ExchangeName())
+					slog.Error("could not alert on low asset balance (check stopped)", "exchange", exchange.ExchangeName(), "err", err)
 				}
 			})
 		}

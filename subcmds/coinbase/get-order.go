@@ -10,10 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/bvk/tradebot/coinbase"
+	"github.com/bvk/tradebot/coinbase/advanced"
 	"github.com/bvk/tradebot/server"
-	"github.com/bvkgo/kv/kvmemdb"
 	"github.com/visvasity/cli"
 )
 
@@ -50,17 +50,19 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 		return fmt.Errorf("secrets file has no coinbase credentials")
 	}
 
-	db := kvmemdb.New()
-
-	opts := coinbase.SubcommandOptions()
-	cb, err := coinbase.New(ctx, db, secrets.Coinbase.KID, secrets.Coinbase.PEM, opts)
+	opts := &advanced.Options{
+		HttpClientTimeout:   10 * time.Minute,
+		MaxFetchTimeLatency: time.Second,
+		MaxTimeAdjustment:   time.Second,
+	}
+	client, err := advanced.New(ctx, secrets.Coinbase.KID, secrets.Coinbase.PEM, opts)
 	if err != nil {
 		return fmt.Errorf("could not create coinbase client: %w", err)
 	}
-	defer cb.Close()
+	defer client.Close()
 
 	for ii, id := range args {
-		order, err := cb.GetOrder(ctx, "" /* productID */, id)
+		order, err := client.GetOrder(ctx, id)
 		if err != nil {
 			return err
 		}

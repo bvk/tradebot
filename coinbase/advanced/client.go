@@ -227,21 +227,27 @@ func (c *Client) signJWT(uri string) (string, error) {
 // }
 
 func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
+	urlStr := url.String()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
-		slog.Error("could not create http get request with context", "url", url, "err", err)
+		slog.Error("could not create http get request with context", "url", urlStr, "err", err)
 		return err
 	}
 	token, err := c.signJWT(fmt.Sprintf("%s %s%s", req.Method, req.URL.Host, req.URL.Path))
 	if err != nil {
-		slog.Error("could not create signed jwt token for GET", "url", url, "err", err)
+		slog.Error("could not create signed jwt token for GET", "url", urlStr, "err", err)
 		return err
 	}
 	req.Header.Add("Authorization", "Bearer "+token)
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
+	at := time.Now()
 	resp, err := c.client.Do(req)
+	latency := time.Since(at)
+	if latency > c.opts.HttpClientTimeout {
+		slog.Warn("GET request took longer than the desired timeout", "desired", c.opts.HttpClientTimeout, "taken", latency)
+	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			slog.Error("could not do http client request", "err", err)
@@ -263,13 +269,12 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 		return fmt.Errorf("http GET returned %d", resp.StatusCode)
 	}
 	var body io.Reader = resp.Body
-
-	// data, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	return err
-	// }
-	// log.Printf("response body: %s", data)
-	// body = bytes.NewReader(data)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	body = bytes.NewReader(data)
+	slog.Debug("Coinbase GET", "url", urlStr, "latency", latency, "response", string(data))
 
 	if err := json.NewDecoder(body).Decode(result); err != nil {
 		slog.Error("could not decode response to json", "err", err)
@@ -279,29 +284,31 @@ func (c *Client) getJSON(ctx context.Context, url *url.URL, result interface{}) 
 }
 
 func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr interface{}) error {
+	urlStr := url.String()
 	payload, err := json.Marshal(request)
 	if err != nil {
 		slog.Error("could not marshal post request body to json", "err", err)
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
-		slog.Error("could not create http post request with context", "url", url, "err", err)
+		slog.Error("could not create http post request with context", "url", urlStr, "err", err)
 		return err
 	}
 	token, err := c.signJWT(fmt.Sprintf("%s %s%s", req.Method, req.URL.Host, req.URL.Path))
 	if err != nil {
-		slog.Error("could not create signed jwt token for POST", "url", url, "err", err)
+		slog.Error("could not create signed jwt token for POST", "url", urlStr, "err", err)
 		return err
 	}
 	req.Header.Add("Authorization", "Bearer "+token)
 	if err := c.limiter.Wait(ctx); err != nil {
 		return err
 	}
-	s := time.Now()
+	at := time.Now()
 	resp, err := c.client.Do(req)
-	if d := time.Now().Sub(s); d > c.opts.HttpClientTimeout {
-		slog.Warn(fmt.Sprintf("post request took %s which is more than the http client timeout %s", d, c.opts.HttpClientTimeout))
+	latency := time.Since(at)
+	if latency > c.opts.HttpClientTimeout {
+		slog.Warn("POST request took longer than the desired timeout", "desired", c.opts.HttpClientTimeout, "taken", latency)
 	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -324,14 +331,13 @@ func (c *Client) postJSON(ctx context.Context, url *url.URL, request, resultPtr 
 		return fmt.Errorf("http POST returned %d", resp.StatusCode)
 	}
 	var body io.Reader = resp.Body
-	/////
-	// data, err := ioutil.ReadAll(resp.Body)
-	// if err != nil {
-	// 	return err
-	// }
-	// slog.Info("response body", "data", data)
-	// body = bytes.NewReader(data)
-	/////
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	body = bytes.NewReader(data)
+	slog.Debug("Coinbase POST", "url", urlStr, "latency", latency, "request", string(payload), "response", string(data))
+
 	if err := json.NewDecoder(body).Decode(resultPtr); err != nil {
 		slog.Error("could not decode response to json", "err", err)
 		return err
@@ -527,9 +533,7 @@ func (c *Client) CancelOrder(ctx context.Context, request *CancelOrderRequest) (
 	}
 	resp := new(CancelOrderResponse)
 	if err := c.postJSON(ctx, url, request, resp); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			slog.Error("could not cancel order", "url", url, "err", err)
-		}
+		slog.Error("could not cancel order", "url", url, "err", err)
 		return nil, err
 	}
 	return resp, nil

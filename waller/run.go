@@ -32,8 +32,11 @@ func (w *Waller) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	return nil
 }
 
-func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
-	log.Printf("started waller %s", w.uid)
+func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) (status error) {
+	slog.Info("started waller", "waller", w)
+	defer func() {
+		slog.Info("stopping waller", "waller", w, "status", status)
+	}()
 
 	if w.summary.Load() == nil {
 		if err := kv.WithReadWriter(ctx, rt.Database, w.Save); err != nil {
@@ -79,14 +82,12 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) error {
 		}()
 	}
 
-	for ctx.Err() == nil && nloopers.Load() > 0 {
+	for nloopers.Load() > 0 {
 		select {
-		case <-ctx.Done():
-			continue
 		case uid := <-jobUpdatesCh:
 			if _, ok := loopMap[uid]; ok {
 				w.summary.Store(nil)
-				if err := kv.WithReadWriter(ctx, rt.Database, w.Save); err != nil {
+				if err := kv.WithReadWriter(context.Background(), rt.Database, w.Save); err != nil {
 					slog.Error("could not save waller to the database (ignored; will retry)", "err", err)
 				}
 			}

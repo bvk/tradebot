@@ -99,8 +99,9 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
 			if activeOrderID != "" {
 				slog.Info("canceling active limit order before quitting", "limiter", v, "point", v.point, "order-id", activeOrderID, "quit-reason", context.Cause(ctx))
 				if err := v.cancel(localCtx, rt.Product, activeOrderID); err != nil {
-					return err
+					return fmt.Errorf("could not cancel order %v: %w", activeOrderID, err)
 				}
+				slog.Info("cancelled active limit order before quitting", "limiter", v, "point", v.point, "order-id", activeOrderID, "quit-reason", context.Cause(ctx))
 				dirty++
 			}
 			if err := kv.WithReadWriter(localCtx, rt.Database, v.Save); err != nil {
@@ -279,12 +280,12 @@ func (v *Limiter) cancel(ctx context.Context, product exchange.Product, activeOr
 	for {
 		detail, err := product.Get(ctx, activeOrderID)
 		if err != nil {
-			slog.Error("could not fetch canceled order (will retry)", "order-id", activeOrderID, "err", err)
+			slog.Warn("could not fetch canceled order (will retry)", "order-id", activeOrderID, "err", err)
 			time.Sleep(time.Second)
 			continue
 		}
 		if !detail.IsDone() {
-			slog.Error("canceled order is still not done (will retry)", "order-id", activeOrderID, "err", err)
+			slog.Warn("canceled order is still not done (will retry)", "order-id", activeOrderID)
 			time.Sleep(time.Second)
 			continue
 		}
