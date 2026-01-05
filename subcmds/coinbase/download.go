@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -35,14 +34,16 @@ type Download struct {
 
 	outputPath string
 
-	stopTime string
+	beginTime string
+	endTime   string
 }
 
 func (c *Download) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := new(flag.FlagSet)
 	fset.StringVar(&c.secretsPath, "secrets-file", "", "path to credentials file")
 	fset.StringVar(&c.outputPath, "output-file", "", "path to output file")
-	fset.StringVar(&c.stopTime, "stop-time", "", "Oldest date/time to stop the download")
+	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for the orders time range")
+	fset.StringVar(&c.endTime, "end-time", "", "End time for the orders time range")
 	return "download", fset, cli.CmdFunc(c.run)
 }
 
@@ -70,13 +71,21 @@ func (c *Download) run(ctx context.Context, args []string) error {
 		}
 		return time.Parse(time.RFC3339, s)
 	}
-	var stopTime time.Time
-	if len(c.stopTime) != 0 {
-		v, err := parseTime(c.stopTime)
+	var beginTime time.Time
+	if len(c.beginTime) != 0 {
+		v, err := parseTime(c.beginTime)
 		if err != nil {
 			return err
 		}
-		stopTime = v
+		beginTime = v
+	}
+	var endTime time.Time
+	if len(c.endTime) != 0 {
+		v, err := parseTime(c.endTime)
+		if err != nil {
+			return err
+		}
+		endTime = v
 	}
 
 	secrets, err := server.SecretsFromFile(c.secretsPath)
@@ -107,6 +116,9 @@ func (c *Download) run(ctx context.Context, args []string) error {
 	values := make(url.Values)
 	values.Add("limit", "100")
 	values.Add("sort_by", "LAST_FILL_TIME")
+	if !endTime.IsZero() {
+		values.Add("end_date", endTime.Format(time.RFC3339))
+	}
 
 	url := &url.URL{
 		Scheme: "https",
@@ -121,7 +133,11 @@ func (c *Download) run(ctx context.Context, args []string) error {
 			return err
 		}
 		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			if len(body) != 0 {
+				slog.Error("response", "body", string(body))
+			}
 			return fmt.Errorf("received non-ok status code %d", resp.StatusCode)
 		}
 		body, err := io.ReadAll(resp.Body)
@@ -133,7 +149,7 @@ func (c *Download) run(ctx context.Context, args []string) error {
 		if err := json.Unmarshal(body, reply); err != nil {
 			return err
 		}
-		if err := c.dropAfterStopTime(reply, stopTime); err != nil {
+		if err := c.truncate(reply, beginTime, endTime); err != nil {
 			return err
 		}
 		for _, order := range reply.Orders {
@@ -153,24 +169,31 @@ func (c *Download) run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (c *Download) dropAfterStopTime(resp *ListOrdersResponse, stopTime time.Time) error {
-	if stopTime.IsZero() {
+func (c *Download) truncate(resp *ListOrdersResponse, beginTime, endTime time.Time) error {
+	if beginTime.IsZero() && endTime.IsZero() {
 		return nil
 	}
 	type Order struct {
 		LastFillTime exchange.RemoteTime `json:"last_fill_time"`
 	}
+	ncut := 0
 	for i, v := range resp.Orders {
 		order := new(Order)
 		if err := json.Unmarshal([]byte(v), order); err != nil {
 			return err
 		}
-		log.Println(order.LastFillTime.Time)
-		if order.LastFillTime.Time.Before(stopTime) {
+		if !endTime.IsZero() && (order.LastFillTime.Time.Equal(endTime) || order.LastFillTime.Time.After(endTime)) {
+			ncut++
+			continue
+		}
+		if !beginTime.IsZero() && order.LastFillTime.Time.Before(beginTime) {
 			resp.Orders = resp.Orders[:i]
 			resp.HasNext = false
-			return nil
+			break
 		}
+	}
+	if ncut > 0 {
+		resp.Orders = resp.Orders[ncut:]
 	}
 	return nil
 }
