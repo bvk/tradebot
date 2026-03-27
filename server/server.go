@@ -163,12 +163,14 @@ func New(newctx context.Context, secretsFilePath string, db kv.Database, opts *O
 	t.handlerMap[api.ExchangeGetProductPath] = httpPostJSONHandler(t.doGetProduct)
 	t.handlerMap[api.ExchangeUpdateProductPath] = httpPostJSONHandler(t.doExchangeUpdateProduct)
 
+	t.handlerMap[api.SecretsPath] = httpGetPostJSONHandler(t.doSecretsGet, t.doSecretsPost)
+
 	return t, nil
 }
 
-// loadSecrets loads secrets from the secrets file path. If the file doesn't exist,
-// it returns an empty Secrets object.
-func (s *Server) loadSecrets(ctx context.Context) (*Secrets, error) {
+// LoadSecrets loads secrets from the secrets file path.
+// If the file doesn't exist, the underlying error (e.g. os.ErrNotExist) is returned.
+func (s *Server) LoadSecrets(ctx context.Context) (*Secrets, error) {
 	secrets, err := SecretsFromFile(s.secretsFilePath)
 	if err != nil {
 		return nil, err
@@ -249,9 +251,9 @@ func (s *Server) Start(ctx context.Context) (status error) {
 	}()
 
 	// Load secrets from file
-	secrets, err := s.loadSecrets(ctx)
+	secrets, err := s.LoadSecrets(ctx)
 	if err != nil {
-		return fmt.Errorf("could not load secrets: %w", err)
+		return fmt.Errorf("could not load secrets: %w", ErrUnconfigured)
 	}
 
 	// Create exchange objects.
@@ -528,6 +530,65 @@ func httpPostJSONHandler[T1 any, T2 any](fun func(context.Context, *T1) (*T2, er
 			return
 		}
 		w.Write(jsbytes)
+	})
+}
+
+func httpGetPostJSONHandler[TGet, TPostReq, TPostResp any](
+	getFunc func(context.Context) (*TGet, error),
+	postFunc func(context.Context, *TPostReq) (*TPostResp, error),
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			resp, err := getFunc(r.Context())
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsbytes, err := json.Marshal(resp)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Write(jsbytes)
+		case http.MethodPost:
+			if v := r.Header.Get("content-type"); v != "" && !strings.EqualFold(v, "application/json") {
+				http.Error(w, "unsupported content type", http.StatusBadRequest)
+				return
+			}
+			req := new(TPostReq)
+			if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			resp, err := postFunc(r.Context(), req)
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				var settingsErr *SecretsValidationError
+				if errors.As(err, &settingsErr) {
+					http.Error(w, settingsErr.Message, http.StatusBadRequest)
+					return
+				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			jsbytes, err := json.Marshal(resp)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Write(jsbytes)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 }
 

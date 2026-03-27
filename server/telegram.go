@@ -113,7 +113,7 @@ func (s *Server) statsCmd(ctx context.Context, _ []string) error {
 	}
 
 	// Load secrets from file for the telegram usernames.
-	secrets, err := s.loadSecrets(ctx)
+	secrets, err := s.LoadSecrets(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load secrets: %w", err)
 	}
