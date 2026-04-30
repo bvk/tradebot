@@ -2,7 +2,6 @@
 
 package coinex
 
-type Credentials struct {
-	Key    string `json:"key"`
-	Secret string `json:"secret"`
-}
+import "github.com/bvk/tradebot/setup"
+
+type Credentials = setup.CoinEx

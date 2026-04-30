@@ -2,7 +2,6 @@
 
 package coinbase
 
-type Credentials struct {
-	KID string `json:"kid"`
-	PEM string `json:"pem"`
-}
+import "github.com/bvk/tradebot/setup"
+
+type Credentials = setup.Coinbase

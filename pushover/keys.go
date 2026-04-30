@@ -2,7 +2,6 @@
 
 package pushover
 
-type Keys struct {
-	ApplicationKey string `json:"application_key"`
-	UserKey        string `json:"user_key"`
-}
+import "github.com/bvk/tradebot/setup"
+
+type Keys = setup.Pushover

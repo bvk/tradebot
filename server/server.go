@@ -147,6 +147,8 @@ func New(newctx context.Context, secretsFilePath string, db kv.Database, opts *O
 		alertFreezeDeadlineMap: make(map[string]time.Time),
 	}
 
+	t.handlerMap[api.SetupPath] = httpPostJSONHandler(t.doSetup)
+
 	t.handlerMap[api.JobListPath] = httpPostJSONHandler(t.doList)
 	t.handlerMap[api.JobCancelPath] = httpPostJSONHandler(t.doCancel)
 	t.handlerMap[api.JobResumePath] = httpPostJSONHandler(t.doResume)
