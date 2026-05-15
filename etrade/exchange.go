@@ -125,9 +125,5 @@ func (v *Exchange) GetOrder(ctx context.Context, productID string, serverID stri
 	if err != nil {
 		return nil, fmt.Errorf("etrade: invalid server order id %q: %w", serverID, err)
 	}
-	orders, err := v.client.GetOrder(ctx, orderID)
-	if err != nil {
-		return nil, err
-	}
-	return orders[0], nil
+	return v.client.GetOrder(ctx, orderID)
 }

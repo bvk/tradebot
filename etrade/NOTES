@@ -142,16 +142,20 @@ NOT using top-level TotalCommission (instrument level is more granular).
 "EXECUTED", "CANCELLED", "REJECTED", "EXPIRED", "PARTIAL_CANCEL"
 
 ### Partially Unsupported Order Types
-NewOrdersFromAPI (renamed from NewOrderFromAPI) returns []*Order — one per leg.
+NewOrderFromAPI returns *Order (nil if unsupported).
 OCA multi-leg orders produce multiple Orders sharing the same OrderID, with
 ClientOrderID suffixed by leg index (e.g. "477-0", "477-1").
 
-Per-leg skips (WARN log, leg omitted from result):
-  - >1 Instrument entries per leg (spread orders)
-  - Non-equity security types (options, futures, etc.)
+Skipped with WARN log, nil returned:
+  - >1 OrderDetail entries (OCA multi-leg orders)
+  - >1 Instrument entries in a leg (spread orders)
+  Both share a single orderId with no per-leg server ID; splitting creates
+  incoherent ServerID/Cancel semantics. Bot only places simple equity orders.
 
-TODO: multi-instrument legs (spread orders) are not yet supported.
-TODO: non-equity security types (options, futures, etc.) are not yet supported.
+Non-equity security types (options, futures, etc.): all security types are
+parsed and passed through. Option-specific fields (ExpiryYear, ExpiryMonth,
+ExpiryDay, StrikePrice, CallPut) are populated on Order. Placing non-equity
+orders would require a separate code path beyond LimitBuy/LimitSell.
 
 ### exchange.go Design
 Exchange wraps Client + db kv.Database + productMap.
@@ -167,8 +171,9 @@ GetOrder: routes through open Product (for UUID restoration) or falls back
   apiOrderDetail) for JSON parsing + public flat Order struct for interface impl.
 - APIOrder is exported (used in client.go response structs).
 - All API response fields included in nested structs; unused ones commented.
-- NewOrderFromAPI() converts nested -> flat, returns nil for unsupported types.
+- NewOrderFromAPI() converts nested -> flat, returns nil for unsupported types (multi-leg OCA, multi-instrument spread).
 - ClientUUID left as uuid.Nil by NewOrderFromAPI; caller must set it.
+- client.GetOrder returns *internal.Order (not a slice); returns os.ErrNotExist if nil.
 - FinishedAt() guards on ExecutedTimeMilli != 0 (cancelled orders have 0).
 - ExecutedValue() = FilledQty * AvgFillPrice (computed, not stored).
 

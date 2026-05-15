@@ -3,7 +3,7 @@
 package internal
 
 import (
-	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -125,71 +125,66 @@ var _ exchange.Order = &Order{}
 var _ exchange.OrderUpdate = &Order{}
 var _ exchange.OrderDetail = &Order{}
 
-// NewOrdersFromAPI converts the nested E*TRADE API order structure into a
-// slice of flat Orders — one per OrderDetail leg. Multi-leg OCA orders produce
-// multiple Orders that all share the same OrderID; legs with unsupported
-// instrument types (options, multi-instrument) are skipped with a WARN log.
-// The ClientUUID field on every returned Order is left as uuid.Nil and must be
-// set by the caller.
-func NewOrdersFromAPI(a *APIOrder) []*Order {
-	multiLeg := len(a.OrderDetail) > 1
+func skip(orderID int64, reason string) *Order {
+	slog.Warn("etrade: skipping order", "orderID", orderID, "reason", reason)
+	return nil
+}
 
+// NewOrderFromAPI converts an E*TRADE API order into a flat Order. Returns nil
+// if the order is unsupported (multi-leg OCA or multi-instrument spread): both
+// share a single orderId with no per-leg server ID, so they cannot be modeled
+// as independent orders. The ClientUUID field is left as uuid.Nil and must be
+// set by the caller.
+func NewOrderFromAPI(a *APIOrder) *Order {
 	if len(a.OrderDetail) == 0 {
-		return []*Order{{
+		return &Order{
 			OrderID:       a.OrderID,
 			ClientOrderID: a.ClientOrderID,
-		}}
-	}
-
-	var orders []*Order
-	for i, d := range a.OrderDetail {
-		multiInstr := len(d.Instrument) > 1
-
-		legClientOrderID := a.ClientOrderID
-		if multiLeg {
-			legClientOrderID = fmt.Sprintf("%s-%d", a.ClientOrderID, i)
-		}
-
-		if len(d.Instrument) == 0 {
-			orders = append(orders, &Order{
-				OrderID:           a.OrderID,
-				ClientOrderID:     legClientOrderID,
-				Status:            d.Status,
-				PlacedTimeMilli:   d.PlacedTime,
-				ExecutedTimeMilli: d.ExecutedTime,
-				LimitPrice:        d.LimitPrice,
-			})
-			continue
-		}
-
-		for j, inst := range d.Instrument {
-			clientOrderID := legClientOrderID
-			if multiInstr {
-				clientOrderID = fmt.Sprintf("%s-%d", legClientOrderID, j)
-			}
-			orders = append(orders, &Order{
-				OrderID:           a.OrderID,
-				ClientOrderID:     clientOrderID,
-				Status:            d.Status,
-				PlacedTimeMilli:   d.PlacedTime,
-				ExecutedTimeMilli: d.ExecutedTime,
-				LimitPrice:        d.LimitPrice,
-				Symbol:            inst.Product.Symbol,
-				SecurityType:      inst.Product.SecurityType,
-				Side:              strings.ToUpper(inst.OrderAction),
-				OrderedQty:        inst.OrderedQuantity,
-				FilledQty:         inst.FilledQuantity,
-				AvgFillPrice:      inst.AverageExecutionPrice,
-				Commission:        inst.EstimatedCommission.Add(inst.EstimatedFees),
-				ExpiryYear:        inst.Product.ExpiryYear,
-				ExpiryMonth:       inst.Product.ExpiryMonth,
-				ExpiryDay:         inst.Product.ExpiryDay,
-				StrikePrice:       inst.Product.StrikePrice,
-				CallPut:           inst.Product.CallPut,
-			})
 		}
 	}
-	return orders
+
+	if len(a.OrderDetail) > 1 {
+		return skip(a.OrderID, "multi-leg OCA orders are not supported")
+	}
+
+	d := a.OrderDetail[0]
+
+	if len(d.Instrument) == 0 {
+		return &Order{
+			OrderID:           a.OrderID,
+			ClientOrderID:     a.ClientOrderID,
+			Status:            d.Status,
+			PlacedTimeMilli:   d.PlacedTime,
+			ExecutedTimeMilli: d.ExecutedTime,
+			LimitPrice:        d.LimitPrice,
+		}
+	}
+
+	if len(d.Instrument) > 1 {
+		return skip(a.OrderID, "multi-instrument spread orders are not supported")
+	}
+
+	inst := d.Instrument[0]
+	return &Order{
+		OrderID:           a.OrderID,
+		ClientOrderID:     a.ClientOrderID,
+		Status:            d.Status,
+		PlacedTimeMilli:   d.PlacedTime,
+		ExecutedTimeMilli: d.ExecutedTime,
+		LimitPrice:        d.LimitPrice,
+		Symbol:            inst.Product.Symbol,
+		SecurityType:      inst.Product.SecurityType,
+		Side:              strings.ToUpper(inst.OrderAction),
+		OrderedQty:        inst.OrderedQuantity,
+		FilledQty:         inst.FilledQuantity,
+		AvgFillPrice:      inst.AverageExecutionPrice,
+		Commission:        inst.EstimatedCommission.Add(inst.EstimatedFees),
+		ExpiryYear:        inst.Product.ExpiryYear,
+		ExpiryMonth:       inst.Product.ExpiryMonth,
+		ExpiryDay:         inst.Product.ExpiryDay,
+		StrikePrice:       inst.Product.StrikePrice,
+		CallPut:           inst.Product.CallPut,
+	}
 }
 
 func (o *Order) ServerID() string {
