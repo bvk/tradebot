@@ -51,6 +51,38 @@ type balanceResponseWrapper struct {
 	BalanceResponse *internal.APIBalanceResponse `json:"BalanceResponse"`
 }
 
+// cancelOrderRequestWrapper is the outer envelope for PUT /v1/accounts/{id}/orders/cancel.
+type cancelOrderRequestWrapper struct {
+	CancelOrderRequest cancelOrderRequest `json:"CancelOrderRequest"`
+}
+
+type cancelOrderRequest struct {
+	OrderID int64 `json:"orderId"`
+}
+
+// previewOrderRequestWrapper is the outer envelope for POST /v1/accounts/{id}/orders/preview.
+type previewOrderRequestWrapper struct {
+	PreviewOrderRequest previewOrderRequest `json:"PreviewOrderRequest"`
+}
+
+type previewOrderRequest struct {
+	ClientOrderID string             `json:"clientOrderId,omitempty"`
+	OrderType     string             `json:"orderType"`
+	Order         []placeOrderDetail `json:"Order"`
+}
+
+type previewOrderResponseWrapper struct {
+	PreviewOrderResponse previewOrderResponse `json:"PreviewOrderResponse"`
+}
+
+type previewOrderResponse struct {
+	PreviewIds []previewOrderID `json:"PreviewIds"`
+}
+
+type previewOrderID struct {
+	PreviewID int64 `json:"previewId"`
+}
+
 // placeOrderRequestWrapper is the outer envelope for POST /v1/accounts/{id}/orders/place.
 type placeOrderRequestWrapper struct {
 	PlaceOrderRequest placeOrderRequest `json:"PlaceOrderRequest"`
@@ -59,6 +91,7 @@ type placeOrderRequestWrapper struct {
 type placeOrderRequest struct {
 	ClientOrderID string             `json:"clientOrderId,omitempty"`
 	OrderType     string             `json:"orderType"`
+	PreviewIds    []previewOrderID   `json:"PreviewIds,omitempty"`
 	Order         []placeOrderDetail `json:"Order"`
 }
 
@@ -156,8 +189,10 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 	}
 	c.nonceCounter.Store(time.Now().UnixNano())
 
-	// Verify credentials are valid before starting goroutines.
-	if err := c.RenewAccessToken(ctx); err != nil {
+	// Verify credentials are valid before starting goroutines. Use GetBalance
+	// rather than RenewAccessToken because E*TRADE rate-limits the renew
+	// endpoint — calling it on every CLI invocation causes intermittent 401s.
+	if _, err := c.GetBalance(ctx); err != nil {
 		lifeCancel(err)
 		return nil, fmt.Errorf("etrade: credential verification failed: %w", err)
 	}
@@ -311,6 +346,8 @@ func sleep(ctx context.Context, d time.Duration) error {
 func handleHTTPError(ctx context.Context, resp *http.Response, apiPath string) (retry bool, err error) {
 	switch resp.StatusCode {
 	case internal.StatusNotFound:
+		body, _ := io.ReadAll(resp.Body)
+		slog.Error("etrade: resource not found", "path", apiPath, "body", string(body))
 		return false, os.ErrNotExist
 	case internal.StatusUnauthorized:
 		slog.Error("etrade: OAuth token expired or invalid; re-run 'setup etrade' to reauthorize", "path", apiPath)
@@ -534,33 +571,53 @@ func (c *Client) GetOrder(ctx context.Context, orderID int64) (*internal.Order, 
 	return order, nil
 }
 
-// PlaceOrder submits a limit order via
-// POST /v1/accounts/{accountIdKey}/orders/place. Returns the E*TRADE-assigned
-// numeric order ID. clientOrderID must be a decimal integer string (E*TRADE
-// only accepts digits in this field). orderTerm is typically "GOOD_UNTIL_CANCEL"
-// for bot orders or "GOOD_FOR_DAY" for manual/sandbox use.
+// PlaceOrder submits a limit order via the two-step preview+place flow required
+// by E*TRADE. First calls POST /orders/preview to satisfy the session check,
+// then calls POST /orders/place with the returned previewId. Returns the
+// E*TRADE-assigned numeric order ID. clientOrderID must be a decimal integer
+// string. orderTerm is typically "GOOD_UNTIL_CANCEL" or "GOOD_FOR_DAY".
 func (c *Client) PlaceOrder(ctx context.Context, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm string) (int64, error) {
-	req := placeOrderRequestWrapper{
+	accountPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey)
+	orderDetail := placeOrderDetail{
+		PriceType:     "LIMIT",
+		OrderTerm:     orderTerm,
+		MarketSession: "REGULAR",
+		LimitPrice:    limitPrice,
+		Instrument: []placeOrderInstrument{{
+			Product:      placeOrderProduct{SecurityType: "EQ", Symbol: symbol},
+			OrderAction:  strings.ToUpper(side),
+			QuantityType: "QUANTITY",
+			Quantity:     qty,
+		}},
+	}
+
+	// Step 1: preview (required by E*TRADE — skipping causes error code 101).
+	previewReq := previewOrderRequestWrapper{
+		PreviewOrderRequest: previewOrderRequest{
+			ClientOrderID: clientOrderID,
+			OrderType:     "EQ",
+			Order:         []placeOrderDetail{orderDetail},
+		},
+	}
+	var previewResp previewOrderResponseWrapper
+	if err := doPostJSON(ctx, c, accountPath+"/orders/preview", &previewReq, &previewResp); err != nil {
+		return 0, fmt.Errorf("etrade: preview order failed: %w", err)
+	}
+	if len(previewResp.PreviewOrderResponse.PreviewIds) == 0 {
+		return 0, fmt.Errorf("etrade: preview order response contained no PreviewIds")
+	}
+
+	// Step 2: place using the preview ID obtained above.
+	placeReq := placeOrderRequestWrapper{
 		PlaceOrderRequest: placeOrderRequest{
 			ClientOrderID: clientOrderID,
 			OrderType:     "EQ",
-			Order: []placeOrderDetail{{
-				PriceType:     "LIMIT",
-				OrderTerm:     orderTerm,
-				MarketSession: "REGULAR",
-				LimitPrice:    limitPrice,
-				Instrument: []placeOrderInstrument{{
-					Product:      placeOrderProduct{SecurityType: "EQ", Symbol: symbol},
-					OrderAction:  strings.ToUpper(side),
-					QuantityType: "QUANTITY",
-					Quantity:     qty,
-				}},
-			}},
+			PreviewIds:    previewResp.PreviewOrderResponse.PreviewIds,
+			Order:         []placeOrderDetail{orderDetail},
 		},
 	}
-	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/orders/place"
 	var resp placeOrderResponseWrapper
-	if err := doPostJSON(ctx, c, apiPath, &req, &resp); err != nil {
+	if err := doPostJSON(ctx, c, accountPath+"/orders/place", &placeReq, &resp); err != nil {
 		return 0, err
 	}
 	if len(resp.PlaceOrderResponse.OrderIds) == 0 {
@@ -570,14 +627,29 @@ func (c *Client) PlaceOrder(ctx context.Context, symbol, side string, qty, limit
 }
 
 // CancelOrder requests cancellation of an order via
-// PUT /v1/accounts/{accountIdKey}/orders/{orderId}/cancel.
+// PUT /v1/accounts/{accountIdKey}/orders/cancel.
 func (c *Client) CancelOrder(ctx context.Context, orderID int64) error {
-	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) +
-		"/orders/" + strconv.FormatInt(orderID, 10) + "/cancel"
-	if err := c.doPutEmpty(ctx, apiPath); err != nil {
-		return err
+	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/orders/cancel"
+	data, _ := json.Marshal(cancelOrderRequestWrapper{CancelOrderRequest: cancelOrderRequest{OrderID: orderID}})
+	for {
+		httpResp, err := c.do(ctx, http.MethodPut, apiPath, nil, string(data))
+		if err != nil {
+			return err
+		}
+		if httpResp.StatusCode == http.StatusOK {
+			io.Copy(io.Discard, httpResp.Body)
+			httpResp.Body.Close()
+			return nil
+		}
+		retry, err := handleHTTPError(ctx, httpResp, apiPath)
+		httpResp.Body.Close()
+		if err != nil {
+			return err
+		}
+		if retry {
+			continue
+		}
 	}
-	return nil
 }
 
 func (c *Client) goRenewToken(ctx context.Context) {
