@@ -571,17 +571,17 @@ func (c *Client) GetOrder(ctx context.Context, orderID int64) (*internal.Order, 
 	return order, nil
 }
 
-// PlaceOrder submits a limit order via the two-step preview+place flow required
+// PlaceLimitOrder submits a limit order via the two-step preview+place flow required
 // by E*TRADE. First calls POST /orders/preview to satisfy the session check,
 // then calls POST /orders/place with the returned previewId. Returns the
 // E*TRADE-assigned numeric order ID. clientOrderID must be a decimal integer
 // string. orderTerm is typically "GOOD_UNTIL_CANCEL" or "GOOD_FOR_DAY".
-func (c *Client) PlaceOrder(ctx context.Context, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm string) (int64, error) {
+func (c *Client) PlaceLimitOrder(ctx context.Context, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm string) (int64, error) {
 	accountPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey)
 	orderDetail := placeOrderDetail{
 		PriceType:     "LIMIT",
 		OrderTerm:     orderTerm,
-		MarketSession: "REGULAR",
+		MarketSession: "ALL",
 		LimitPrice:    limitPrice,
 		Instrument: []placeOrderInstrument{{
 			Product:      placeOrderProduct{SecurityType: "EQ", Symbol: symbol},

@@ -98,7 +98,9 @@ type Order struct {
 	SecurityType string // "EQ", "OPTN", etc.
 	Side         string // "BUY" or "SELL"
 
-	Status string // E*TRADE status string, e.g. "OPEN", "EXECUTED"
+	Status    string // E*TRADE status string, e.g. "OPEN", "EXECUTED"
+	PriceType string // e.g. "LIMIT"
+	OrderTerm string // e.g. "GOOD_UNTIL_CANCEL", "GOOD_FOR_DAY"
 
 	PlacedTimeMilli   int64
 	ExecutedTimeMilli int64
@@ -169,6 +171,8 @@ func NewOrderFromAPI(a *APIOrder) *Order {
 		OrderID:           a.OrderID,
 		ClientOrderID:     a.ClientOrderID,
 		Status:            d.Status,
+		PriceType:         d.PriceType,
+		OrderTerm:         d.OrderTerm,
 		PlacedTimeMilli:   d.PlacedTime,
 		ExecutedTimeMilli: d.ExecutedTime,
 		LimitPrice:        d.LimitPrice,

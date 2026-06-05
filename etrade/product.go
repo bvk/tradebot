@@ -25,6 +25,19 @@ import (
 	"github.com/visvasity/topic"
 )
 
+// orderPlacementInfo holds the parameters of a PlaceOrder request. Used by
+// goCancelFailedCreates to match the order in the open-orders list when the
+// server order ID is unknown (E*TRADE omits clientOrderId from list responses).
+// Fields are exported so gob can serialize them when embedded in orderEntry.
+type orderPlacementInfo struct {
+	RequestTimeMilli int64
+	Side             string
+	Price            decimal.Decimal
+	Qty              decimal.Decimal
+	PriceType        string
+	OrderTerm        string
+}
+
 // clientIDStatus tracks the state of a single order keyed by the client order
 // UUID. It is protected by its own mutex because LimitBuy/LimitSell,
 // goWatchOrderUpdates, and goCancelFailedCreates all access it concurrently.
@@ -39,25 +52,19 @@ type clientIDStatus struct {
 	// succeeds or a matching update arrives.
 	order *internal.Order
 
-	// counterID is the numeric E*TRADE clientOrderId we assigned and sent in
-	// PlaceOrder. Used by goCancelFailedCreates to find the order if placement
-	// timed out.
-	counterID int64
-
-	timestampMilli int64
+	// placement holds the original request parameters, set before PlaceOrder is
+	// called and used for recovery matching if the call times out or crashes.
+	placement orderPlacementInfo
 }
 
-func (v *clientIDStatus) isDoneLocked() bool {
-	return v.order != nil && v.order.IsDone()
-}
-
-// counterIDEntry is the value persisted in the database for each order we
-// place. It maps the numeric E*TRADE clientOrderId to the client order UUID
-// and the server order ID. ServerOrderID is 0 until PlaceOrder returns
-// successfully, allowing crash recovery even when the outcome is unknown.
-type counterIDEntry struct {
-	ClientOrderUUID uuid.UUID
-	ServerOrderID   int64
+// orderEntry is the value persisted in the database for each order we place,
+// keyed by the client order UUID. ServerOrderID is 0 until PlaceOrder returns
+// successfully. Placement is written before PlaceOrder is called so that if
+// the process crashes before the server order ID is known, startup
+// reconciliation can match the order in the open-orders list by parameters.
+type orderEntry struct {
+	ServerOrderID int64
+	Placement     orderPlacementInfo
 }
 
 // Product implements exchange.Product for a single E*TRADE equity symbol.
@@ -71,18 +78,19 @@ type Product struct {
 	client *Client
 	symbol string
 
-	// nextCounterID generates unique numeric E*TRADE clientOrderIds. E*TRADE
-	// only accepts digits in this field, so UUID encoding is not possible.
-	nextCounterID atomic.Int64
+	// etradeOrderID generates unique numeric values to send as clientOrderId in
+	// PlaceOrder requests. E*TRADE only accepts digits in this field so UUID
+	// encoding is not possible. The value is not persisted or used for lookup.
+	etradeOrderID atomic.Int64
 
 	// clientIDStatusMap is keyed by the client order UUID and tracks order state
 	// for deduplication and status queries within a session.
 	clientIDStatusMap syncmap.Map[uuid.UUID, *clientIDStatus]
 
-	// counterIDMap maps E*TRADE numeric clientOrderId → client order UUID,
-	// allowing order updates received from the polling goroutines to be matched
-	// back to the originating clientIDStatus.
-	counterIDMap syncmap.Map[int64, uuid.UUID]
+	// serverIDMap maps E*TRADE server order ID → client order UUID. Used by
+	// Get() to restore ClientUUID without relying on the clientOrderId field,
+	// which E*TRADE omits from single-order GET responses.
+	serverIDMap syncmap.Map[int64, uuid.UUID]
 
 	// failedCreatesCh receives UUIDs of orders whose PlaceOrder call returned
 	// an error. goCancelFailedCreates scans open orders to find and cancel any
@@ -92,27 +100,82 @@ type Product struct {
 
 var _ exchange.Product = &Product{}
 
-// counterIDKey returns the DB key for a given E*TRADE numeric clientOrderId.
-func (p *Product) counterIDKey(counterID int64) string {
-	return fmt.Sprintf("/etrade/symbol/%s/counterid/%d", p.symbol, counterID)
+func absInt64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
-// dbSetEntry persists a counterIDEntry to the database.
-func (p *Product) dbSetEntry(ctx context.Context, counterID int64, entry counterIDEntry) {
-	key := p.counterIDKey(counterID)
-	if err := kvutil.SetDB[counterIDEntry](ctx, p.db, key, &entry); err != nil {
-		slog.Warn("etrade: could not persist counterID entry", "symbol", p.symbol, "counterID", counterID, "err", err)
+// matchOpenOrder finds the first order in candidates that matches the given
+// symbol and placement parameters, within a 60-second window of the request time.
+// Used to recover orders when the server ID is unknown (E*TRADE omits
+// clientOrderId from list responses so we cannot match by that field).
+func matchOpenOrder(candidates []*internal.Order, symbol string, p orderPlacementInfo) *internal.Order {
+	const matchWindowMilli = 60_000
+	for _, o := range candidates {
+		if o.Symbol != symbol {
+			continue
+		}
+		if !strings.EqualFold(o.Side, p.Side) {
+			continue
+		}
+		if !strings.EqualFold(o.PriceType, p.PriceType) {
+			continue
+		}
+		if !strings.EqualFold(o.OrderTerm, p.OrderTerm) {
+			continue
+		}
+		if !o.LimitPrice.Equal(p.Price) {
+			continue
+		}
+		if !o.OrderedQty.Equal(p.Qty) {
+			continue
+		}
+		if absInt64(o.PlacedTimeMilli-p.RequestTimeMilli) > matchWindowMilli {
+			continue
+		}
+		return o
+	}
+	return nil
+}
+
+// clientOrderKeyPrefix returns the DB key prefix for all client orders of this symbol.
+func (p *Product) clientOrderKeyPrefix() string {
+	return fmt.Sprintf("/etrade/symbol/%s/clientorder", p.symbol)
+}
+
+// clientOrderKey returns the DB key for a client order UUID.
+func (p *Product) clientOrderKey(clientOrderUUID uuid.UUID) string {
+	return p.clientOrderKeyPrefix() + "/" + clientOrderUUID.String()
+}
+
+// clientOrderUUIDFromKey parses the client order UUID from a DB key produced by clientOrderKey.
+func (p *Product) clientOrderUUIDFromKey(key string) (uuid.UUID, error) {
+	parts := strings.Split(key, "/")
+	uid, err := uuid.Parse(parts[len(parts)-1])
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("etrade: invalid order key %q: %w", key, err)
+	}
+	return uid, nil
+}
+
+// dbSetEntry persists an orderEntry to the database keyed by client order UUID.
+func (p *Product) dbSetEntry(ctx context.Context, clientOrderUUID uuid.UUID, entry orderEntry) {
+	key := p.clientOrderKey(clientOrderUUID)
+	if err := kvutil.SetDB(ctx, p.db, key, &entry); err != nil {
+		slog.Warn("etrade: could not persist order entry", "symbol", p.symbol, "clientOrderUUID", clientOrderUUID, "err", err)
 	}
 }
 
-// dbDeleteEntry removes a counterIDEntry from the database.
-func (p *Product) dbDeleteEntry(ctx context.Context, counterID int64) {
-	key := p.counterIDKey(counterID)
+// dbDeleteEntry removes an orderEntry from the database.
+func (p *Product) dbDeleteEntry(ctx context.Context, clientOrderUUID uuid.UUID) {
+	key := p.clientOrderKey(clientOrderUUID)
 	err := kv.WithReadWriter(ctx, p.db, func(ctx context.Context, rw kv.ReadWriter) error {
 		return rw.Delete(ctx, key)
 	})
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		slog.Warn("etrade: could not delete counterID entry", "symbol", p.symbol, "counterID", counterID, "err", err)
+		slog.Warn("etrade: could not delete order entry", "symbol", p.symbol, "clientOrderUUID", clientOrderUUID, "err", err)
 	}
 }
 
@@ -134,25 +197,25 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		symbol:          symbol,
 		failedCreatesCh: make(chan uuid.UUID, 100),
 	}
-	p.nextCounterID.Store(time.Now().UnixNano())
+	p.etradeOrderID.Store(time.Now().UnixNano())
 
-	// Load persisted counterID entries from the previous session. Populate
-	// counterIDMap now; collect entries for reconciliation after goroutines start.
+	// Load persisted order entries from the previous session and collect them
+	// for reconciliation after goroutines start.
 	type pendingEntry struct {
-		counterID int64
-		entry     counterIDEntry
+		uid   uuid.UUID
+		entry orderEntry
 	}
 	var pending []pendingEntry
-	begin, end := kvutil.PathRange(fmt.Sprintf("/etrade/symbol/%s/counterid", symbol))
-	loadErr := kvutil.AscendDB[counterIDEntry](ctx, db, begin, end, func(ctx context.Context, _ kv.Reader, key string, e *counterIDEntry) error {
-		// Key format: /etrade/symbol/<symbol>/counterid/<counterID>
-		parts := strings.Split(key, "/")
-		counterID, err := strconv.ParseInt(parts[len(parts)-1], 10, 64)
+	begin, end := kvutil.PathRange(p.clientOrderKeyPrefix())
+	loadErr := kvutil.AscendDB(ctx, db, begin, end, func(ctx context.Context, _ kv.Reader, key string, e *orderEntry) error {
+		uid, err := p.clientOrderUUIDFromKey(key)
 		if err != nil {
-			return fmt.Errorf("etrade: invalid counterID key %q: %w", key, err)
+			return err
 		}
-		p.counterIDMap.Store(counterID, e.ClientOrderUUID)
-		pending = append(pending, pendingEntry{counterID, *e})
+		if e.ServerOrderID != 0 {
+			p.serverIDMap.Store(e.ServerOrderID, uid)
+		}
+		pending = append(pending, pendingEntry{uid, *e})
 		return nil
 	})
 	if loadErr != nil {
@@ -176,9 +239,8 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 	var openOrders []*internal.Order
 	var openOrdersFetched bool
 	for _, pe := range pending {
-		cid := pe.counterID
+		uid := pe.uid
 		entry := pe.entry
-		uid := entry.ClientOrderUUID
 
 		if entry.ServerOrderID == 0 {
 			// PlaceOrder may not have completed before the previous session ended.
@@ -202,38 +264,25 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 			}
 			if openOrders == nil {
 				// ListOpenOrders unavailable; defer to goCancelFailedCreates.
-				p.clientIDStatusMap.Store(uid, &clientIDStatus{counterID: cid})
+				p.clientIDStatusMap.Store(uid, &clientIDStatus{placement: entry.Placement})
 				p.failedCreatesCh <- uid
 				continue
 			}
-			// Check open orders to see if the order was actually created.
-			counterIDStr := strconv.FormatInt(cid, 10)
-			var found *internal.Order
-			for _, o := range openOrders {
-				if o.Symbol == symbol && o.ClientOrderID == counterIDStr {
-					found = o
-					break
-				}
-			}
+			found := matchOpenOrder(openOrders, symbol, entry.Placement)
 			if found == nil {
 				// Not in open orders: either never created, or filled/cancelled
-				// before we could check. Remove the entry; the caller's error
-				// from the original PlaceOrder failure remains authoritative.
-				slog.Warn("etrade: startup: counterID entry with unknown server order ID not found in open orders; removing",
-					"symbol", symbol, "counterID", cid)
-				p.counterIDMap.Delete(cid)
-				p.dbDeleteEntry(ctx, cid)
+				// before we could check. Remove the entry.
+				slog.Warn("etrade: startup: order with unknown server ID not found in open orders; removing",
+					"symbol", symbol, "uid", uid)
+				p.dbDeleteEntry(ctx, uid)
 				continue
 			}
 			// Found in open orders. Persist the server order ID now that we have it.
 			entry.ServerOrderID = found.OrderID
-			p.dbSetEntry(ctx, cid, entry)
+			p.dbSetEntry(ctx, uid, entry)
+			p.serverIDMap.Store(found.OrderID, uid)
 			found.ClientUUID = uid
-			p.clientIDStatusMap.Store(uid, &clientIDStatus{
-				counterID:      cid,
-				order:          found,
-				timestampMilli: found.PlacedTimeMilli,
-			})
+			p.clientIDStatusMap.Store(uid, &clientIDStatus{order: found})
 			p.client.TrackOrder(found.OrderID)
 			continue
 		}
@@ -242,21 +291,17 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		order, err := p.client.GetOrder(ctx, entry.ServerOrderID)
 		if err != nil {
 			slog.Warn("etrade: startup: could not fetch order state; will rely on polling to recover",
-				"symbol", symbol, "counterID", cid, "serverOrderID", entry.ServerOrderID, "err", err)
+				"symbol", symbol, "uid", uid, "serverOrderID", entry.ServerOrderID, "err", err)
 			// Leave the entry in the DB. Re-register for tracking so polling
 			// picks it up and the topic update eventually reaches goWatchOrderUpdates.
 			p.client.TrackOrder(entry.ServerOrderID)
 			continue
 		}
+		p.serverIDMap.Store(entry.ServerOrderID, uid)
 		order.ClientUUID = uid
-		p.clientIDStatusMap.Store(uid, &clientIDStatus{
-			counterID:      cid,
-			order:          order,
-			timestampMilli: order.PlacedTimeMilli,
-		})
+		p.clientIDStatusMap.Store(uid, &clientIDStatus{order: order})
 		if order.IsDone() {
-			p.counterIDMap.Delete(cid)
-			p.dbDeleteEntry(ctx, cid)
+			p.dbDeleteEntry(ctx, uid)
 		} else {
 			p.client.TrackOrder(entry.ServerOrderID)
 		}
@@ -285,7 +330,18 @@ func (p *Product) BaseMinSize() decimal.Decimal {
 }
 
 func (p *Product) GetOrderUpdates() (*topic.Receiver[exchange.OrderUpdate], error) {
-	fn := func(o *internal.Order) exchange.OrderUpdate { return o }
+	fn := func(o *internal.Order) exchange.OrderUpdate {
+		if o.ClientUUID != uuid.Nil {
+			return o
+		}
+		uid, ok := p.serverIDMap.Load(o.OrderID)
+		if !ok {
+			return o
+		}
+		clone := *o
+		clone.ClientUUID = uid
+		return &clone
+	}
 	return topic.SubscribeFunc(p.client.getSymbolOrdersTopic(p.symbol), fn, 0, true)
 }
 
@@ -295,19 +351,24 @@ func (p *Product) GetPriceUpdates() (*topic.Receiver[exchange.PriceUpdate], erro
 }
 
 func (p *Product) LimitBuy(ctx context.Context, clientOrderUUID uuid.UUID, size, price decimal.Decimal) (_ exchange.Order, status error) {
-	return p.placeOrder(ctx, clientOrderUUID, "buy", size, price)
+	return p.placeLimitOrder(ctx, clientOrderUUID, "buy", size, price)
 }
 
 func (p *Product) LimitSell(ctx context.Context, clientOrderUUID uuid.UUID, size, price decimal.Decimal) (_ exchange.Order, status error) {
-	return p.placeOrder(ctx, clientOrderUUID, "sell", size, price)
+	return p.placeLimitOrder(ctx, clientOrderUUID, "sell", size, price)
 }
 
-func (p *Product) placeOrder(ctx context.Context, clientOrderUUID uuid.UUID, side string, size, price decimal.Decimal) (_ exchange.Order, status error) {
-	counterID := p.nextCounterID.Add(1)
-	cstatus, loaded := p.clientIDStatusMap.LoadOrStore(clientOrderUUID, &clientIDStatus{
-		counterID:      counterID,
-		timestampMilli: time.Now().UnixMilli(),
-	})
+func (p *Product) placeLimitOrder(ctx context.Context, clientOrderUUID uuid.UUID, side string, size, price decimal.Decimal) (_ exchange.Order, status error) {
+	now := time.Now().UnixMilli()
+	info := orderPlacementInfo{
+		RequestTimeMilli: now,
+		Side:             side,
+		Price:            price,
+		Qty:              size,
+		PriceType:        "LIMIT",
+		OrderTerm:        "GOOD_UNTIL_CANCEL",
+	}
+	cstatus, loaded := p.clientIDStatusMap.LoadOrStore(clientOrderUUID, &clientIDStatus{placement: info})
 	cstatus.mu.Lock()
 	defer cstatus.mu.Unlock()
 
@@ -320,18 +381,18 @@ func (p *Product) placeOrder(ctx context.Context, clientOrderUUID uuid.UUID, sid
 	}
 	defer func() { cstatus.err = status }()
 
-	// Register the counterID → client order UUID mapping in memory and persist
-	// it with ServerOrderID=0 before calling PlaceOrder. This ensures that even
-	// if PlaceOrder succeeds but the process crashes before we update the entry,
-	// the next startup can scan open orders to recover the server order ID.
-	p.counterIDMap.Store(cstatus.counterID, clientOrderUUID)
-	p.dbSetEntry(ctx, cstatus.counterID, counterIDEntry{
-		ClientOrderUUID: clientOrderUUID,
-		ServerOrderID:   0,
-	})
+	// Persist order parameters with ServerOrderID=0 before calling PlaceOrder.
+	// If the process crashes after PlaceOrder succeeds but before we store the
+	// server order ID, the next startup can still find the order by matching on
+	// (symbol, side, price, qty, time) since E*TRADE omits clientOrderId from
+	// list responses.
+	p.dbSetEntry(ctx, clientOrderUUID, orderEntry{Placement: info})
 
-	orderID, err := p.client.PlaceOrder(ctx, p.symbol, side, size, price,
-		strconv.FormatInt(cstatus.counterID, 10), "GOOD_UNTIL_CANCEL")
+	// E*TRADE requires a numeric clientOrderId; generate a unique one for this
+	// call only. It is not stored or used for any subsequent lookup.
+	etradeClientID := strconv.FormatInt(p.etradeOrderID.Add(1), 10)
+	orderID, err := p.client.PlaceLimitOrder(ctx, p.symbol, side, size, price,
+		etradeClientID, info.OrderTerm)
 	if err != nil {
 		// PlaceOrder failed; the order may or may not have been created on
 		// E*TRADE. goCancelFailedCreates will resolve this and clean up the DB
@@ -341,23 +402,20 @@ func (p *Product) placeOrder(ctx context.Context, clientOrderUUID uuid.UUID, sid
 	}
 
 	// Update the DB entry with the server order ID now that placement succeeded.
-	p.dbSetEntry(ctx, cstatus.counterID, counterIDEntry{
-		ClientOrderUUID: clientOrderUUID,
-		ServerOrderID:   orderID,
-	})
+	p.dbSetEntry(ctx, clientOrderUUID, orderEntry{ServerOrderID: orderID, Placement: info})
+	p.serverIDMap.Store(orderID, clientOrderUUID)
 
 	// Build a partial order with what we know immediately. It will be updated
 	// when goWatchOrderUpdates receives a full response from the polling loop.
 	order := &internal.Order{
-		OrderID:         orderID,
-		ClientOrderID:   strconv.FormatInt(cstatus.counterID, 10),
-		ClientUUID:      clientOrderUUID,
-		Symbol:          p.symbol,
-		Side:            side,
-		Status:          "OPEN",
-		LimitPrice:      price,
-		OrderedQty:      size,
-		PlacedTimeMilli: time.Now().UnixMilli(),
+		OrderID:    orderID,
+		ClientUUID: clientOrderUUID,
+		Symbol:     p.symbol,
+		Side:       side,
+		Status:     "OPEN",
+		LimitPrice: price,
+		OrderedQty: size,
+		PlacedTimeMilli: now,
 	}
 	cstatus.order = order
 
@@ -376,11 +434,11 @@ func (p *Product) Get(ctx context.Context, serverID string) (exchange.OrderDetai
 	if err != nil {
 		return nil, err
 	}
-	// Restore ClientUUID from the counterIDMap if we placed this order.
-	if counterID, parseErr := strconv.ParseInt(order.ClientOrderID, 10, 64); parseErr == nil {
-		if uid, ok := p.counterIDMap.Load(counterID); ok {
-			order.ClientUUID = uid
-		}
+	// Restore ClientUUID from the serverIDMap. E*TRADE's single-order GET
+	// response omits clientOrderId, so we cannot rely on the counterIDMap
+	// (which is keyed by counterID parsed from that field).
+	if uid, ok := p.serverIDMap.Load(orderID); ok {
+		order.ClientUUID = uid
 	}
 	return order, nil
 }
@@ -423,40 +481,36 @@ func (p *Product) goWatchOrderUpdates(ctx context.Context) {
 			return
 		}
 
-		// Resolve the client order UUID from the numeric clientOrderId.
-		counterID, parseErr := strconv.ParseInt(order.ClientOrderID, 10, 64)
-		if parseErr != nil {
-			continue // not our order format
-		}
-		uid, ok := p.counterIDMap.Load(counterID)
+		uid, ok := p.serverIDMap.Load(order.OrderID)
 		if !ok {
 			continue // placed outside this session
 		}
-
-		order.ClientUUID = uid
 
 		cstatus, ok := p.clientIDStatusMap.Load(uid)
 		if !ok {
 			continue
 		}
+		// Clone before setting ClientUUID to avoid mutating the shared topic
+		// pointer while GetOrderUpdates transform may be copying it concurrently.
+		owned := *order
+		owned.ClientUUID = uid
 		cstatus.mu.Lock()
-		cstatus.order = order
+		cstatus.order = &owned
 		done := order.IsDone()
 		cstatus.mu.Unlock()
 
 		if done {
-			p.counterIDMap.Delete(counterID)
-			p.dbDeleteEntry(ctx, counterID)
+			p.dbDeleteEntry(ctx, uid)
 		}
 	}
 }
 
 // goCancelFailedCreates handles orders whose PlaceOrder call returned an error.
-// Because E*TRADE does not support cancel-by-clientOrderId, it scans open
-// orders for the matching numeric clientOrderId and cancels by server orderID.
+// It scans open orders by (symbol, side, price, qty, time) to determine if the
+// order was actually created despite the error, and cancels it if so.
 // If the order is not found in the open list, it assumes the order was not
-// created and removes the persisted counterID entry. If found, it updates the
-// DB entry with the server order ID and cancels; goWatchOrderUpdates will remove
+// created and removes the persisted DB entry. If found, it updates the DB entry
+// with the server order ID and cancels; goWatchOrderUpdates will remove
 // the entry when the CANCELLED update arrives.
 func (p *Product) goCancelFailedCreates(ctx context.Context) {
 	defer p.wg.Done()
@@ -499,11 +553,12 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 				continue
 			}
 			cstatus.mu.Lock()
-			counterID := cstatus.counterID
-			counterIDStr := strconv.FormatInt(counterID, 10)
+			placement := cstatus.placement
 			cstatus.mu.Unlock()
 
-			// Scan open orders for a match on our clientOrderId.
+			// Scan open orders for a match. E*TRADE does not return clientOrderId
+			// in list responses, so match by (symbol, side, price, qty) placed
+			// within 60 seconds of our request.
 			openOrders, err := p.client.ListOpenOrders(ctx)
 			if err != nil {
 				if !os.IsTimeout(err) {
@@ -515,13 +570,7 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 				continue
 			}
 
-			var found *internal.Order
-			for _, o := range openOrders {
-				if o.Symbol == p.symbol && o.ClientOrderID == counterIDStr {
-					found = o
-					break
-				}
-			}
+			found := matchOpenOrder(openOrders, p.symbol, placement)
 
 			if found == nil {
 				// Order was not created (or already filled before we checked).
@@ -529,21 +578,20 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 				// remove the persisted entry since there is no order to track.
 				retryBackoff = 0
 				slog.Warn("etrade: failed-create order not found in open orders; assuming not created",
-					"clientOrderUUID", uid, "counterID", counterIDStr)
-				p.counterIDMap.Delete(counterID)
-				p.dbDeleteEntry(ctx, counterID)
+					"clientOrderUUID", uid, "side", placement.Side, "price", placement.Price, "qty", placement.Qty)
+				p.dbDeleteEntry(ctx, uid)
 				continue
 			}
 
 			// Order was created. Update the DB entry with the server order ID so
 			// that a crash during cancellation can be recovered on next startup.
-			p.dbSetEntry(ctx, counterID, counterIDEntry{
-				ClientOrderUUID: uid,
-				ServerOrderID:   found.OrderID,
-			})
+			p.dbSetEntry(ctx, uid, orderEntry{ServerOrderID: found.OrderID, Placement: placement})
+			p.serverIDMap.Store(found.OrderID, uid)
 
-			// Cancel the order. goWatchOrderUpdates removes the DB entry when the
-			// CANCELLED update arrives via the polling loop.
+			// Cancel the order and start tracking it so goRefreshOrders polls for
+			// the final CANCELLED state; goWatchOrderUpdates removes the DB entry
+			// when that update arrives.
+			p.client.TrackOrder(found.OrderID)
 			if err := p.client.CancelOrder(ctx, found.OrderID); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
 					slog.Error("etrade: could not cancel failed-create order (will retry)",
@@ -555,8 +603,7 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 				}
 				// os.ErrNotExist means the order disappeared (filled or already
 				// cancelled). Remove the entry since the order is conclusively done.
-				p.counterIDMap.Delete(counterID)
-				p.dbDeleteEntry(ctx, counterID)
+				p.dbDeleteEntry(ctx, uid)
 			}
 
 			retryBackoff = 0
