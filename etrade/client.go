@@ -181,11 +181,11 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 
 	lifeCtx, lifeCancel := context.WithCancelCause(context.Background())
 	c := &Client{
-		lifeCtx:       lifeCtx,
-		lifeCancel:    lifeCancel,
-		opts:          *opts,
-		creds:         *creds,
-		httpClient:    http.Client{Timeout: opts.HttpClientTimeout},
+		lifeCtx:           lifeCtx,
+		lifeCancel:        lifeCancel,
+		opts:              *opts,
+		creds:             *creds,
+		httpClient:        http.Client{Timeout: opts.HttpClientTimeout},
 		balancesTopic:     topic.New[*internal.Balance](),
 		refreshOrderTopic: topic.New[int64](),
 	}
@@ -694,7 +694,6 @@ func (c *Client) goRenewToken(ctx context.Context) {
 	}
 }
 
-
 func (c *Client) goPollPrices(ctx context.Context) {
 	defer c.wg.Done()
 
@@ -706,7 +705,7 @@ func (c *Client) goPollPrices(ctx context.Context) {
 		}
 	}()
 
-	for ctx.Err() == nil {
+	for ; ctx.Err() == nil; sleep(ctx, c.opts.PollPricesInterval) {
 		// Collect all symbols currently registered for price polling.
 		var symbols []string
 		c.symbolPriceTopicMap.Range(func(symbol string, _ *topic.Topic[*internal.Quote]) bool {
@@ -723,10 +722,6 @@ func (c *Client) goPollPrices(ctx context.Context) {
 				c.getSymbolPriceTopic(quote.Symbol).Send(quote)
 			}
 		}
-
-		if err := sleep(ctx, c.opts.PollPricesInterval); err != nil {
-			return
-		}
 	}
 }
 
@@ -741,17 +736,15 @@ func (c *Client) goPollBalances(ctx context.Context) {
 		}
 	}()
 
-	for ctx.Err() == nil {
+	for ; ctx.Err() == nil; sleep(ctx, c.opts.PollBalancesInterval) {
 		balance, err := c.GetBalance(ctx)
-		if err != nil && !errors.Is(err, context.Cause(ctx)) {
-			slog.Warn("etrade: could not poll balance (will retry)", "err", err)
+		if err != nil {
+			if !errors.Is(err, context.Cause(ctx)) {
+				slog.Warn("etrade: could not poll balance (will retry)", "err", err)
+			}
+			continue
 		}
-		if balance != nil {
-			c.balancesTopic.Send(balance)
-		}
-		if err := sleep(ctx, c.opts.PollBalancesInterval); err != nil {
-			return
-		}
+		c.balancesTopic.Send(balance)
 	}
 }
 
@@ -780,31 +773,63 @@ func (c *Client) goRefreshOrders(ctx context.Context) {
 	}
 	defer receiver.Close()
 
-	stopf := context.AfterFunc(ctx, receiver.Close)
-	defer stopf()
+	receiveCh, err := topic.ReceiveCh(receiver)
+	if err != nil {
+		slog.Error("etrade: could not create receive channel for the refreshOrderTopic (unexpected)", "err", err)
+		return
+	}
+	trackingOrderMap := make(map[int64]*internal.Order)
 
 	for ctx.Err() == nil {
-		orderID, err := receiver.Receive()
-		if err != nil {
-			continue
-		}
+		select {
+		case <-ctx.Done():
+			return
 
-		order, err := c.GetOrder(ctx, orderID)
-		if err != nil {
-			if !errors.Is(err, context.Cause(ctx)) {
-				slog.Warn("etrade: could not refresh order (will retry)", "orderID", orderID, "err", err)
-				time.AfterFunc(c.opts.PollOrdersInterval, func() {
-					c.refreshOrderTopic.Send(orderID)
-				})
+		case id := <-receiveCh:
+			if _, ok := trackingOrderMap[id]; !ok {
+				trackingOrderMap[id] = nil
 			}
-			continue
-		}
 
-		c.getSymbolOrdersTopic(order.Symbol).Send(order)
-		if !order.IsDone() {
-			time.AfterFunc(c.opts.PollOrdersInterval, func() {
-				c.refreshOrderTopic.Send(orderID)
-			})
+		case <-time.After(c.opts.PollOrdersInterval):
+			orders, err := c.ListOpenOrders(ctx)
+			if err != nil {
+				if !errors.Is(err, context.Cause(ctx)) {
+					slog.Warn("etrade: could not list open orders (will retry)", "err", err)
+				}
+				continue
+			}
+
+			newOrderMap := make(map[int64]*internal.Order)
+			for _, v := range orders {
+				c.getSymbolOrdersTopic(v.Symbol).Send(v)
+				if _, ok := trackingOrderMap[v.OrderID]; ok {
+					newOrderMap[v.OrderID] = v
+				}
+			}
+
+			var missingOrderIDs []int64
+			for k := range trackingOrderMap {
+				if _, ok := newOrderMap[k]; !ok {
+					missingOrderIDs = append(missingOrderIDs, k)
+				}
+			}
+
+			for _, orderID := range missingOrderIDs {
+				order, err := c.GetOrder(ctx, orderID)
+				if err != nil {
+					if !errors.Is(err, context.Cause(ctx)) {
+						slog.Warn("etrade: could not refresh order (will retry)", "orderID", orderID, "err", err)
+					}
+					newOrderMap[orderID] = trackingOrderMap[orderID] // This order will be fetched again.
+					continue
+				}
+				if !order.IsDone() {
+					slog.Error("etrade: live order is found missing in list open orders (unexpected)", "orderID", orderID)
+				}
+				c.getSymbolOrdersTopic(order.Symbol).Send(order)
+			}
+
+			trackingOrderMap = newOrderMap
 		}
 	}
 }
