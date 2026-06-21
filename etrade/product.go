@@ -299,7 +299,7 @@ func (p *Product) LimitSell(ctx context.Context, clientOrderUUID uuid.UUID, size
 
 // sleepUntilExtendedHoursOpen waits until 7am ET (when E*TRADE extended hours
 // trading opens). Called when extended hours are closed and we need to retry.
-func sleepUntilExtendedHoursOpen(ctx context.Context) error {
+func (p *Product) sleepUntilExtendedHoursOpen(ctx context.Context) error {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
 		return fmt.Errorf("could not load NY timezone: %w", err)
@@ -324,6 +324,8 @@ func sleepUntilExtendedHoursOpen(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return context.Cause(ctx)
+	case <-p.lifeCtx.Done():
+		return context.Cause(p.lifeCtx)
 	}
 }
 
@@ -392,7 +394,7 @@ func (p *Product) placeLimitOrder(ctx context.Context, clientOrderUUID uuid.UUID
 		}
 		if errors.Is(err, ErrExtendedHoursClosed) {
 			// Extended hours window is closed. Sleep until 7am ET and retry.
-			if sleepErr := sleepUntilExtendedHoursOpen(p.lifeCtx); sleepErr != nil {
+			if sleepErr := p.sleepUntilExtendedHoursOpen(ctx); sleepErr != nil {
 				// No order was created (E*TRADE rejected at preview). Delete
 				// the DB entry directly rather than going through failedCreatesCh.
 				p.dbDeleteEntry(p.lifeCtx, clientOrderUUID)
@@ -428,13 +430,13 @@ func (p *Product) placeLimitOrder(ctx context.Context, clientOrderUUID uuid.UUID
 	// Build a partial order with what we know immediately. It will be updated
 	// when goWatchOrderUpdates receives a full response from the polling loop.
 	order := &internal.Order{
-		OrderID:    orderID,
-		ClientUUID: clientOrderUUID,
-		Symbol:     p.symbol,
-		Side:       side,
-		Status:     "OPEN",
-		LimitPrice: price,
-		OrderedQty: size,
+		OrderID:         orderID,
+		ClientUUID:      clientOrderUUID,
+		Symbol:          p.symbol,
+		Side:            side,
+		Status:          "OPEN",
+		LimitPrice:      price,
+		OrderedQty:      size,
 		PlacedTimeMilli: now,
 	}
 	cstatus.order = order
@@ -492,36 +494,39 @@ func (p *Product) goWatchOrderUpdates(ctx context.Context) {
 	}
 	defer sub.Close()
 
-	stopf := context.AfterFunc(ctx, sub.Close)
-	defer stopf()
+	updatesCh, err := topic.ReceiveCh(sub)
+	if err != nil {
+		slog.Error("etrade: could not create receive channel from topic", "symbol", p.symbol, "err", err)
+		return
+	}
 
 	for ctx.Err() == nil {
-		order, err := sub.Receive()
-		if err != nil {
+		select {
+		case <-p.lifeCtx.Done():
 			return
-		}
+		case order := <-updatesCh:
+			uid, ok := p.serverIDMap.Load(order.OrderID)
+			if !ok {
+				continue // placed outside this session
+			}
 
-		uid, ok := p.serverIDMap.Load(order.OrderID)
-		if !ok {
-			continue // placed outside this session
-		}
+			cstatus, ok := p.clientIDStatusMap.Load(uid)
+			if !ok {
+				continue
+			}
+			// Clone before setting ClientUUID to avoid mutating the shared topic
+			// pointer while GetOrderUpdates transform may be copying it concurrently.
+			owned := *order
+			owned.ClientUUID = uid
+			cstatus.mu.Lock()
+			cstatus.order = &owned
+			done := order.IsDone()
+			cstatus.mu.Unlock()
 
-		cstatus, ok := p.clientIDStatusMap.Load(uid)
-		if !ok {
-			continue
-		}
-		// Clone before setting ClientUUID to avoid mutating the shared topic
-		// pointer while GetOrderUpdates transform may be copying it concurrently.
-		owned := *order
-		owned.ClientUUID = uid
-		cstatus.mu.Lock()
-		cstatus.order = &owned
-		done := order.IsDone()
-		cstatus.mu.Unlock()
-
-		if done {
-			if err := p.dbDeleteEntry(ctx, uid); err != nil {
-				slog.Warn("etrade: could not delete completed order entry", "symbol", p.symbol, "uid", uid, "err", err)
+			if done {
+				if err := p.dbDeleteEntry(ctx, uid); err != nil {
+					slog.Warn("etrade: could not delete completed order entry", "symbol", p.symbol, "uid", uid, "err", err)
+				}
 			}
 		}
 	}
