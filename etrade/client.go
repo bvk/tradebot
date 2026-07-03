@@ -38,7 +38,11 @@ type ordersResponseWrapper struct {
 }
 
 type ordersResponse struct {
-	Order []*internal.APIOrder `json:"Order"`
+	// Marker is set when the result was truncated to a single page -- pass
+	// it back as the "marker" query param to fetch the next page. Empty
+	// when this is the last (or only) page.
+	Marker string               `json:"marker"`
+	Order  []*internal.APIOrder `json:"Order"`
 }
 
 type quoteResponseWrapper struct {
@@ -542,21 +546,49 @@ func (c *Client) GetBalance(ctx context.Context) (*internal.Balance, error) {
 	return internal.NewBalanceFromAPI(wrapper.BalanceResponse), nil
 }
 
+// maxOrderPages caps the number of pages ListOpenOrders will follow, as a
+// safety valve against an API bug returning a marker that never clears.
+// Real accounts don't have anywhere close to this many open orders.
+const maxOrderPages = 1000
+
 // ListOpenOrders fetches all currently open orders for the account from
-// GET /v1/accounts/{accountIdKey}/orders?status=OPEN.
+// GET /v1/accounts/{accountIdKey}/orders?status=OPEN, following the API's
+// marker-based pagination (ordersResponse.Marker) until every page has been
+// fetched. Callers get the complete list either way -- without this, an
+// account with more open orders than fit on one page would silently see
+// only the first page.
 func (c *Client) ListOpenOrders(ctx context.Context) ([]*internal.Order, error) {
 	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/orders"
-	params := url.Values{"status": {"OPEN"}}
-	var wrapper ordersResponseWrapper
-	if err := doGetJSON(ctx, c, apiPath, params, &wrapper); err != nil {
-		return nil, err
-	}
-	orders := make([]*internal.Order, 0, len(wrapper.OrdersResponse.Order))
-	for _, apiOrder := range wrapper.OrdersResponse.Order {
-		if o := internal.NewOrderFromAPI(apiOrder); o != nil {
-			orders = append(orders, o)
+
+	var orders []*internal.Order
+
+	marker := ""
+	for page := 0; ; page++ {
+		if page >= maxOrderPages {
+			return nil, fmt.Errorf("etrade: ListOpenOrders exceeded %d pages (marker %q); aborting", maxOrderPages, marker)
+		}
+
+		params := url.Values{"status": {"OPEN"}}
+		if marker != "" {
+			params.Set("marker", marker)
+		}
+
+		var wrapper ordersResponseWrapper
+		if err := doGetJSON(ctx, c, apiPath, params, &wrapper); err != nil {
+			return nil, err
+		}
+		for _, apiOrder := range wrapper.OrdersResponse.Order {
+			if o := internal.NewOrderFromAPI(apiOrder); o != nil {
+				orders = append(orders, o)
+			}
+		}
+
+		marker = wrapper.OrdersResponse.Marker
+		if marker == "" {
+			break
 		}
 	}
+
 	return orders, nil
 }
 
