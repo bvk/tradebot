@@ -86,7 +86,7 @@ func (r *Runner) Resume(ctx context.Context, uid string, fn Func, fctx context.C
 			jd.State = gobs.FAILED
 		case status == nil:
 			jd.State = gobs.COMPLETED
-		case errors.Is(status, errPause):
+		case errors.Is(status, ErrPause):
 			jd.State = gobs.PAUSED
 		case errors.Is(status, errCancel):
 			jd.State = gobs.CANCELED

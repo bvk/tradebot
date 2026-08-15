@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/ctxutil"
+	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
@@ -69,7 +71,13 @@ func (v *Looper) LogDebugInfo() {
 	log.Printf("bought=%v sold=%v numBuys=%v pbuy=%v numSells=%v psell=%v, nbuys=%d nsells=%d holdings=%v", bought, sold, numBuys, pbuy, numSells, psell, nbuys, nsells, holdings)
 }
 
-func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) error {
+func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
+	defer func() {
+		if errors.Is(status, exchange.ErrNeedsAck) {
+			status = errors.Join(job.ErrPause, status)
+		}
+	}()
+
 	v.runtimeLock.Lock()
 	defer v.runtimeLock.Unlock()
 

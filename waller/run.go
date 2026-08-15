@@ -4,11 +4,14 @@ package waller
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
 	"runtime/debug"
 	"sync/atomic"
 
+	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/looper"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
@@ -36,6 +39,12 @@ func (w *Waller) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 	slog.Info("started waller", "waller", w)
 	defer func() {
 		slog.Info("stopping waller", "waller", w, "status", status)
+	}()
+
+	defer func() {
+		if errors.Is(status, exchange.ErrNeedsAck) {
+			status = errors.Join(job.ErrPause, status)
+		}
 	}()
 
 	if w.summary.Load() == nil {

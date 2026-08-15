@@ -13,8 +13,9 @@ import (
 
 type Func func(ctx context.Context) error
 
+var ErrPause = errors.New("ErrPause")
+
 var errDone = errors.New("no error")
-var errPause = errors.New("ErrPause")
 var errCancel = errors.New("ErrCancel")
 
 type Job struct {
@@ -76,7 +77,7 @@ func (v *Job) state() gobs.State {
 		return gobs.RUNNING
 	case errors.Is(status, errDone):
 		return gobs.COMPLETED
-	case errors.Is(status, errPause):
+	case errors.Is(status, ErrPause):
 		return gobs.PAUSED
 	case errors.Is(status, errCancel):
 		return gobs.CANCELED
@@ -86,7 +87,7 @@ func (v *Job) state() gobs.State {
 }
 
 func (v *Job) Pause() {
-	v.controlCancel(errPause)
+	v.controlCancel(ErrPause)
 }
 
 func (v *Job) Cancel() {

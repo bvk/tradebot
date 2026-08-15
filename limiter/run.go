@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/trader"
 	"github.com/bvkgo/kv"
 	"github.com/visvasity/topic"
@@ -19,7 +20,13 @@ import (
 const SaveClientIDOffsetSize = 10
 const CancelOffsetTimeout = time.Minute
 
-func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) error {
+func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) (status error) {
+	defer func() {
+		if errors.Is(status, exchange.ErrNeedsAck) {
+			status = errors.Join(job.ErrPause, status)
+		}
+	}()
+
 	v.runtimeLock.Lock()
 	defer v.runtimeLock.Unlock()
 

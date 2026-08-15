@@ -13,7 +13,10 @@ import (
 	"github.com/visvasity/topic"
 )
 
-var ErrNoFund = errors.New("insufficient fund")
+var (
+	ErrNoFund   = errors.New("insufficient fund")
+	ErrNeedsAck = errors.New("needs user acknowledgment")
+)
 
 type Order interface {
 	ServerID() string
