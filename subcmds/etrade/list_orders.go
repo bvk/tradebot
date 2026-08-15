@@ -20,11 +20,13 @@ import (
 
 type ListOrders struct {
 	secretsPath string
+	accountID   string
 }
 
 func (c *ListOrders) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("list-orders", flag.ContinueOnError)
 	fset.StringVar(&c.secretsPath, "secrets-file", filepath.Join(defaults.DataDir(), "secrets.json"), "path to secrets.json file")
+	fset.StringVar(&c.accountID, "account-id", "", "E*TRADE account ID (picked automatically if there is only one account)")
 	return "list-orders", fset, cli.CmdFunc(c.run)
 }
 
@@ -46,6 +48,15 @@ func (c *ListOrders) run(ctx context.Context, args []string) error {
 	if secrets.ETrade == nil {
 		return fmt.Errorf("secrets file has no etrade credentials")
 	}
+	if len(secrets.ETrade.Accounts) == 0 {
+		return fmt.Errorf("etrade has no trading accounts")
+	}
+	if c.accountID == "" {
+		if len(secrets.ETrade.Accounts) != 1 {
+			return fmt.Errorf("etrade account id must be specified; it has multiple accounts")
+		}
+		c.accountID = secrets.ETrade.Accounts[0].AccountID
+	}
 
 	opts := &etrade.Options{Sandbox: secrets.ETrade.Sandbox}
 	client, err := etrade.New(ctx, secrets.ETrade, opts)
@@ -54,7 +65,7 @@ func (c *ListOrders) run(ctx context.Context, args []string) error {
 	}
 	defer client.Close()
 
-	orders, err := client.ListOpenOrders(ctx)
+	orders, err := client.ListOpenOrders(ctx, c.accountID)
 	if err != nil {
 		return fmt.Errorf("could not list open orders: %w", err)
 	}

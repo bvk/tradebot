@@ -150,9 +150,11 @@ func main() {
 	}
 
 	etradeCmds := []cli.Command{
+		new(subcmdsetrade.ListAccounts),
 		new(subcmdsetrade.ListOrders),
 		new(subcmdsetrade.PlaceOrder),
 		new(subcmdsetrade.GetOrder),
+		new(subcmdsetrade.GetQuote),
 		new(subcmdsetrade.CancelOrder),
 		new(subcmdsetrade.GetBalance),
 	}

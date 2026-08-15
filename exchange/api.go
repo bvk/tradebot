@@ -95,3 +95,7 @@ type Exchange interface {
 
 	GetOrder(ctx context.Context, productID string, serverID string) (OrderDetail, error)
 }
+
+type Account interface {
+	GetBalanceUpdates() (*topic.Receiver[BalanceUpdate], error)
+}

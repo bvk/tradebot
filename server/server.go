@@ -20,8 +20,8 @@ import (
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/coinex"
-	"github.com/bvk/tradebot/etrade"
 	"github.com/bvk/tradebot/ctxutil"
+	"github.com/bvk/tradebot/etrade"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
@@ -316,7 +316,9 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if err != nil {
 				return fmt.Errorf("could not create etrade exchange: %w", err)
 			}
-			exchangeMap["etrade"] = exch
+			for _, a := range exch.Accounts() {
+				exchangeMap[a.ExchangeName()] = a
+			}
 		}
 
 		if len(exchangeMap) == 0 {

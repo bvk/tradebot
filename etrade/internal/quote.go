@@ -49,7 +49,11 @@ type apiQuoteAll struct {
 	Week52High    decimal.Decimal `json:"week52High"`
 	Week52Low     decimal.Decimal `json:"week52Low"`
 	Beta          decimal.Decimal `json:"beta"`
-	DividendYield decimal.Decimal `json:"dividendYield"`
+	DividendYield decimal.Decimal `json:"yield"`
+
+	AdjustedFlag      bool   `json:"adjustedFlag"`
+	SharesOutstanding int64  `json:"sharesOutstanding"`
+	NextEarningDate   string `json:"nextEarningDate"`
 
 	// Unused: time of the last trade as a formatted string.
 	LastTradeTime string `json:"lastTradeTime"`
@@ -73,10 +77,17 @@ type APIQuoteData struct {
 // exchange.PriceUpdate.
 type Quote struct {
 	Symbol      string
-	DateTimeUTC int64           // Unix seconds
+	DateTimeUTC int64 // Unix seconds
 	LastTrade   decimal.Decimal
 	Bid         decimal.Decimal
 	Ask         decimal.Decimal
+
+	PE                decimal.Decimal
+	MarketCap         decimal.Decimal
+	SharesOutstanding int64
+	DividendYield     decimal.Decimal
+	NextEarningDate   string
+	CorpActionFlag    bool
 }
 
 var _ exchange.PriceUpdate = &Quote{}
@@ -86,11 +97,17 @@ var two = decimal.NewFromInt(2)
 // NewQuoteFromAPI converts an E*TRADE APIQuoteData into a flat Quote.
 func NewQuoteFromAPI(a *APIQuoteData) *Quote {
 	return &Quote{
-		Symbol:      a.Product.Symbol,
-		DateTimeUTC: a.DateTimeUTC,
-		LastTrade:   a.All.LastTrade,
-		Bid:         a.All.Bid,
-		Ask:         a.All.Ask,
+		Symbol:            a.Product.Symbol,
+		DateTimeUTC:       a.DateTimeUTC,
+		LastTrade:         a.All.LastTrade,
+		Bid:               a.All.Bid,
+		Ask:               a.All.Ask,
+		MarketCap:         a.All.MarketCap,
+		DividendYield:     a.All.DividendYield,
+		PE:                a.All.PE,
+		SharesOutstanding: a.All.SharesOutstanding,
+		NextEarningDate:   a.All.NextEarningDate,
+		CorpActionFlag:    a.All.AdjustedFlag,
 	}
 }
 

@@ -19,9 +19,9 @@ type orderPlacementInfo struct {
 	Side             string
 	Price            decimal.Decimal
 	Qty              decimal.Decimal
-	PriceType     string
-	OrderTerm     string
-	MarketSession string
+	PriceType        string
+	OrderTerm        string
+	MarketSession    string
 }
 
 // clientIDStatus tracks the state of a single order keyed by the client order
@@ -33,6 +33,9 @@ type clientIDStatus struct {
 	// err is set when order placement failed permanently. Subsequent calls with
 	// the same clientOrderUUID return this error immediately.
 	err error
+
+	// etrade account id.
+	accountID string
 
 	// order holds the most recent E*TRADE order state. Nil until placement
 	// succeeds or a matching update arrives.
@@ -54,9 +57,12 @@ func absInt64(v int64) int64 {
 // symbol and placement parameters, within a 60-second window of the request time.
 // Used to recover orders when the server ID is unknown (E*TRADE omits
 // clientOrderId from list responses so we cannot match by that field).
-func matchOpenOrder(candidates []*internal.Order, symbol string, p orderPlacementInfo) *internal.Order {
+func matchOpenOrder(candidates []*internal.Order, accountID, symbol string, p orderPlacementInfo) *internal.Order {
 	const matchWindowMilli = 60_000
 	for _, o := range candidates {
+		if o.AccountID != accountID {
+			continue
+		}
 		if o.Symbol != symbol {
 			continue
 		}

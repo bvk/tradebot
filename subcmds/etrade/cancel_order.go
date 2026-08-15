@@ -22,11 +22,13 @@ import (
 type CancelOrder struct {
 	secretsPath string
 	orderID     int64
+	accountID   string
 }
 
 func (c *CancelOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("cancel-order", flag.ContinueOnError)
 	fset.StringVar(&c.secretsPath, "secrets-file", filepath.Join(defaults.DataDir(), "secrets.json"), "path to secrets.json file")
+	fset.StringVar(&c.accountID, "account-id", "", "E*TRADE account ID (picked automatically if there is only one account)")
 	fset.Int64Var(&c.orderID, "order-id", 0, "E*TRADE order ID")
 	return "cancel-order", fset, cli.CmdFunc(c.run)
 }
@@ -62,6 +64,15 @@ func (c *CancelOrder) run(ctx context.Context, args []string) error {
 	if secrets.ETrade == nil {
 		return fmt.Errorf("secrets file has no etrade credentials")
 	}
+	if len(secrets.ETrade.Accounts) == 0 {
+		return fmt.Errorf("etrade has no trading accounts")
+	}
+	if c.accountID == "" {
+		if len(secrets.ETrade.Accounts) != 1 {
+			return fmt.Errorf("etrade account id must be specified; it has multiple accounts")
+		}
+		c.accountID = secrets.ETrade.Accounts[0].AccountID
+	}
 
 	opts := &etrade.Options{Sandbox: secrets.ETrade.Sandbox}
 	client, err := etrade.New(ctx, secrets.ETrade, opts)
@@ -70,7 +81,7 @@ func (c *CancelOrder) run(ctx context.Context, args []string) error {
 	}
 	defer client.Close()
 
-	if err := client.CancelOrder(ctx, c.orderID); err != nil {
+	if err := client.CancelOrder(ctx, c.accountID, c.orderID); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("order %d not found (may already be executed or cancelled)", c.orderID)
 		}

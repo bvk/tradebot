@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Deepak Vankadaru
 
-package etrade
+package autologin
 
 import (
 	"context"
@@ -18,14 +18,32 @@ import (
 	"time"
 )
 
+const (
+	// ProductionHostname is the E*TRADE REST API hostname for live trading.
+	ProductionHostname = "api.etrade.com"
+
+	// SandboxHostname is the E*TRADE REST API hostname for sandbox/testing.
+	SandboxHostname = "apisb.etrade.com"
+)
+
 // Account holds E*TRADE account information returned by the accounts list
 // endpoint. Used during setup to discover the accountIdKey to persist.
 type Account struct {
-	AccountID    string
-	AccountIDKey string
-	AccountType  string
-	AccountName  string
-	Status       string
+	AccountID    string `json:"account_id"`
+	AccountIDKey string `json:"account_id_key"`
+	AccountType  string `json:"account_type"`
+	AccountName  string `json:"account_name"`
+	Status       string `json:"status"`
+}
+
+func (a *Account) IsClosed() bool {
+	return !strings.EqualFold(a.Status, "ACTIVE")
+}
+
+// OauthEscape percent-encodes a string per OAuth 1.0a (RFC 5849 §3.6).
+// url.QueryEscape is almost correct but encodes spaces as '+'; OAuth requires '%20'.
+func OauthEscape(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
 // oauthSignSetup constructs an OAuth 1.0a Authorization header without
@@ -57,10 +75,10 @@ func oauthSignSetup(method, apiURL, consumerKey, consumerSecret, token, tokenSec
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, oauthEscape(k)+"="+oauthEscape(params.Get(k)))
+		parts = append(parts, OauthEscape(k)+"="+OauthEscape(params.Get(k)))
 	}
-	sigBase := method + "&" + oauthEscape(apiURL) + "&" + oauthEscape(strings.Join(parts, "&"))
-	sigKey := oauthEscape(consumerSecret) + "&" + oauthEscape(tokenSecret)
+	sigBase := method + "&" + OauthEscape(apiURL) + "&" + OauthEscape(strings.Join(parts, "&"))
+	sigKey := OauthEscape(consumerSecret) + "&" + OauthEscape(tokenSecret)
 
 	mac := hmac.New(sha1.New, []byte(sigKey))
 	mac.Write([]byte(sigBase))
@@ -74,7 +92,7 @@ func oauthSignSetup(method, apiURL, consumerKey, consumerSecret, token, tokenSec
 	var headerParts []string
 	for _, k := range order {
 		if v := params.Get(k); v != "" {
-			headerParts = append(headerParts, k+`="`+oauthEscape(v)+`"`)
+			headerParts = append(headerParts, k+`="`+OauthEscape(v)+`"`)
 		}
 	}
 	return "OAuth " + strings.Join(headerParts, ", ")

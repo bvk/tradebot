@@ -22,6 +22,7 @@ import (
 
 type PlaceOrder struct {
 	secretsPath   string
+	accountID     string
 	symbol        string
 	side          string
 	qty           string
@@ -41,6 +42,7 @@ func (c *PlaceOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.orderTerm, "order-term", "GOOD_UNTIL_CANCEL", "order term: GOOD_UNTIL_CANCEL or GOOD_FOR_DAY")
 	fset.StringVar(&c.marketSession, "market-session", "REGULAR", "market session: REGULAR or EXTENDED")
 	fset.StringVar(&c.clientOrderID, "client-order-id", "", "client order ID (numeric string); omitted if not set")
+	fset.StringVar(&c.accountID, "account-id", "", "E*TRADE account ID (picked automatically if there is only one account)")
 	return "place-order", fset, cli.CmdFunc(c.run)
 }
 
@@ -84,6 +86,15 @@ func (c *PlaceOrder) run(ctx context.Context, args []string) error {
 	if secrets.ETrade == nil {
 		return fmt.Errorf("secrets file has no etrade credentials")
 	}
+	if len(secrets.ETrade.Accounts) == 0 {
+		return fmt.Errorf("etrade has no trading accounts")
+	}
+	if c.accountID == "" {
+		if len(secrets.ETrade.Accounts) != 1 {
+			return fmt.Errorf("etrade account id must be specified; it has multiple accounts")
+		}
+		c.accountID = secrets.ETrade.Accounts[0].AccountID
+	}
 
 	opts := &etrade.Options{Sandbox: secrets.ETrade.Sandbox}
 	client, err := etrade.New(ctx, secrets.ETrade, opts)
@@ -96,12 +107,13 @@ func (c *PlaceOrder) run(ctx context.Context, args []string) error {
 	if clientOrderID == "" {
 		clientOrderID = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
-	orderID, err := client.PlaceLimitOrder(ctx, c.symbol, c.side, qty, limitPrice, clientOrderID, c.orderTerm, c.marketSession)
+
+	orderID, err := client.PlaceLimitOrder(ctx, c.accountID, c.symbol, c.side, qty, limitPrice, clientOrderID, c.orderTerm, c.marketSession)
 	if err != nil {
 		return fmt.Errorf("could not place order: %w", err)
 	}
 
-	order, err := client.GetOrder(ctx, orderID)
+	order, err := client.GetOrder(ctx, c.accountID, orderID)
 	if err != nil {
 		// Still print the ID even if we can't fetch the full order.
 		fmt.Printf("{\"orderId\": %d}\n", orderID)

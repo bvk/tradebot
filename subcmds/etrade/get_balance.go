@@ -21,11 +21,13 @@ import (
 type GetBalance struct {
 	secretsPath string
 	orderID     int64
+	accountID   string
 }
 
 func (c *GetBalance) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := new(flag.FlagSet)
 	fset.StringVar(&c.secretsPath, "secrets-file", filepath.Join(defaults.DataDir(), "secrets.json"), "path to secrets.json file")
+	fset.StringVar(&c.accountID, "account-id", "", "E*TRADE account ID (picked automatically if there is only one account)")
 	return "get-balance", fset, cli.CmdFunc(c.run)
 }
 
@@ -48,6 +50,15 @@ func (c *GetBalance) run(ctx context.Context, args []string) error {
 	if secrets.ETrade == nil {
 		return fmt.Errorf("secrets file has no etrade credentials")
 	}
+	if len(secrets.ETrade.Accounts) == 0 {
+		return fmt.Errorf("etrade has no trading accounts")
+	}
+	if c.accountID == "" {
+		if len(secrets.ETrade.Accounts) != 1 {
+			return fmt.Errorf("etrade account id must be specified; it has multiple accounts")
+		}
+		c.accountID = secrets.ETrade.Accounts[0].AccountID
+	}
 
 	opts := &etrade.Options{Sandbox: secrets.ETrade.Sandbox}
 	client, err := etrade.New(ctx, secrets.ETrade, opts)
@@ -56,7 +67,7 @@ func (c *GetBalance) run(ctx context.Context, args []string) error {
 	}
 	defer client.Close()
 
-	balance, err := client.GetBalance(ctx)
+	balance, err := client.GetBalance(ctx, c.accountID)
 	if err != nil {
 		return fmt.Errorf("could not get order %d: %w", c.orderID, err)
 	}

@@ -2,14 +2,15 @@
 
 package etrade
 
-import "time"
+import (
+	"time"
+
+	"github.com/bvk/tradebot/etrade/autologin"
+)
 
 const (
-	// ProductionHostname is the E*TRADE REST API hostname for live trading.
-	ProductionHostname = "api.etrade.com"
-
-	// SandboxHostname is the E*TRADE REST API hostname for sandbox/testing.
-	SandboxHostname = "apisb.etrade.com"
+	ProductionHostname = autologin.ProductionHostname
+	SandboxHostname    = autologin.SandboxHostname
 )
 
 // Options configures the behavior of the E*TRADE exchange client.
