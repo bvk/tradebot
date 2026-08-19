@@ -49,12 +49,9 @@ type Options struct {
 	Login                       LoginCredentials
 	Sandbox                     bool
 
+	// ExecutablePath when non-empty must be absolute path to the chrome binary
+	// used to login automatically using playwright.
 	ExecutablePath string
-
-	// Headless controls whether the browser window is shown. Keep false
-	// while verifying selectors against the live page; true for unattended
-	// runs.
-	Headless bool
 
 	// ProfileDir is a persistent Chromium user-data directory. Reusing the
 	// same directory across runs is what lets E*TRADE's "remember this
@@ -94,13 +91,33 @@ func Run(ctx context.Context, opts Options) (accessToken, accessTokenSecret stri
 	}
 	defer pw.Stop()
 
+	args := []string{
+		"--disable-blink-features=AutomationControlled",
+		"--disable-infobars",
+		"--enable-automation-overrides",
+	}
+	if opts.PromptForManualCompletion == nil {
+		args = append(args,
+			"--disable-renderer-backgrounding",
+			"--disable-backgrounding-occluded-windows",
+			"--disable-background-timer-throttling",
+			"--disable-ipc-flooding-protection",
+			"--kiosk", // Forces full screen root ownership
+			"--start-fullscreen",
+			"--no-first-run",        // Prevents welcoming popups that steal focus
+			"--start-maximized",     // Ensures the window matches the Xvnc size
+			"--window-position=0,0", // Forces alignment with the canvas grid
+			"--disable-gpu",         // Bypasses Xvnc GLX initialization checks
+			"--disable-software-rasterizer",
+			"--use-gl=swiftshader", // Forces pure software rendering loop
+			"--disable-dev-shm-usage",
+		)
+	}
+
+	headless := false // a non-nil value for Headless option is required.
 	browserCtx, err := pw.Chromium.LaunchPersistentContext(opts.ProfileDir, playwright.BrowserTypeLaunchPersistentContextOptions{
-		Args: []string{
-			"--disable-blink-features=AutomationControlled",
-			"--disable-infobars",
-			"--enable-automation-overrides",
-		},
-		Headless:       &opts.Headless,
+		Args:           args,
+		Headless:       &headless,
 		ExecutablePath: &opts.ExecutablePath,
 	})
 	if err != nil {

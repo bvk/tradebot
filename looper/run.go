@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"maps"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
 	"github.com/bvk/tradebot/limiter"
 	"github.com/bvk/tradebot/trader"
@@ -91,6 +94,8 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 	if jobUpdatesCh == nil {
 		slog.Warn("jobs updates channel is nil (ignored)", "looper", v)
 	}
+
+	taxLotResolver, _ := rt.Product.(exchange.TaxLotResolver)
 
 	for ctx.Err() == nil {
 		var bought decimal.Decimal
@@ -214,6 +219,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 				}
 
 				seller := v.sells[len(v.sells)-1]
+				seller.SetTaxLotIDs(v.unusedTaxLots(ctx, rt, taxLotResolver))
 				v.dirtyLimiters.Store(seller, struct{}{})
 				if err := seller.Run(ctx, rt); err != nil {
 					if ctx.Err() == nil {
@@ -275,4 +281,48 @@ func (v *Looper) addNewSell(ctx context.Context, rt *trader.Runtime) error {
 		return err
 	}
 	return nil
+}
+
+func (v *Looper) unusedTaxLots(ctx context.Context, rt *trader.Runtime, resolver exchange.TaxLotResolver) []gobs.TaxLotID {
+	// if resolver != nil {
+	// 	for _, b := range v.buys {
+	// 		if len(b.TaxLotIDs()) == 0 {
+	// 			serverIDs := b.ServerOrderIDs()
+	// 			lots, size, err := resolver.ResolveTaxLots(ctx, serverIDs)
+	// 			if err != nil {
+	// 				slog.Error("could not resolve tax lot info", "limiter", b, "err", err)
+	// 				continue
+	// 			}
+	// 			if wanted := b.FilledSize(); !size.Equal(wanted) {
+	// 				slog.Error("tax lots resolved to unexpected buy size", "limiter", b, "wanted", wanted, "got", size)
+	// 				continue
+	// 			}
+	// 			b.SetTaxLotIDs(lots)
+	// 			if err := kv.WithReadWriter(ctx, rt.Database, b.Save); err != nil {
+	// 				slog.Error("could not fix tax lot info (ignored)", "limiter", b, "err", err)
+	// 				continue
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	buyMap := make(map[gobs.TaxLotID]*limiter.Limiter)
+	for _, b := range v.buys {
+		for _, id := range b.TaxLotIDs() {
+			if old, ok := buyMap[id]; ok {
+				slog.Error("tax lot id duplicate detected", "looper", v, "old", old, "new", b)
+			}
+			buyMap[id] = b
+		}
+	}
+	for _, s := range v.sells {
+		for _, id := range s.TaxLotIDs() {
+			for k := range buyMap {
+				if k.Equal(id) {
+					delete(buyMap, k)
+				}
+			}
+		}
+	}
+	return slices.Collect(maps.Keys(buyMap))
 }

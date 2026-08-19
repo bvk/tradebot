@@ -8,6 +8,7 @@ import (
 
 	"github.com/bvk/tradebot/etrade/autologin"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/topic"
@@ -45,11 +46,11 @@ func (ap *AccountProduct) GetOrderUpdates() (*topic.Receiver[exchange.OrderUpdat
 }
 
 func (ap *AccountProduct) LimitBuy(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (exchange.Order, error) {
-	return ap.product.PlaceLimitOrder(ctx, ap.account.AccountID, clientID, "buy", size, price)
+	return ap.product.PlaceLimitOrder(ctx, ap.account.AccountID, clientID, "buy", size, price, nil)
 }
 
 func (ap *AccountProduct) LimitSell(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal) (exchange.Order, error) {
-	return ap.product.PlaceLimitOrder(ctx, ap.account.AccountID, clientID, "sell", size, price)
+	return ap.product.PlaceLimitOrder(ctx, ap.account.AccountID, clientID, "sell", size, price, nil)
 }
 
 func (ap *AccountProduct) Get(ctx context.Context, serverID string) (exchange.OrderDetail, error) {
@@ -58,4 +59,12 @@ func (ap *AccountProduct) Get(ctx context.Context, serverID string) (exchange.Or
 
 func (ap *AccountProduct) Cancel(ctx context.Context, serverID string) error {
 	return ap.product.Cancel(ctx, ap.account.AccountID, serverID)
+}
+
+func (ap *AccountProduct) ResolveTaxLots(ctx context.Context, serverIDs []string) ([]gobs.TaxLotID, decimal.Decimal, error) {
+	return ap.product.ResolveTaxLots(ctx, ap.account.AccountID, serverIDs)
+}
+
+func (ap *AccountProduct) LimitSellTaxLots(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal, lots []gobs.TaxLotID) (exchange.Order, error) {
+	return ap.product.PlaceLimitOrder(ctx, ap.account.AccountID, clientID, "sell", size, price, lots)
 }

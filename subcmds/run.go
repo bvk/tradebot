@@ -28,6 +28,7 @@ import (
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
 	"github.com/bvk/tradebot/subcmds/defaults"
+	"github.com/bvk/tradebot/xvnc"
 	"github.com/bvkgo/kv/kvhttp"
 	"github.com/bvkgo/kvbadger"
 	"github.com/dgraph-io/badger/v4"
@@ -57,6 +58,9 @@ type Run struct {
 	maxFetchTimeLatency  time.Duration
 	maxHttpClientTimeout time.Duration
 
+	xvncPort    int
+	xvncDisplay int
+
 	secretsPath string
 	dataDir     string
 }
@@ -78,6 +82,8 @@ func (c *Run) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.logDir, "log-dir", defaults.LogDir(), "path to the logs directory")
 	fset.StringVar(&c.logName, "log-name", "tradebot", "application name prefix for the log files")
 	fset.StringVar(&c.waitforHostPorts, "waitfor-host-ports", "api.coinex.com:443,api.coinbase.com:443", "startup waits till all host:port become reachable")
+	fset.IntVar(&c.xvncPort, "xvnc-port", 5900, "When non-zero, indicates VNC server session port address")
+	fset.IntVar(&c.xvncDisplay, "xvnc-display", 0, "When non-zero, starts a Tiger VNC server instance")
 	return "run", fset, cli.CmdFunc(c.run)
 }
 
@@ -285,6 +291,26 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		ntpClient.Close()
 	}()
 
+	var vncServer *xvnc.Server
+	if c.xvncDisplay != 0 {
+		s, err := xvnc.NewServer(c.dataDir, c.xvncDisplay)
+		if err != nil {
+			slog.Error("could not create Xvnc server instance", "err", err)
+			return err
+		}
+		defer s.Close()
+
+		var addr *net.TCPAddr
+		if c.xvncPort != 0 {
+			addr = &net.TCPAddr{IP: net.IPv4(0, 0, 0, 0), Port: c.xvncPort}
+		}
+		if err := s.Start(addr); err != nil {
+			slog.Error("could not start Xvnc server", "err", err)
+			return err
+		}
+		vncServer = s
+	}
+
 	// Start HTTP server.
 	s, err := httputil.New(nil /* opts */)
 	if err != nil {
@@ -338,6 +364,12 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer trader.Close()
+
+	if c.xvncDisplay != 0 {
+		trader.SetDisplayRunner(vncServer)
+	}
+
 	// Add trader api handlers
 	traderAPIs := trader.HandlerMap()
 	for k, v := range traderAPIs {
@@ -379,7 +411,6 @@ func (c *Run) run(ctx context.Context, args []string) error {
 			log.Printf("could not stop all jobs (ignored): %v", err)
 		}
 	}()
-	defer trader.Close()
 
 	// Wait for the signals
 	log.Printf("started tradebot server at %s", addr)

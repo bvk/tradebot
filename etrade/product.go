@@ -4,8 +4,10 @@ package etrade
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/bvk/tradebot/etrade/internal"
 	"github.com/bvk/tradebot/exchange"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
@@ -134,10 +137,10 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
+		if err := kvutil.SetDB(ctx, db, pinfoKey, newInfo); err != nil {
+			return nil, err
+		}
 		oldInfo = newInfo
-	}
-	if err := kvutil.SetDB(ctx, db, pinfoKey, newInfo); err != nil {
-		return nil, err
 	}
 
 	lifeCtx, lifeCancel := context.WithCancelCause(context.Background())
@@ -154,7 +157,8 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 	}
 	p.etradeOrderID.Store(time.Now().UnixNano())
 
-	for _, a := range client.creds.Accounts {
+	creds := client.creds.Load()
+	for _, a := range creds.Accounts {
 		p.account2serverIDMap[a.AccountID] = new(syncmap.Map[int64, uuid.UUID])
 	}
 
@@ -192,7 +196,7 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 	// Currently open orders are fetched once and cached across iterations.
 	var openOrders []*internal.Order
 	if len(pending) != 0 {
-		for _, a := range client.creds.Accounts {
+		for _, a := range creds.Accounts {
 			orders, err := p.client.ListOpenOrders(ctx, a.AccountID)
 			if err != nil {
 				slog.Error("etrade: could not list open orders during startup", "symbol", symbol, "account-id", a.AccountID, "err", err)
@@ -374,17 +378,37 @@ func roundLimitPrice(side string, price decimal.Decimal) decimal.Decimal {
 func checkProductNeedsAck(oldInfo, newInfo *internal.Quote) string {
 	if newInfo.SharesOutstanding != oldInfo.SharesOutstanding {
 		change := float64(newInfo.SharesOutstanding-oldInfo.SharesOutstanding) / float64(oldInfo.SharesOutstanding) * 100.0
-		return fmt.Sprintf("Number of outstanding stock changed by %f%%", change)
+		return fmt.Sprintf("Number of outstanding stock for %s changed from %s to %s (by %f%%)", newInfo.Symbol, oldInfo.SharesOutstanding, newInfo.SharesOutstanding, change)
 	}
 	return ""
 }
 
-func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientOrderUUID uuid.UUID, side string, size, price decimal.Decimal) (_ exchange.Order, status error) {
+func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientOrderUUID uuid.UUID, side string, size, price decimal.Decimal, taxLotIDs []gobs.TaxLotID) (_ exchange.Order, status error) {
 	if err := p.checkProductNeedsAck(ctx); err != nil {
 		return nil, err
 	}
-	if _, err := p.client.creds.GetAccountIDKey(accountID); err != nil {
+	creds := p.client.creds.Load()
+	if _, err := creds.GetAccountIDKey(accountID); err != nil {
 		return nil, err
+	}
+
+	var plots []*placeOrderLot
+	if len(taxLotIDs) > 0 {
+		if !strings.EqualFold(side, "sell") {
+			return nil, fmt.Errorf("etrade: tax lots are supported only on sell side")
+		}
+		lots, err := p.client.ResolveTaxLotIDs(ctx, taxLotIDs)
+		if err != nil {
+			return nil, err
+		}
+		var sum decimal.Decimal
+		for _, l := range lots {
+			plots = append(plots, &placeOrderLot{ID: l.PositionLotID, Size: l.RemainingQty})
+			sum = sum.Add(l.RemainingQty)
+		}
+		if !sum.Equal(size) {
+			return nil, fmt.Errorf("etrade: sell with lots size %s did not match lots quantity %s", size, sum)
+		}
 	}
 
 	now := time.Now().UnixMilli()
@@ -427,7 +451,7 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 	for {
 		etradeClientID := strconv.FormatInt(p.etradeOrderID.Add(1), 10)
 		orderID, err = p.client.PlaceLimitOrder(ctx, accountID, p.symbol, side, size, price,
-			etradeClientID, info.OrderTerm, info.MarketSession)
+			etradeClientID, info.OrderTerm, info.MarketSession, plots)
 		if err == nil {
 			break
 		}
@@ -488,7 +512,8 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 }
 
 func (p *Product) Get(ctx context.Context, accountID, serverID string) (exchange.OrderDetail, error) {
-	if _, err := p.client.creds.GetAccountIDKey(accountID); err != nil {
+	creds := p.client.creds.Load()
+	if _, err := creds.GetAccountIDKey(accountID); err != nil {
 		return nil, err
 	}
 	orderID, err := strconv.ParseInt(serverID, 10, 64)
@@ -509,7 +534,8 @@ func (p *Product) Get(ctx context.Context, accountID, serverID string) (exchange
 }
 
 func (p *Product) Cancel(ctx context.Context, accountID, serverID string) error {
-	if _, err := p.client.creds.GetAccountIDKey(accountID); err != nil {
+	creds := p.client.creds.Load()
+	if _, err := creds.GetAccountIDKey(accountID); err != nil {
 		return err
 	}
 	orderID, err := strconv.ParseInt(serverID, 10, 64)
@@ -547,11 +573,13 @@ func (p *Product) goWatchOrderUpdates(ctx context.Context) {
 	}
 
 	for ctx.Err() == nil {
+		creds := p.client.creds.Load()
+
 		select {
 		case <-p.lifeCtx.Done():
 			return
 		case order := <-updatesCh:
-			if _, err := p.client.creds.GetAccountIDKey(order.AccountID); err != nil {
+			if _, err := creds.GetAccountIDKey(order.AccountID); err != nil {
 				slog.Error("etrade: invalid/unrecognized etrade account id", "account-id", order.AccountID, "err", err)
 				continue
 			}
@@ -636,7 +664,8 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 			// Scan open orders for a match. E*TRADE does not return clientOrderId
 			// in list responses, so match by (symbol, side, price, qty) placed
 			// within 60 seconds of our request.
-			if _, err := p.client.creds.GetAccountIDKey(cstatus.accountID); err != nil {
+			creds := p.client.creds.Load()
+			if _, err := creds.GetAccountIDKey(cstatus.accountID); err != nil {
 				slog.Error("etrade: invalid/unrecognized etrade account id", "account-id", cstatus.accountID, "err", err)
 				continue
 			}
@@ -722,13 +751,16 @@ func (p *Product) checkProductNeedsAck(ctx context.Context) error {
 	if reason == "" {
 		return nil
 	}
-	pinfoKey := filepath.Join("/etrade/product-info", p.symbol)
-	if err := kvutil.SetDB(ctx, p.db, pinfoKey, newInfo); err != nil {
-		slog.Error("etrade: could not save product information change", "product", p.symbol)
-		return err
-	}
-	p.productAckReason = reason
+	// pinfoKey := filepath.Join("/etrade/product-info", p.symbol)
+	// if err := kvutil.SetDB(ctx, p.db, pinfoKey, newInfo); err != nil {
+	// 	slog.Error("etrade: could not save product information change", "product", p.symbol)
+	// 	return err
+	// }
 	p.productInfo = newInfo
+	p.productAckReason = reason
+	if p.client.opts.Messenger != nil {
+		p.client.opts.Messenger.SendMessage(ctx, time.Now(), "E*TRADE: Product %s is *paused*: %s", p.symbol, reason)
+	}
 	return fmt.Errorf("etrade: product %s needs acknowledgment: %w", p.symbol, exchange.ErrNeedsAck)
 }
 
@@ -739,4 +771,37 @@ func (p *Product) AcknowledeReason() string {
 func (p *Product) AcknowledgeProduct(ctx context.Context, reason string) error {
 	p.productAckReason = "" // FIXME: This must be atomic
 	return nil
+}
+
+func (p *Product) ResolveTaxLots(ctx context.Context, accountID string, serverIDs []string) ([]gobs.TaxLotID, decimal.Decimal, error) {
+	var sum decimal.Decimal
+	oids := make([]int64, len(serverIDs))
+	for i, v := range serverIDs {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, sum, err
+		}
+		oids[i] = id
+	}
+	lots, err := p.client.ResolveOrderLots(ctx, accountID, p.symbol, oids)
+	if err != nil {
+		return nil, sum, err
+	}
+	if len(lots) == 0 {
+		slog.Warn(fmt.Sprintf("etrade: orders %v are resolved to zero lots", oids))
+		return nil, sum, nil
+	}
+	var taxLots []gobs.TaxLotID
+	for _, lot := range lots {
+		js, _ := json.Marshal(lot)
+		log.Printf("%s", js)
+
+		sum = sum.Add(lot.RemainingQty)
+		taxLotID, err := p.client.makeTaxLotID(lot.AccountID, lot.Symbol, lot.LotsDetails, lot.OrderNo)
+		if err != nil {
+			return nil, sum, nil
+		}
+		taxLots = append(taxLots, taxLotID)
+	}
+	return taxLots, sum, nil
 }

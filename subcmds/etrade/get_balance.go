@@ -60,7 +60,8 @@ func (c *GetBalance) run(ctx context.Context, args []string) error {
 		c.accountID = secrets.ETrade.Accounts[0].AccountID
 	}
 
-	opts := &etrade.Options{Sandbox: secrets.ETrade.Sandbox}
+	opts := etrade.CommandOptions()
+	opts.Sandbox = secrets.ETrade.Sandbox
 	client, err := etrade.New(ctx, secrets.ETrade, opts)
 	if err != nil {
 		return fmt.Errorf("could not create etrade client: %w", err)

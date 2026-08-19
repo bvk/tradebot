@@ -4,6 +4,7 @@ package autologin
 
 import (
 	"fmt"
+	"slices"
 )
 
 // LoginCredentials holds the raw E*TRADE website login (username/password),
@@ -36,6 +37,10 @@ type Credentials struct {
 
 	// Sandbox selects the E*TRADE sandbox environment when true.
 	Sandbox bool `json:"sandbox,omitempty"`
+
+	// BrowserPath when non-empty holds path to the browser that should be used
+	// to automate periodic logins.
+	BrowserPath string `json:"browser_path"`
 }
 
 // Check returns an error if any credential field is empty.
@@ -70,6 +75,23 @@ func (c *LoginCredentials) Check() error {
 		return fmt.Errorf("autologin: password is required")
 	}
 	return nil
+}
+
+func (c *Credentials) Clone() *Credentials {
+	n := &Credentials{
+		Login: &LoginCredentials{
+			Username: c.Login.Username,
+			Password: c.Login.Password,
+		},
+		Accounts:          slices.Clone(c.Accounts),
+		ConsumerKey:       c.ConsumerKey,
+		ConsumerSecret:    c.ConsumerSecret,
+		AccessToken:       c.AccessToken,
+		AccessTokenSecret: c.AccessTokenSecret,
+		Sandbox:           c.Sandbox,
+		BrowserPath:       c.BrowserPath,
+	}
+	return n
 }
 
 func (c *Credentials) GetAccountIDKey(accountID string) (string, error) {

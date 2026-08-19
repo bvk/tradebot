@@ -50,7 +50,7 @@ func (v *Exchange) Close() error {
 
 func (v *Exchange) Accounts() []*ExchangeAccount {
 	var accounts []*ExchangeAccount
-	for _, a := range v.client.creds.Accounts {
+	for _, a := range v.client.creds.Load().Accounts {
 		accounts = append(accounts, &ExchangeAccount{exchange: v, account: a})
 	}
 	return accounts
