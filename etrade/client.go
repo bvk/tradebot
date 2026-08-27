@@ -1006,6 +1006,29 @@ func (c *Client) GetPortfolio(ctx context.Context, accountID string) ([]*positio
 	return lots, nil
 }
 
+// GetURL performs an OAuth-signed GET against an E*TRADE API URL and returns
+// the raw response body. rawURL may be a full https URL (api.etrade.com or
+// apisb.etrade.com) or a path beginning with /; query parameters in the URL
+// are included in the OAuth signature. The request is always sent to the
+// host selected by Options.Sandbox, regardless of any host in rawURL.
+func (c *Client) GetURL(ctx context.Context, rawURL string) ([]byte, error) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, fmt.Errorf("invalid url %q: %w", rawURL, err)
+	}
+	if u.Host != "" && u.Host != c.opts.restHostname() {
+		return nil, fmt.Errorf("url host %q does not match the configured E*TRADE host %q", u.Host, c.opts.restHostname())
+	}
+	if !strings.HasPrefix(u.Path, "/") {
+		return nil, fmt.Errorf("url must include a path beginning with /")
+	}
+	var raw json.RawMessage
+	if err := doGetJSON(ctx, c, u.Path, u.Query(), &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 func (c *Client) goRenewToken(ctx context.Context) {
 	defer c.wg.Done()
 
