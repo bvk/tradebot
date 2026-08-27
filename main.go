@@ -158,6 +158,7 @@ func main() {
 		new(subcmdsetrade.CancelOrder),
 		new(subcmdsetrade.GetBalance),
 		new(subcmdsetrade.GetPortfolio),
+		new(subcmdsetrade.Wget),
 	}
 
 	cmds := []cli.Command{
