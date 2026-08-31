@@ -170,6 +170,18 @@ type placeOrderInstrument struct {
 	OrderAction  string            `json:"orderAction"`
 	QuantityType string            `json:"quantityType"`
 	Quantity     decimal.Decimal   `json:"quantity"`
+	Lots         *placeOrderLots   `json:"Lots,omitempty"`
+}
+
+type placeOrderLots struct {
+	Lot []*placeOrderLot `json:"Lot"`
+}
+
+// placeOrderLot specifies how many shares to draw from a specific tax lot.
+// ID is int64 (E*TRADE's positionLotId); Size is the shares to sell from it.
+type placeOrderLot struct {
+	ID   int64           `json:"id"`
+	Size decimal.Decimal `json:"size"`
 }
 
 type placeOrderProduct struct {
@@ -763,11 +775,21 @@ func (c *Client) GetOrder(ctx context.Context, accountID string, orderID int64) 
 // string (E*TRADE only accepts digits in this field). marketSession is
 // "REGULAR" or "EXTENDED"; orderTerm must be consistent with it
 // ("GOOD_UNTIL_CANCEL" for REGULAR, "GOOD_FOR_DAY" for EXTENDED).
-func (c *Client) PlaceLimitOrder(ctx context.Context, accountID, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm, marketSession string) (int64, error) {
+func (c *Client) PlaceLimitOrder(ctx context.Context, accountID, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm, marketSession string, plots []*placeOrderLot) (int64, error) {
 	creds := c.creds.Load()
 	accountIDKey, err := creds.GetAccountIDKey(accountID)
 	if err != nil {
 		return -1, err
+	}
+
+	var plotsWrapper *placeOrderLots
+	if len(plots) != 0 {
+		if !strings.EqualFold(side, "sell") {
+			return -1, fmt.Errorf("etrade: tax lots are supported only on sell side")
+		}
+		plotsWrapper = &placeOrderLots{
+			Lot: plots,
+		}
 	}
 
 	accountPath := "/v1/accounts/" + url.PathEscape(accountIDKey)
@@ -781,6 +803,7 @@ func (c *Client) PlaceLimitOrder(ctx context.Context, accountID, symbol, side st
 			OrderAction:  strings.ToUpper(side),
 			QuantityType: "QUANTITY",
 			Quantity:     qty,
+			Lots:         plotsWrapper,
 		}},
 	}
 

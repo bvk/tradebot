@@ -4,8 +4,10 @@ package etrade
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -390,6 +392,25 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 		return nil, err
 	}
 
+	var plots []*placeOrderLot
+	if len(taxLotIDs) > 0 {
+		if !strings.EqualFold(side, "sell") {
+			return nil, fmt.Errorf("etrade: tax lots are supported only on sell side")
+		}
+		lots, err := p.client.ResolveTaxLotIDs(ctx, taxLotIDs)
+		if err != nil {
+			return nil, err
+		}
+		var sum decimal.Decimal
+		for _, l := range lots {
+			plots = append(plots, &placeOrderLot{ID: l.PositionLotID, Size: l.RemainingQty})
+			sum = sum.Add(l.RemainingQty)
+		}
+		if !sum.Equal(size) {
+			return nil, fmt.Errorf("etrade: sell with lots size %s did not match lots quantity %s", size, sum)
+		}
+	}
+
 	now := time.Now().UnixMilli()
 	price = roundLimitPrice(side, price)
 	info := orderPlacementInfo{
@@ -430,7 +451,7 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 	for {
 		etradeClientID := strconv.FormatInt(p.etradeOrderID.Add(1), 10)
 		orderID, err = p.client.PlaceLimitOrder(ctx, accountID, p.symbol, side, size, price,
-			etradeClientID, info.OrderTerm, info.MarketSession)
+			etradeClientID, info.OrderTerm, info.MarketSession, plots)
 		if err == nil {
 			break
 		}
@@ -751,4 +772,38 @@ func (p *Product) AcknowledeReason() string {
 func (p *Product) AcknowledgeProduct(ctx context.Context, reason string) error {
 	p.productAckReason = "" // FIXME: This must be atomic
 	return nil
+}
+
+func (p *Product) ResolveTaxLots(ctx context.Context, accountID string, serverIDs []string) ([]gobs.TaxLotID, decimal.Decimal, error) {
+	var sum decimal.Decimal
+	oids := make([]int64, len(serverIDs))
+	for i, v := range serverIDs {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, sum, err
+		}
+		oids[i] = id
+	}
+	lots, err := p.client.ResolveOrderLots(ctx, accountID, p.symbol, oids)
+	if err != nil {
+		return nil, sum, err
+	}
+	if len(lots) == 0 {
+		slog.Warn(fmt.Sprintf("etrade: orders %v are resolved to zero lots", oids))
+		return nil, sum, nil
+	}
+	var taxLots []gobs.TaxLotID
+	for _, lot := range lots {
+		js, _ := json.Marshal(lot)
+		log.Printf("%s", js)
+
+		sum = sum.Add(lot.RemainingQty)
+		taxLotID, err := p.client.makeTaxLotID(lot.AccountID, lot.Symbol, lot.LotsDetails, lot.OrderNo)
+
+		if err != nil {
+			return nil, sum, nil
+		}
+		taxLots = append(taxLots, taxLotID)
+	}
+	return taxLots, sum, nil
 }

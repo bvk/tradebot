@@ -109,7 +109,7 @@ func (c *PlaceOrder) run(ctx context.Context, args []string) error {
 		clientOrderID = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 
-	orderID, err := client.PlaceLimitOrder(ctx, c.accountID, c.symbol, c.side, qty, limitPrice, clientOrderID, c.orderTerm, c.marketSession)
+	orderID, err := client.PlaceLimitOrder(ctx, c.accountID, c.symbol, c.side, qty, limitPrice, clientOrderID, c.orderTerm, c.marketSession, nil)
 	if err != nil {
 		return fmt.Errorf("could not place order: %w", err)
 	}
