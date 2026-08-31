@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -304,8 +305,10 @@ func (s *Server) Start(ctx context.Context) (status error) {
 
 		if secrets.ETrade != nil {
 			opts := &etrade.Options{
+				DataDir:           filepath.Join(s.opts.DataDir, "/etrade"),
 				HttpClientTimeout: s.opts.MaxHttpClientTimeout,
 				Sandbox:           secrets.ETrade.Sandbox,
+				DisplayRunner:     s.displayRunner,
 			}
 			exch, err := etrade.NewExchange(ctx, s.db, secrets.ETrade, opts)
 			if err != nil {
