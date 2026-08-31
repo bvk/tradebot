@@ -118,6 +118,11 @@ type Order struct {
 	StrikePrice decimal.Decimal
 	CallPut     string // "CALL" or "PUT"
 
+	// AccountID is the ETrade account identifier. Order ids are only unique
+	// within the account id namespace, so account ids must be matched before
+	// using an order id.
+	AccountID string
+
 	// ClientUUID is our internal tracking UUID. It is not present in the
 	// E*TRADE API response and must be set by the caller.
 	ClientUUID uuid.UUID
@@ -137,9 +142,10 @@ func skip(orderID int64, reason string) *Order {
 // share a single orderId with no per-leg server ID, so they cannot be modeled
 // as independent orders. The ClientUUID field is left as uuid.Nil and must be
 // set by the caller.
-func NewOrderFromAPI(a *APIOrder) *Order {
+func NewOrderFromAPI(accountID string, a *APIOrder) *Order {
 	if len(a.OrderDetail) == 0 {
 		return &Order{
+			AccountID:     accountID,
 			OrderID:       a.OrderID,
 			ClientOrderID: a.ClientOrderID,
 		}
@@ -153,6 +159,7 @@ func NewOrderFromAPI(a *APIOrder) *Order {
 
 	if len(d.Instrument) == 0 {
 		return &Order{
+			AccountID:         accountID,
 			OrderID:           a.OrderID,
 			ClientOrderID:     a.ClientOrderID,
 			Status:            d.Status,
@@ -168,6 +175,7 @@ func NewOrderFromAPI(a *APIOrder) *Order {
 
 	inst := d.Instrument[0]
 	return &Order{
+		AccountID:         accountID,
 		OrderID:           a.OrderID,
 		ClientOrderID:     a.ClientOrderID,
 		Status:            d.Status,

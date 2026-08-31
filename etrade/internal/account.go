@@ -44,11 +44,14 @@ type APIBalanceResponse struct {
 // Balance is a flat representation of an E*TRADE account balance. It
 // implements exchange.BalanceUpdate.
 type Balance struct {
-	Currency                  string
+	AccountID                  string
+	Currency                   string
 	CashAvailableForInvestment decimal.Decimal
 }
 
-var _ interface{ Balance() (string, decimal.Decimal) } = &Balance{}
+var _ interface {
+	Balance() (string, decimal.Decimal)
+} = &Balance{}
 
 // NewBalanceFromAPI converts an E*TRADE APIBalanceResponse into a flat Balance.
 // For equity accounts, the available funds are the cash available for investing
@@ -60,7 +63,8 @@ func NewBalanceFromAPI(a *APIBalanceResponse) *Balance {
 		currency = "USD"
 	}
 	return &Balance{
-		Currency:                  currency,
+		AccountID:                  a.AccountID,
+		Currency:                   currency,
 		CashAvailableForInvestment: a.Computed.CashAvailableForInvestment,
 	}
 }

@@ -578,7 +578,7 @@ func (c *Client) ListOpenOrders(ctx context.Context) ([]*internal.Order, error) 
 			return nil, err
 		}
 		for _, apiOrder := range wrapper.OrdersResponse.Order {
-			if o := internal.NewOrderFromAPI(apiOrder); o != nil {
+			if o := internal.NewOrderFromAPI(c.creds.AccountIDKey, apiOrder); o != nil {
 				orders = append(orders, o)
 			}
 		}
@@ -606,7 +606,7 @@ func (c *Client) GetOrder(ctx context.Context, orderID int64) (*internal.Order, 
 	if len(wrapper.OrdersResponse.Order) > 1 {
 		return nil, fmt.Errorf("etrade: GetOrder %d: API returned %d top-level orders, expected 1", orderID, len(wrapper.OrdersResponse.Order))
 	}
-	order := internal.NewOrderFromAPI(wrapper.OrdersResponse.Order[0])
+	order := internal.NewOrderFromAPI(c.creds.AccountIDKey, wrapper.OrdersResponse.Order[0])
 	if order == nil {
 		return nil, os.ErrNotExist
 	}
