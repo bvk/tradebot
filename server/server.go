@@ -314,7 +314,10 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if err != nil {
 				return fmt.Errorf("could not create etrade exchange: %w", err)
 			}
-			exchangeMap["etrade"] = exch
+			for _, a := range exch.Accounts() {
+				exchangeMap[a.ExchangeName()] = a
+				log.Printf("added etrade account exchange %s", a.ExchangeName())
+			}
 		}
 
 		if len(exchangeMap) == 0 {

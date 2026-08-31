@@ -23,11 +23,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bvk/tradebot/etrade/autologin"
 	"github.com/bvk/tradebot/etrade/internal"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/topic"
 )
+
+type Credentials = autologin.Credentials
 
 var ErrExtendedHoursClosed = errors.New("etrade: extended hours trading service is unavailable (7am-8pm ET)")
 
@@ -143,8 +146,10 @@ type Client struct {
 
 	wg sync.WaitGroup
 
+	reloginMutex sync.Mutex
+
 	opts  Options
-	creds Credentials
+	creds atomic.Pointer[Credentials]
 
 	httpClient http.Client
 
@@ -160,13 +165,17 @@ type Client struct {
 	// present in this map is included in each price poll cycle.
 	symbolPriceTopicMap syncmap.Map[string, *topic.Topic[*internal.Quote]]
 
-	// balancesTopic publishes account balance updates polled from the API.
-	balancesTopic *topic.Topic[*internal.Balance]
+	// balancesTopicMap holds balancesTopic that publishes account balance
+	// updates polled from the API. Each account has separate balance, so this is
+	// a mapping from AccountID to it's balance.
+	balancesTopicMap map[string]*topic.Topic[*internal.Balance]
 
-	// refreshOrderTopic accepts order IDs that need to be tracked until
-	// completion. goRefreshOrders reads from this topic, polls GetOrder until
-	// the order is done, and publishes each update to the symbol order topic.
-	refreshOrderTopic *topic.Topic[int64]
+	// refreshOrderTopicMap holds orderTopic that accepts order IDs that need to
+	// be tracked until completion. goRefreshOrders reads from this topic, polls
+	// GetOrder until the order is done, and publishes each update to the symbol
+	// order topic. Each account bash separate order-id namespace, so this is a
+	// mapping from AccountID to it's order updates topic.
+	refreshOrderTopicMap map[string]*topic.Topic[int64]
 }
 
 // New creates a new E*TRADE client, verifies credentials, and starts background
@@ -185,29 +194,55 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 
 	lifeCtx, lifeCancel := context.WithCancelCause(context.Background())
 	c := &Client{
-		lifeCtx:           lifeCtx,
-		lifeCancel:        lifeCancel,
-		opts:              *opts,
-		creds:             *creds,
-		httpClient:        http.Client{Timeout: opts.HttpClientTimeout},
-		balancesTopic:     topic.New[*internal.Balance](),
-		refreshOrderTopic: topic.New[int64](),
+		lifeCtx:              lifeCtx,
+		lifeCancel:           lifeCancel,
+		opts:                 *opts,
+		httpClient:           http.Client{Timeout: opts.HttpClientTimeout},
+		balancesTopicMap:     make(map[string]*topic.Topic[*internal.Balance]),
+		refreshOrderTopicMap: make(map[string]*topic.Topic[int64]),
 	}
+	c.creds.Store(creds.Clone())
 	c.nonceCounter.Store(time.Now().UnixNano())
 
-	// Verify credentials are valid before starting goroutines. Use GetBalance
-	// rather than RenewAccessToken because E*TRADE rate-limits the renew
-	// endpoint — calling it on every CLI invocation causes intermittent 401s.
-	if _, err := c.GetBalance(ctx); err != nil {
-		lifeCancel(err)
-		return nil, fmt.Errorf("etrade: credential verification failed: %w", err)
+	// if !c.opts.cmdlineToolMode {
+	// 	if err := c.relogin(ctx); err != nil {
+	// 		slog.Error("etrade: could not perform unattended relogin", "err", err)
+	// 		return nil, err
+	// 	}
+	// }
+
+	for _, a := range creds.Accounts {
+		c.balancesTopicMap[a.AccountID] = topic.New[*internal.Balance]()
+		c.refreshOrderTopicMap[a.AccountID] = topic.New[int64]()
 	}
 
-	c.wg.Add(4)
-	go c.goRenewToken(c.lifeCtx)
-	go c.goPollPrices(c.lifeCtx)
-	go c.goPollBalances(c.lifeCtx)
-	go c.goRefreshOrders(c.lifeCtx)
+	if !opts.cmdlineToolMode {
+		// Verify credentials are valid before starting goroutines. Use GetBalance
+		// rather than RenewAccessToken because E*TRADE rate-limits the renew
+		// endpoint — calling it on every CLI invocation causes intermittent 401s.
+		for _, a := range creds.Accounts {
+			if _, err := c.GetBalance(ctx, a.AccountID); err != nil {
+				lifeCancel(err)
+				return nil, fmt.Errorf("etrade: credential verification failed: %w", err)
+			}
+		}
+
+		c.wg.Add(2)
+		go c.goRenewToken(c.lifeCtx)
+		go c.goPollPrices(c.lifeCtx)
+
+		for _, a := range creds.Accounts {
+			c.wg.Add(2)
+			go c.goPollBalances(c.lifeCtx, a.AccountID)
+			go c.goRefreshOrders(c.lifeCtx, a.AccountID)
+			// go c.goTrackPortfolio(c.lifeCtx, a.AccountID)
+		}
+
+		// if c.opts.DisplayRunner != nil {
+		// 	c.wg.Add(1)
+		// 	go c.goLogin(c.lifeCtx)
+		// }
+	}
 
 	return c, nil
 }
@@ -233,15 +268,39 @@ func (c *Client) getSymbolOrdersTopic(symbol string) *topic.Topic[*internal.Orde
 func (c *Client) getSymbolPriceTopic(symbol string) *topic.Topic[*internal.Quote] {
 	tp, ok := c.symbolPriceTopicMap.Load(symbol)
 	if !ok {
-		tp, _ = c.symbolPriceTopicMap.LoadOrStore(symbol, topic.New[*internal.Quote]())
+		return nil
 	}
 	return tp
 }
 
-// oauthEscape percent-encodes a string per OAuth 1.0a (RFC 5849 §3.6).
-// url.QueryEscape is almost correct but encodes spaces as '+'; OAuth requires '%20'.
-func oauthEscape(s string) string {
-	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+func (c *Client) getSymbolInfo(symbol string) (*internal.Quote, bool) {
+	tp, ok := c.symbolPriceTopicMap.Load(symbol)
+	if !ok {
+		return nil, false
+	}
+	sinfo, ok := tp.Last()
+	if !ok {
+		return nil, false
+	}
+	return sinfo, true
+}
+
+// WatchSymbol configures the client to periodically poll for symbols price and other information.
+func (c *Client) WatchSymbol(ctx context.Context, symbol string) (*internal.Quote, error) {
+	if sinfo, ok := c.getSymbolInfo(symbol); ok {
+		return sinfo, nil
+	}
+	sinfos, err := c.GetQuotes(ctx, []string{symbol})
+	if err != nil {
+		return nil, err
+	}
+	tp, loaded := c.symbolPriceTopicMap.LoadOrStore(symbol, topic.New[*internal.Quote]())
+	if !loaded {
+		tp.Send(sinfos[0])
+		return sinfos[0], nil
+	}
+	sinfo, _ := tp.Last()
+	return sinfo, nil
 }
 
 // oauthSign computes an OAuth 1.0a Authorization header value for the given
@@ -252,12 +311,13 @@ func (c *Client) oauthSign(method, baseURL string, queryParams url.Values) strin
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 	// Collect all parameters: OAuth protocol params + request query params.
+	creds := c.creds.Load()
 	params := map[string]string{
-		"oauth_consumer_key":     c.creds.ConsumerKey,
+		"oauth_consumer_key":     creds.ConsumerKey,
 		"oauth_nonce":            nonce,
 		"oauth_signature_method": "HMAC-SHA1",
 		"oauth_timestamp":        timestamp,
-		"oauth_token":            c.creds.AccessToken,
+		"oauth_token":            creds.AccessToken,
 		"oauth_version":          "1.0",
 	}
 	for k, vals := range queryParams {
@@ -274,15 +334,15 @@ func (c *Client) oauthSign(method, baseURL string, queryParams url.Values) strin
 	sort.Strings(keys)
 	var parts []string
 	for _, k := range keys {
-		parts = append(parts, oauthEscape(k)+"="+oauthEscape(params[k]))
+		parts = append(parts, autologin.OauthEscape(k)+"="+autologin.OauthEscape(params[k]))
 	}
 	normalizedParams := strings.Join(parts, "&")
 
 	// Signature base string: METHOD & base_url & normalized_params (all percent-encoded).
-	sigBase := strings.ToUpper(method) + "&" + oauthEscape(baseURL) + "&" + oauthEscape(normalizedParams)
+	sigBase := strings.ToUpper(method) + "&" + autologin.OauthEscape(baseURL) + "&" + autologin.OauthEscape(normalizedParams)
 
 	// Signing key: percent-encoded consumer_secret & percent-encoded token_secret.
-	signingKey := oauthEscape(c.creds.ConsumerSecret) + "&" + oauthEscape(c.creds.AccessTokenSecret)
+	signingKey := autologin.OauthEscape(creds.ConsumerSecret) + "&" + autologin.OauthEscape(creds.AccessTokenSecret)
 
 	// HMAC-SHA1, base64-encoded.
 	h := hmac.New(sha1.New, []byte(signingKey))
@@ -292,12 +352,12 @@ func (c *Client) oauthSign(method, baseURL string, queryParams url.Values) strin
 	// Build the Authorization header. Signature is percent-encoded because
 	// base64 output may contain '+', '/', and '=' which are reserved in OAuth.
 	headerParts := []string{
-		`oauth_consumer_key="` + oauthEscape(c.creds.ConsumerKey) + `"`,
-		`oauth_nonce="` + oauthEscape(nonce) + `"`,
-		`oauth_signature="` + oauthEscape(signature) + `"`,
+		`oauth_consumer_key="` + autologin.OauthEscape(creds.ConsumerKey) + `"`,
+		`oauth_nonce="` + autologin.OauthEscape(nonce) + `"`,
+		`oauth_signature="` + autologin.OauthEscape(signature) + `"`,
 		`oauth_signature_method="HMAC-SHA1"`,
 		`oauth_timestamp="` + timestamp + `"`,
-		`oauth_token="` + oauthEscape(c.creds.AccessToken) + `"`,
+		`oauth_token="` + autologin.OauthEscape(creds.AccessToken) + `"`,
 		`oauth_version="1.0"`,
 	}
 	return "OAuth " + strings.Join(headerParts, ", ")
@@ -348,13 +408,18 @@ func sleep(ctx context.Context, d time.Duration) error {
 
 // handleHTTPError maps E*TRADE HTTP status codes to errors. Returns true if
 // the caller should retry (rate-limited), false otherwise.
-func handleHTTPError(ctx context.Context, resp *http.Response, apiPath string) (retry bool, err error) {
+func (c *Client) handleHTTPError(ctx context.Context, resp *http.Response, apiPath string) (retry bool, err error) {
 	switch resp.StatusCode {
 	case internal.StatusNotFound:
 		body, _ := io.ReadAll(resp.Body)
 		slog.Error("etrade: resource not found", "path", apiPath, "body", string(body))
 		return false, os.ErrNotExist
 	case internal.StatusUnauthorized:
+		// if err := c.relogin(ctx); err != nil {
+		// 	slog.Error("etrade: received unauthorized response and relogin has failed as well", "err", err)
+		// } else {
+		// 	return true, nil
+		// }
 		slog.Error("etrade: OAuth token expired or invalid; re-run 'setup etrade' to reauthorize", "path", apiPath)
 		return false, fmt.Errorf("etrade: unauthorized: %w", os.ErrPermission)
 	case internal.StatusTooManyRequests:
@@ -371,12 +436,10 @@ func handleHTTPError(ctx context.Context, resp *http.Response, apiPath string) (
 		return true, nil
 	default:
 		body, _ := io.ReadAll(resp.Body)
-		// Check for E*TRADE error codes in 4xx responses (delivered in XML body).
-		if resp.StatusCode == http.StatusBadRequest {
-			if strings.Contains(string(body), "<code>1513</code>") {
-				slog.Warn("etrade: extended hours service unavailable", "path", apiPath)
-				return false, ErrExtendedHoursClosed
-			}
+		// Check for E*TRADE error codes in any responses (delivered in XML body).
+		if strings.Contains(string(body), "<code>1513</code>") {
+			slog.Warn("etrade: extended hours service unavailable", "path", apiPath)
+			return false, ErrExtendedHoursClosed
 		}
 		slog.Error("etrade: unexpected HTTP status", "path", apiPath, "status", resp.StatusCode, "body", string(body))
 		return false, fmt.Errorf("etrade: %s returned HTTP %d", apiPath, resp.StatusCode)
@@ -402,6 +465,7 @@ func doGetJSON[PT *T, T any](ctx context.Context, c *Client, apiPath string, que
 				slog.Error("etrade: could not read GET response body", "path", apiPath, "err", err)
 				return err
 			}
+			slog.Debug(string(data))
 			if err := json.Unmarshal(data, resp); err != nil {
 				slog.Error("etrade: could not unmarshal GET response", "path", apiPath, "body", string(data), "err", err)
 				return err
@@ -415,7 +479,7 @@ func doGetJSON[PT *T, T any](ctx context.Context, c *Client, apiPath string, que
 			return nil
 		}
 
-		retry, err := handleHTTPError(ctx, httpResp, apiPath)
+		retry, err := c.handleHTTPError(ctx, httpResp, apiPath)
 		httpResp.Body.Close()
 		if err != nil {
 			return err
@@ -457,7 +521,7 @@ func doPostJSON[PT *T, T any](ctx context.Context, c *Client, apiPath string, re
 			return nil
 		}
 
-		retry, err := handleHTTPError(ctx, httpResp, apiPath)
+		retry, err := c.handleHTTPError(ctx, httpResp, apiPath)
 		httpResp.Body.Close()
 		if err != nil {
 			return err
@@ -486,7 +550,7 @@ func (c *Client) doPutEmpty(ctx context.Context, apiPath string) error {
 			return nil
 		}
 
-		retry, err := handleHTTPError(ctx, httpResp, apiPath)
+		retry, err := c.handleHTTPError(ctx, httpResp, apiPath)
 		httpResp.Body.Close()
 		if err != nil {
 			return err
@@ -516,9 +580,13 @@ func (c *Client) RenewAccessToken(ctx context.Context) error {
 // GetQuotes fetches current market quotes for the given symbols from
 // GET /v1/market/quote/{symbols}.
 func (c *Client) GetQuotes(ctx context.Context, symbols []string) ([]*internal.Quote, error) {
+	params := url.Values{
+		"detailFlag":          {"ALL"},
+		"requireEarningsDate": {"true"},
+	}
 	apiPath := "/v1/market/quote/" + url.PathEscape(strings.Join(symbols, ","))
 	var wrapper quoteResponseWrapper
-	if err := doGetJSON(ctx, c, apiPath, nil, &wrapper); err != nil {
+	if err := doGetJSON(ctx, c, apiPath, params, &wrapper); err != nil {
 		return nil, err
 	}
 	quotes := make([]*internal.Quote, 0, len(wrapper.QuoteResponse.QuoteData))
@@ -530,8 +598,13 @@ func (c *Client) GetQuotes(ctx context.Context, symbols []string) ([]*internal.Q
 
 // GetBalance fetches the current account balance from
 // GET /v1/accounts/{accountIdKey}/balance.
-func (c *Client) GetBalance(ctx context.Context) (*internal.Balance, error) {
-	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/balance"
+func (c *Client) GetBalance(ctx context.Context, accountID string) (*internal.Balance, error) {
+	creds := c.creds.Load()
+	accountIDKey, err := creds.GetAccountIDKey(accountID)
+	if err != nil {
+		return nil, err
+	}
+	apiPath := "/v1/accounts/" + url.PathEscape(accountIDKey) + "/balance"
 	params := url.Values{
 		"instType":    {"BROKERAGE"},
 		"realTimeNAV": {"true"},
@@ -557,8 +630,13 @@ const maxOrderPages = 1000
 // fetched. Callers get the complete list either way -- without this, an
 // account with more open orders than fit on one page would silently see
 // only the first page.
-func (c *Client) ListOpenOrders(ctx context.Context) ([]*internal.Order, error) {
-	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/orders"
+func (c *Client) ListOpenOrders(ctx context.Context, accountID string) ([]*internal.Order, error) {
+	creds := c.creds.Load()
+	accountIDKey, err := creds.GetAccountIDKey(accountID)
+	if err != nil {
+		return nil, err
+	}
+	apiPath := "/v1/accounts/" + url.PathEscape(accountIDKey) + "/orders"
 
 	var orders []*internal.Order
 
@@ -578,7 +656,7 @@ func (c *Client) ListOpenOrders(ctx context.Context) ([]*internal.Order, error) 
 			return nil, err
 		}
 		for _, apiOrder := range wrapper.OrdersResponse.Order {
-			if o := internal.NewOrderFromAPI(c.creds.AccountIDKey, apiOrder); o != nil {
+			if o := internal.NewOrderFromAPI(accountID, apiOrder); o != nil {
 				orders = append(orders, o)
 			}
 		}
@@ -594,8 +672,13 @@ func (c *Client) ListOpenOrders(ctx context.Context) ([]*internal.Order, error) 
 
 // GetOrder fetches a single order by its E*TRADE order ID from
 // GET /v1/accounts/{accountIdKey}/orders/{orderId}.
-func (c *Client) GetOrder(ctx context.Context, orderID int64) (*internal.Order, error) {
-	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/orders/" + strconv.FormatInt(orderID, 10)
+func (c *Client) GetOrder(ctx context.Context, accountID string, orderID int64) (*internal.Order, error) {
+	creds := c.creds.Load()
+	accountIDKey, err := creds.GetAccountIDKey(accountID)
+	if err != nil {
+		return nil, err
+	}
+	apiPath := "/v1/accounts/" + url.PathEscape(accountIDKey) + "/orders/" + strconv.FormatInt(orderID, 10)
 	var wrapper ordersResponseWrapper
 	if err := doGetJSON(ctx, c, apiPath, nil, &wrapper); err != nil {
 		return nil, err
@@ -606,7 +689,7 @@ func (c *Client) GetOrder(ctx context.Context, orderID int64) (*internal.Order, 
 	if len(wrapper.OrdersResponse.Order) > 1 {
 		return nil, fmt.Errorf("etrade: GetOrder %d: API returned %d top-level orders, expected 1", orderID, len(wrapper.OrdersResponse.Order))
 	}
-	order := internal.NewOrderFromAPI(c.creds.AccountIDKey, wrapper.OrdersResponse.Order[0])
+	order := internal.NewOrderFromAPI(accountID, wrapper.OrdersResponse.Order[0])
 	if order == nil {
 		return nil, os.ErrNotExist
 	}
@@ -620,8 +703,14 @@ func (c *Client) GetOrder(ctx context.Context, orderID int64) (*internal.Order, 
 // string (E*TRADE only accepts digits in this field). marketSession is
 // "REGULAR" or "EXTENDED"; orderTerm must be consistent with it
 // ("GOOD_UNTIL_CANCEL" for REGULAR, "GOOD_FOR_DAY" for EXTENDED).
-func (c *Client) PlaceLimitOrder(ctx context.Context, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm, marketSession string) (int64, error) {
-	accountPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey)
+func (c *Client) PlaceLimitOrder(ctx context.Context, accountID, symbol, side string, qty, limitPrice decimal.Decimal, clientOrderID, orderTerm, marketSession string) (int64, error) {
+	creds := c.creds.Load()
+	accountIDKey, err := creds.GetAccountIDKey(accountID)
+	if err != nil {
+		return -1, err
+	}
+
+	accountPath := "/v1/accounts/" + url.PathEscape(accountIDKey)
 	orderDetail := placeOrderDetail{
 		PriceType:     "LIMIT",
 		OrderTerm:     orderTerm,
@@ -672,8 +761,13 @@ func (c *Client) PlaceLimitOrder(ctx context.Context, symbol, side string, qty, 
 
 // CancelOrder requests cancellation of an order via
 // PUT /v1/accounts/{accountIdKey}/orders/cancel.
-func (c *Client) CancelOrder(ctx context.Context, orderID int64) error {
-	apiPath := "/v1/accounts/" + url.PathEscape(c.creds.AccountIDKey) + "/orders/cancel"
+func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int64) error {
+	creds := c.creds.Load()
+	accountIDKey, err := creds.GetAccountIDKey(accountID)
+	if err != nil {
+		return err
+	}
+	apiPath := "/v1/accounts/" + url.PathEscape(accountIDKey) + "/orders/cancel"
 	data, _ := json.Marshal(cancelOrderRequestWrapper{CancelOrderRequest: cancelOrderRequest{OrderID: orderID}})
 	for {
 		httpResp, err := c.do(ctx, http.MethodPut, apiPath, nil, string(data))
@@ -688,7 +782,7 @@ func (c *Client) CancelOrder(ctx context.Context, orderID int64) error {
 			httpResp.Body.Close()
 			return nil
 		}
-		retry, err := handleHTTPError(ctx, httpResp, apiPath)
+		retry, err := c.handleHTTPError(ctx, httpResp, apiPath)
 		httpResp.Body.Close()
 		if err != nil {
 			return err
@@ -757,7 +851,7 @@ func (c *Client) goPollPrices(ctx context.Context) {
 	}
 }
 
-func (c *Client) goPollBalances(ctx context.Context) {
+func (c *Client) goPollBalances(ctx context.Context, accountID string) {
 	defer c.wg.Done()
 
 	defer func() {
@@ -768,26 +862,36 @@ func (c *Client) goPollBalances(ctx context.Context) {
 		}
 	}()
 
+	balancesTopic, ok := c.balancesTopicMap[accountID]
+	if !ok {
+		slog.Error("etrade: account id key has no poll balances topic", "account-id", accountID)
+		return
+	}
+
 	for ; ctx.Err() == nil; sleep(ctx, c.opts.PollBalancesInterval) {
-		balance, err := c.GetBalance(ctx)
+		balance, err := c.GetBalance(ctx, accountID)
 		if err != nil {
 			if !errors.Is(err, context.Cause(ctx)) {
 				slog.Warn("etrade: could not poll balance (will retry)", "err", err)
 			}
 			continue
 		}
-		c.balancesTopic.Send(balance)
+		balancesTopic.Send(balance)
 	}
 }
 
 // TrackOrder queues an order ID for tracking by goRefreshOrders. Product.go
 // calls this immediately after placing an order so that fills and cancellations
 // are detected even after the order disappears from the open-orders poll.
-func (c *Client) TrackOrder(orderID int64) {
-	c.refreshOrderTopic.Send(orderID)
+func (c *Client) TrackOrder(accountID string, orderID int64) {
+	if v, ok := c.refreshOrderTopicMap[accountID]; ok {
+		v.Send(orderID)
+	} else {
+		slog.Error("etrade: account id key has no refresh order topic", "account-id", accountID, "order-id", orderID)
+	}
 }
 
-func (c *Client) goRefreshOrders(ctx context.Context) {
+func (c *Client) goRefreshOrders(ctx context.Context, accountID string) {
 	defer c.wg.Done()
 
 	defer func() {
@@ -798,7 +902,13 @@ func (c *Client) goRefreshOrders(ctx context.Context) {
 		}
 	}()
 
-	receiver, err := topic.Subscribe(c.refreshOrderTopic, 0, true)
+	refreshOrderTopic, ok := c.refreshOrderTopicMap[accountID]
+	if !ok {
+		slog.Error("etrade: account id key has no refresh order topic", "account-id", accountID)
+		return
+	}
+
+	receiver, err := topic.Subscribe(refreshOrderTopic, 0, true)
 	if err != nil {
 		slog.Error("etrade: could not subscribe to refreshOrderTopic (unexpected)", "err", err)
 		return
@@ -823,7 +933,7 @@ func (c *Client) goRefreshOrders(ctx context.Context) {
 			}
 
 		case <-time.After(c.opts.PollOrdersInterval):
-			orders, err := c.ListOpenOrders(ctx)
+			orders, err := c.ListOpenOrders(ctx, accountID)
 			if err != nil {
 				if !errors.Is(err, context.Cause(ctx)) {
 					slog.Warn("etrade: could not list open orders (will retry)", "err", err)
@@ -847,7 +957,7 @@ func (c *Client) goRefreshOrders(ctx context.Context) {
 			}
 
 			for _, orderID := range missingOrderIDs {
-				order, err := c.GetOrder(ctx, orderID)
+				order, err := c.GetOrder(ctx, accountID, orderID)
 				if err != nil {
 					if !errors.Is(err, context.Cause(ctx)) {
 						slog.Warn("etrade: could not refresh order (will retry)", "orderID", orderID, "err", err)

@@ -130,13 +130,13 @@ func (c *ETrade) run(ctx context.Context, args []string) error {
 		}
 		secrets = new(server.Secrets)
 	}
-	if secrets.ETradeNew == nil {
-		secrets.ETradeNew = new(autologin.Credentials)
+	if secrets.ETrade == nil {
+		secrets.ETrade = new(autologin.Credentials)
 	}
-	if secrets.ETradeNew.Login == nil {
-		secrets.ETradeNew.Login = new(autologin.LoginCredentials)
+	if secrets.ETrade.Login == nil {
+		secrets.ETrade.Login = new(autologin.LoginCredentials)
 	}
-	credentials = secrets.ETradeNew
+	credentials = secrets.ETrade
 
 	// Pick browser path from cmdline or the config in secrets.json file.
 	if c.browserPath == "" {

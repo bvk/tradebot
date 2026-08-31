@@ -9,18 +9,16 @@ import (
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/coinex"
 	"github.com/bvk/tradebot/etrade"
-	"github.com/bvk/tradebot/etrade/autologin"
 	"github.com/bvk/tradebot/pushover"
 	"github.com/bvk/tradebot/telegram"
 )
 
 type Secrets struct {
-	Coinbase  *coinbase.Credentials  `json:"coinbase"`
-	CoinEx    *coinex.Credentials    `json:"coinex"`
-	ETrade    *etrade.Credentials    `json:"etrade"`
-	ETradeNew *autologin.Credentials `json:"etrade_new"`
-	Pushover  *pushover.Keys         `json:"pushover"`
-	Telegram  *telegram.Secrets      `json:"telegram"`
+	Coinbase *coinbase.Credentials `json:"coinbase"`
+	CoinEx   *coinex.Credentials   `json:"coinex"`
+	ETrade   *etrade.Credentials   `json:"etrade"`
+	Pushover *pushover.Keys        `json:"pushover"`
+	Telegram *telegram.Secrets     `json:"telegram"`
 }
 
 func SecretsFromFile(fpath string) (*Secrets, error) {

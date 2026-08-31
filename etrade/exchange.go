@@ -6,15 +6,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 
-	"github.com/bvk/tradebot/etrade/internal"
-	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
-	"github.com/visvasity/topic"
 )
 
 // Exchange implements exchange.Exchange for E*TRADE equity markets.
@@ -24,8 +20,6 @@ type Exchange struct {
 
 	productMap syncmap.Map[string, *Product]
 }
-
-var _ exchange.Exchange = &Exchange{}
 
 // NewExchange creates an Exchange, verifies credentials, and starts the
 // background polling goroutines in the underlying client.
@@ -54,26 +48,19 @@ func (v *Exchange) Close() error {
 	return nil
 }
 
-func (v *Exchange) ExchangeName() string {
-	return "etrade"
+func (v *Exchange) Accounts() []*ExchangeAccount {
+	var accounts []*ExchangeAccount
+	for _, a := range v.client.creds.Load().Accounts {
+		accounts = append(accounts, &ExchangeAccount{exchange: v, account: a})
+	}
+	return accounts
 }
 
-// CanDedupOnClientUUID returns false because E*TRADE does not maintain a
-// client-UUID uniqueness constraint; deduplication is handled locally.
-func (v *Exchange) CanDedupOnClientUUID() bool {
-	return false
-}
-
-func (v *Exchange) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
-	fn := func(b *internal.Balance) exchange.BalanceUpdate { return b }
-	return topic.SubscribeFunc(v.client.balancesTopic, fn, 0, true)
-}
-
-// OpenSpotProduct opens (or returns a cached) Product for the given equity
+// openSpotProduct opens (or returns a cached) Product for the given equity
 // symbol. E*TRADE does not expose a product catalogue API, so any non-empty
 // symbol is accepted; invalid symbols will surface as errors during order
 // placement or price polling.
-func (v *Exchange) OpenSpotProduct(ctx context.Context, productID string) (exchange.Product, error) {
+func (v *Exchange) openSpotProduct(ctx context.Context, productID string) (*Product, error) {
 	if p, ok := v.productMap.Load(productID); ok {
 		return p, nil
 	}
@@ -88,10 +75,10 @@ func (v *Exchange) OpenSpotProduct(ctx context.Context, productID string) (excha
 	return p, nil
 }
 
-// GetSpotProduct returns metadata for an equity symbol. E*TRADE equity markets
+// getSpotProduct returns metadata for an equity symbol. E*TRADE equity markets
 // are always USD-denominated; quote must be "USD". The current mid-price is
 // fetched from the quotes endpoint.
-func (v *Exchange) GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error) {
+func (v *Exchange) getSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error) {
 	if quote != "USD" {
 		return nil, fmt.Errorf("etrade: only USD is supported as quote currency")
 	}
@@ -111,19 +98,4 @@ func (v *Exchange) GetSpotProduct(ctx context.Context, base, quote string) (*gob
 		BaseCurrencyID:  base,
 		QuoteCurrencyID: quote,
 	}, nil
-}
-
-// GetOrder fetches an order by server ID. If the product is currently open,
-// the call is routed through it so that the ClientUUID is restored from the
-// in-memory counterIDMap. Otherwise the order is fetched directly from the
-// client without UUID restoration.
-func (v *Exchange) GetOrder(ctx context.Context, productID string, serverID string) (exchange.OrderDetail, error) {
-	if p, ok := v.productMap.Load(productID); ok {
-		return p.Get(ctx, serverID)
-	}
-	orderID, err := strconv.ParseInt(serverID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("etrade: invalid server order id %q: %w", serverID, err)
-	}
-	return v.client.GetOrder(ctx, orderID)
 }
