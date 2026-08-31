@@ -29,6 +29,7 @@ import (
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/etrade/autologin"
 	"github.com/bvk/tradebot/etrade/internal"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/shopspring/decimal"
 	"github.com/visvasity/topic"
@@ -852,6 +853,88 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 	}
 }
 
+func (c *Client) makeTaxLotID(accountID, symbol, lotDetailURL string, orderNo int64) (gobs.TaxLotID, error) {
+	if orderNo <= 0 {
+		return "", fmt.Errorf("etrade: server order no must not be zero or -ve")
+	}
+	if !strings.HasPrefix(lotDetailURL, gobs.ETradeTaxLotIDPrefix) {
+		return "", fmt.Errorf("etrade: lot detail url %q has invalid/unexpected prefix", lotDetailURL)
+	}
+	taxLotURL, err := url.Parse(lotDetailURL)
+	if err != nil {
+		return "", err
+	}
+	creds := c.creds.Load()
+	if _, err := creds.GetAccountIDKey(accountID); err != nil {
+		return "", err
+	}
+	if _, ok := c.symbolPriceTopicMap.Load(symbol); !ok {
+		return "", fmt.Errorf("etrade: tax lot refers to invalid/unwatched symbol %q", symbol)
+	}
+	values := make(url.Values)
+	values.Set("AccountID", accountID)
+	values.Set("Symbol", symbol)
+	values.Set("OrderNo", strconv.FormatInt(orderNo, 10))
+	taxLotURL.RawQuery = values.Encode()
+	return gobs.TaxLotID(taxLotURL.String()), nil
+}
+
+func (c *Client) parseTaxLotID(id gobs.TaxLotID) (accountID, symbol, lotDetailURL string, orderNo int64, err error) {
+	if !strings.HasPrefix(string(id), gobs.ETradeTaxLotIDPrefix) {
+		return "", "", "", -1, fmt.Errorf("etrade: tax lot id %q has invalid/unexpected prefix", id)
+	}
+	taxLotURL, err := url.Parse(string(id))
+	if err != nil {
+		return "", "", "", -1, err
+	}
+	values := taxLotURL.Query()
+	accountID = values.Get("AccountID")
+	symbol = values.Get("Symbol")
+	orderNo, err = strconv.ParseInt(values.Get("OrderNo"), 10, 64)
+	if err != nil {
+		return "", "", "", -1, err
+	}
+	if orderNo <= 0 {
+		return "", "", "", -1, fmt.Errorf("etrade: server order no %d is invalid", orderNo)
+	}
+	creds := c.creds.Load()
+	if _, err := creds.GetAccountIDKey(accountID); err != nil {
+		return "", "", "", -1, err
+	}
+	if _, ok := c.symbolPriceTopicMap.Load(symbol); !ok {
+		return "", "", "", -1, fmt.Errorf("etrade: tax lot refers to invalid/unwatched symbol %q", symbol)
+	}
+	taxLotURL.RawQuery = ""
+	return accountID, symbol, taxLotURL.String(), orderNo, nil
+}
+
+func (c *Client) GetTaxLotDetail(ctx context.Context, taxLotID gobs.TaxLotID) ([]*positionLot, error) {
+	var lots []*positionLot
+	accountID, symbol, lotDetailURL, orderNo, err := c.parseTaxLotID(taxLotID)
+	if err != nil {
+		return nil, err
+	}
+	detailURL, err := url.Parse(lotDetailURL)
+	if err != nil {
+		return nil, err
+	}
+	var posWrapper positionLotsResponseWrapper
+	if err := doGetJSON(ctx, c, detailURL.Path, nil, &posWrapper); err != nil {
+		return nil, fmt.Errorf("etrade: could not fetch lots from %q: %w", taxLotID, err)
+	}
+	for _, v := range posWrapper.PositionLotsResponse.PositionLots {
+		if v.OrderNo != orderNo {
+			continue
+		}
+		// Attach account id and symbol to each position lot.
+		v.LotsDetails = lotDetailURL
+		v.AccountID = accountID
+		v.Symbol = symbol
+		lots = append(lots, v)
+	}
+	return lots, nil
+}
+
 // GetPortfolio returns the asset balances along with the tax lots for the buy
 // orders. It is fetched with GET
 // /v1/accounts/{accountIdKey}/portfolio?lotsRequired=true.
@@ -1129,6 +1212,123 @@ func (c *Client) updatePortfolio(lots []*positionLot) {
 		}
 		c.lotDetailMap.Store(v.LotsDetails, append(vs, v)) // FIXME: Is this thread-safe?
 	}
+}
+
+func (c *Client) ResolveTaxLotIDs(ctx context.Context, taxLotIDs []gobs.TaxLotID) ([]*positionLot, error) {
+	var missing []int
+	// Check for the position lot ids in the cache.
+	var lots []*positionLot
+	for i, taxLotID := range taxLotIDs {
+		_, _, lotDetailURL, orderNo, err := c.parseTaxLotID(taxLotID)
+		if err != nil {
+			return nil, err
+		}
+		ps, ok := c.lotDetailMap.Load(lotDetailURL)
+		if !ok {
+			missing = append(missing, i)
+			continue
+		}
+		for _, p := range ps {
+			if p.OrderNo == orderNo {
+				lots = append(lots, p)
+			}
+		}
+	}
+	// Fetch missing lot ids with an explicit request.
+	for _, index := range missing {
+		_, _, _, orderNo, err := c.parseTaxLotID(taxLotIDs[index])
+		if err != nil {
+			return nil, err
+		}
+		ps, err := c.GetTaxLotDetail(ctx, taxLotIDs[index])
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ps {
+			if p.OrderNo == orderNo {
+				lots = append(lots, p)
+			}
+		}
+	}
+	return lots, nil
+}
+
+func (c *Client) ResolveOrderLots(ctx context.Context, accountID, symbol string, serverOrderIDs []int64) ([]*positionLot, error) {
+	slog.Info("resolving tax lots for account symbol orders", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs)
+	// Check for the position lot ids in the cache.
+	missing := false
+	lots := make([]*positionLot, 0, len(serverOrderIDs))
+	if symbolMap, ok := c.portfolioMap.Load(accountID); ok {
+		if orderDetailURLMap, ok := symbolMap.Load(symbol); ok {
+			for _, oid := range serverOrderIDs {
+				lotDetailURL, ok := orderDetailURLMap.Load(oid)
+				if !ok {
+					slog.Info("portfolio has no tax lot id for an order (must refresh the entire portfolio)", "account-id", accountID, "symbol", symbol, "order", oid)
+					missing = true
+					break
+				}
+				details, ok := c.lotDetailMap.Load(lotDetailURL)
+				if !ok {
+					slog.Info("portfolio has no tax lot detail for a lot (must refresh the entire portfolio)", "account-id", accountID, "symbol", symbol, "order", oid, "lots-details", lotDetailURL)
+					missing = true
+					break
+				}
+				found := false
+				for _, v := range details {
+					if v.OrderNo == oid {
+						lots = append(lots, v)
+					}
+				}
+				if !found {
+					slog.Info("tax lot detail has no entry with matching order (will try refresh the entire portfolio)", "account-id", accountID, "symbol", symbol, "order", oid, "lots-details", lotDetailURL)
+					missing = true
+					break
+				}
+			}
+		}
+	}
+
+	if !missing {
+		slog.Info("etrade: all orders are resolved to tax lots from the cache", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "num-lots", len(lots))
+		return lots, nil
+	}
+
+	// Fetch missing lot ids with an explicit request.
+	lots, err := c.GetPortfolio(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("fetched full portfolio for account to resolve orders", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs)
+	c.updatePortfolio(lots)
+
+	lots = make([]*positionLot, 0, len(serverOrderIDs))
+	if symbolMap, ok := c.portfolioMap.Load(accountID); ok {
+		if orderDetailURLMap, ok := symbolMap.Load(symbol); ok {
+			for _, oid := range serverOrderIDs {
+				lotDetailURL, ok := orderDetailURLMap.Load(oid)
+				if !ok {
+					slog.Error("could not find tax lot id for an order after a full refresh", "account-id", accountID, "symbol", symbol, "order", oid)
+					return nil, fmt.Errorf("could not find tax lot id for an order")
+				}
+				details, ok := c.lotDetailMap.Load(lotDetailURL)
+				if !ok {
+					slog.Error("could not find tax lot detail for a tax lot after a full refresh", "account-id", accountID, "symbol", symbol, "lots-details", lotDetailURL)
+					return nil, fmt.Errorf("could not find tax lot detail for tax lot")
+				}
+				found := false
+				for _, v := range details {
+					if v.OrderNo == oid {
+						lots = append(lots, v)
+					}
+				}
+				if !found {
+				}
+			}
+		}
+	}
+
+	slog.Info("etrade: all orders are resolved to tax lots after a full portfolio refresh", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "num-lots", len(lots))
+	return lots, nil
 }
 
 func (c *Client) goLogin(ctx context.Context) {
