@@ -338,6 +338,8 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer trader.Close()
+
 	// Add trader api handlers
 	traderAPIs := trader.HandlerMap()
 	for k, v := range traderAPIs {
@@ -371,15 +373,11 @@ func (c *Run) run(ctx context.Context, args []string) error {
 		break
 	}
 
-	// Defer Stop before Close so that in LIFO order Close runs first.
-	// Close cancels product life contexts, unblocking any goroutines sleeping
-	// inside product methods, so that Stop's PauseAll can complete cleanly.
 	defer func() {
 		if err := trader.Stop(context.Background()); err != nil {
 			log.Printf("could not stop all jobs (ignored): %v", err)
 		}
 	}()
-	defer trader.Close()
 
 	// Wait for the signals
 	log.Printf("started tradebot server at %s", addr)
