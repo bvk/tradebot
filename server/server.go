@@ -20,8 +20,8 @@ import (
 	"github.com/bvk/tradebot/api"
 	"github.com/bvk/tradebot/coinbase"
 	"github.com/bvk/tradebot/coinex"
-	"github.com/bvk/tradebot/etrade"
 	"github.com/bvk/tradebot/ctxutil"
+	"github.com/bvk/tradebot/etrade"
 	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/job"
@@ -83,7 +83,9 @@ var initServerState = &gobs.ServerState{
 			},
 		},
 		"etrade": {
-			EnabledProductIDs: []string{},
+			EnabledProductIDs: []string{
+				"TSLA",
+			},
 		},
 	},
 }
@@ -94,6 +96,8 @@ type Server struct {
 	opts Options
 
 	db kv.Database
+
+	displayRunner exchange.DisplayRunner
 
 	secretsFilePath string
 
@@ -138,19 +142,6 @@ func New(newctx context.Context, secretsFilePath string, db kv.Database, opts *O
 		state = initServerState
 		if err := kvutil.SetDB(newctx, db, ServerStateKey, state); err != nil {
 			return nil, err
-		}
-	}
-	// Ensure newly added exchanges are present in the persisted state.
-	updated := false
-	for name, init := range initServerState.ExchangeMap {
-		if _, ok := state.ExchangeMap[name]; !ok {
-			state.ExchangeMap[name] = init
-			updated = true
-		}
-	}
-	if updated {
-		if err := kvutil.SetDB(newctx, db, ServerStateKey, state); err != nil {
-			return nil, fmt.Errorf("could not update server state with new exchanges: %w", err)
 		}
 	}
 
@@ -212,6 +203,10 @@ func (s *Server) Close() error {
 		exch.Close()
 	}
 	return nil
+}
+
+func (s *Server) SetDisplayRunner(v exchange.DisplayRunner) {
+	s.displayRunner = v
 }
 
 func (s *Server) HandlerMap() map[string]http.Handler {
@@ -478,10 +473,17 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 		}
 	}
 
+	// Exchanges that support multiple accounts (like E*TRADE) use
+	// <exchange>/<account> naming format.
+	stateMapKey := exchangeName
+	if strings.ContainsRune(exchangeName, '/') {
+		stateMapKey, _, _ = strings.Cut(exchangeName, "/")
+	}
+
 	// check if product is enabled.
-	estate, ok := s.state.ExchangeMap[exchangeName]
+	estate, ok := s.state.ExchangeMap[stateMapKey]
 	if !ok {
-		return nil, fmt.Errorf("exchange %q is not supported", exchangeName)
+		return nil, fmt.Errorf("exchange %q is not supported/enabled", exchangeName)
 	}
 	if !slices.Contains(estate.EnabledProductIDs, productID) {
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
