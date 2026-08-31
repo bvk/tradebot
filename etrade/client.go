@@ -63,6 +63,53 @@ type balanceResponseWrapper struct {
 	BalanceResponse *internal.APIBalanceResponse `json:"BalanceResponse"`
 }
 
+// portfolioResponseWrapper is the outer envelope for
+// GET /v1/accounts/{id}/portfolio?lotsRequired=true.
+type portfolioResponseWrapper struct {
+	PortfolioResponse portfolioResponse `json:"PortfolioResponse"`
+}
+
+type portfolioResponse struct {
+	AccountPortfolio []accountPortfolio `json:"AccountPortfolio"`
+}
+
+type accountPortfolio struct {
+	AccountID  string               `json:"accountID"`
+	Next       string               `json:"next"`
+	NumPages   int32                `json:"totalNoOfPages"`
+	NextPageNo string               `json:"nextPageNo"`
+	Position   []*portfolioPosition `json:"Position"`
+}
+
+type portfolioPosition struct {
+	PositionID  int64  `json:"positionId"`
+	LotsDetails string `json:"lotsDetails"`
+	Product     struct {
+		Symbol string `json:"symbol"`
+	} `json:"Product"`
+}
+
+type positionLotsResponseWrapper struct {
+	PositionLotsResponse positionLotsResponse `json:"PositionLotsResponse"`
+}
+
+type positionLotsResponse struct {
+	PositionLots []*positionLot `json:"PositionLot"`
+}
+
+type positionLot struct {
+	LotsDetails string // Not a JSON generated field.
+	AccountID   string // Not a JSON generated field.
+	Symbol      string // Not a JSON generated field.
+
+	PositionLotID int64           `json:"positionLotId"`
+	OrderNo       int64           `json:"orderNo"`
+	OriginalQty   decimal.Decimal `json:"originalQty"`
+	RemainingQty  decimal.Decimal `json:"remainingQty"`
+	Price         decimal.Decimal `json:"price"`        // per-share cost basis
+	AcquiredDate  int64           `json:"acquiredDate"` // Unix milliseconds
+}
+
 // cancelOrderRequestWrapper is the outer envelope for PUT /v1/accounts/{id}/orders/cancel.
 type cancelOrderRequestWrapper struct {
 	CancelOrderRequest cancelOrderRequest `json:"CancelOrderRequest"`
@@ -794,6 +841,54 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 			continue
 		}
 	}
+}
+
+// GetPortfolio returns the asset balances along with the tax lots for the buy
+// orders. It is fetched with GET
+// /v1/accounts/{accountIdKey}/portfolio?lotsRequired=true.
+func (c *Client) GetPortfolio(ctx context.Context, accountID string) ([]*positionLot, error) {
+	creds := c.creds.Load()
+	accountIDKey, err := creds.GetAccountIDKey(accountID)
+	if err != nil {
+		return nil, err
+	}
+	apiPath := "/v1/accounts/" + url.PathEscape(accountIDKey) + "/portfolio"
+	params := url.Values{
+		"lotsRequired": {"true"},
+		"count":        {"5"},
+	}
+	nextPageNo := ""
+	var positions []*portfolioPosition
+	for i := 0; i == 0 || nextPageNo != ""; i++ {
+		wrapper := new(portfolioResponseWrapper)
+		if err := doGetJSON(ctx, c, apiPath, params, wrapper); err != nil {
+			return nil, err
+		}
+		for _, ap := range wrapper.PortfolioResponse.AccountPortfolio {
+			positions = append(positions, ap.Position...)
+			nextPageNo = ap.NextPageNo
+		}
+		params["pageNumber"] = []string{nextPageNo}
+	}
+
+	var lots []*positionLot
+	for _, pos := range positions {
+		detailURL, err := url.Parse(pos.LotsDetails)
+		if err != nil {
+			return nil, err
+		}
+		var posWrapper positionLotsResponseWrapper
+		if err := doGetJSON(ctx, c, detailURL.Path, nil, &posWrapper); err != nil {
+			return nil, fmt.Errorf("etrade: could not fetch lots from %q: %w", pos.LotsDetails, err)
+		}
+		for _, v := range posWrapper.PositionLotsResponse.PositionLots {
+			v.LotsDetails = pos.LotsDetails
+			v.AccountID = accountID
+			v.Symbol = pos.Product.Symbol
+			lots = append(lots, v)
+		}
+	}
+	return lots, nil
 }
 
 func (c *Client) goRenewToken(ctx context.Context) {
