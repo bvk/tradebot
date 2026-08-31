@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -226,6 +227,14 @@ type Client struct {
 	// order topic. Each account bash separate order-id namespace, so this is a
 	// mapping from AccountID to it's order updates topic.
 	refreshOrderTopicMap map[string]*topic.Topic[int64]
+
+	// portfolioMap holds tax lots for current asset holdings. Each account has
+	// separate portfolio, so this is a mapping from (AccountID, symbol, orderID)
+	// to it's lot detail url.
+	portfolioMap syncmap.Map[string, *syncmap.Map[string, *syncmap.Map[int64, string]]]
+
+	// lotDetailMap is a mapping from position URL to it's last known lots metadata.
+	lotDetailMap syncmap.Map[string, []*positionLot]
 }
 
 // New creates a new E*TRADE client, verifies credentials, and starts background
@@ -282,10 +291,10 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 		go c.goPollPrices(c.lifeCtx)
 
 		for _, a := range creds.Accounts {
-			c.wg.Add(2)
+			c.wg.Add(3)
 			go c.goPollBalances(c.lifeCtx, a.AccountID)
 			go c.goRefreshOrders(c.lifeCtx, a.AccountID)
-			// go c.goTrackPortfolio(c.lifeCtx, a.AccountID)
+			go c.goTrackPortfolio(c.lifeCtx, a.AccountID)
 		}
 
 		if c.opts.DisplayRunner != nil {
@@ -1073,6 +1082,55 @@ func (c *Client) goRefreshOrders(ctx context.Context, accountID string) {
 		}
 	}
 }
+
+func (c *Client) goTrackPortfolio(ctx context.Context, accountID string) {
+	defer c.wg.Done()
+
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("etrade: CAUGHT PANIC in goTrackPortfolio", "panic", r)
+			slog.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
+	for ; ctx.Err() == nil; ctxutil.Sleep(ctx, time.Minute) {
+		lots, err := c.GetPortfolio(ctx, accountID)
+		if err != nil {
+			slog.Error("etrade: could not fetch portfolio for an account (will retry)", "account-id", accountID, "err", err)
+			continue
+		}
+		c.updatePortfolio(lots)
+	}
+}
+
+func (c *Client) updatePortfolio(lots []*positionLot) {
+	for _, v := range lots {
+		if v.OrderNo == 0 {
+			continue
+		}
+		symbolMap, ok := c.portfolioMap.Load(v.AccountID)
+		if !ok {
+			symbolMap, _ = c.portfolioMap.LoadOrStore(v.AccountID, new(syncmap.Map[string, *syncmap.Map[int64, string]]))
+		}
+		orderDetailURLMap, ok := symbolMap.Load(v.Symbol)
+		if !ok {
+			orderDetailURLMap, _ = symbolMap.LoadOrStore(v.Symbol, new(syncmap.Map[int64, string]))
+		}
+		lotDetailURL, ok := orderDetailURLMap.Load(v.OrderNo)
+		if ok && lotDetailURL != v.LotsDetails {
+			slog.Error("etrade: position lot id for old order in portfolio has changed", "account-id", v.AccountID, "symbol", v.Symbol, "order-id", v.OrderNo, "old-lot-details", lotDetailURL, "new-lot-details", v.LotsDetails)
+			// FIXME: Should we return ErrNeedsAck ???
+		}
+		orderDetailURLMap.Store(v.OrderNo, v.LotsDetails)
+		vs, ok := c.lotDetailMap.Load(v.LotsDetails)
+		if ok {
+			vs = slices.DeleteFunc(vs, func(a *positionLot) bool { return a.LotsDetails == v.LotsDetails })
+		}
+		c.lotDetailMap.Store(v.LotsDetails, append(vs, v)) // FIXME: Is this thread-safe?
+	}
+}
+
 func (c *Client) goLogin(ctx context.Context) {
 	defer c.wg.Done()
 
