@@ -15,6 +15,8 @@ type LimiterStateV2 struct {
 	ClientIDOffset   uint64
 	TradePoint       Point
 	ServerIDOrderMap map[string]*Order
+
+	TaxLots []TaxLotID
 }
 
 func (v *LimiterState) Upgrade() {

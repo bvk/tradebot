@@ -3,6 +3,8 @@
 package gobs
 
 import (
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -10,6 +12,34 @@ import (
 
 type RemoteTime struct {
 	time.Time
+}
+
+type TaxLotID string
+
+const (
+	ETradeTaxLotIDPrefix = "https://api.etrade.com/v1/accounts/"
+)
+
+func (v TaxLotID) Equal(other TaxLotID) bool {
+	if v == other {
+		return true
+	}
+	if strings.HasPrefix(string(v), ETradeTaxLotIDPrefix) &&
+		strings.HasPrefix(string(other), ETradeTaxLotIDPrefix) {
+		a, err1 := url.Parse(string(v))
+		b, err2 := url.Parse(string(other))
+		if err1 == nil && err2 == nil {
+			aq, bq := a.Query(), b.Query()
+			if aq != nil && bq != nil {
+				return a.Scheme == b.Scheme &&
+					a.Host == b.Host && a.Path == b.Path &&
+					aq.Get("Account") == bq.Get("Account") &&
+					aq.Get("Symbol") == bq.Get("Symbol") &&
+					aq.Get("OrderNo") == bq.Get("OrderNo")
+			}
+		}
+	}
+	return false
 }
 
 type Order struct {

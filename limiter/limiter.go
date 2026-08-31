@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -61,6 +62,10 @@ type Limiter struct {
 	// orders. It's value is typically less than the total size so that large
 	// orders can be avoided.
 	sizeLimitOpt atomic.Pointer[decimal.Decimal]
+
+	// taxLots holds opaque tax lots related to this limiter. Their usage and
+	// interpretation is completely up to the exchange/product implementations.
+	taxLots []gobs.TaxLotID
 }
 
 var _ trader.Trader = &Limiter{}
@@ -123,6 +128,23 @@ func (v *Limiter) IsBuy() bool {
 
 func (v *Limiter) IsSell() bool {
 	return v.point.Side() == "SELL"
+}
+
+func (v *Limiter) ServerOrderIDs() []string {
+	var ids []string
+	v.orderMap.Range(func(id string, _ *exchange.SimpleOrder) bool {
+		ids = append(ids, id)
+		return true
+	})
+	return ids
+}
+
+func (v *Limiter) TaxLotIDs() []gobs.TaxLotID {
+	return slices.Clone(v.taxLots)
+}
+
+func (v *Limiter) SetTaxLotIDs(lots []gobs.TaxLotID) {
+	v.taxLots = slices.Clone(lots)
 }
 
 func (v *Limiter) dupOrderMap() map[string]*exchange.SimpleOrder {
@@ -321,6 +343,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 				Cancel: v.point.Cancel,
 			},
 			ServerIDOrderMap: make(map[string]*gobs.Order),
+			TaxLots:          v.taxLots,
 		},
 	}
 	for k, v := range v.dupOrderMap() {
@@ -393,6 +416,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 			Price:  gv.V2.TradePoint.Price,
 			Cancel: gv.V2.TradePoint.Cancel,
 		},
+		taxLots: gv.V2.TaxLots,
 	}
 	for kk, vv := range gv.V2.ServerIDOrderMap {
 		cuuid, err := uuid.Parse(vv.ClientOrderID)

@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os/exec"
+	"time"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/google/uuid"
@@ -17,6 +19,14 @@ var (
 	ErrNoFund   = errors.New("insufficient fund")
 	ErrNeedsAck = errors.New("needs user acknowledgment")
 )
+
+type Messenger interface {
+	SendMessage(ctx context.Context, at time.Time, fmtstr string, args ...any)
+}
+
+type DisplayRunner interface {
+	RunWithDisplay(cmd *exec.Cmd) error
+}
 
 type Order interface {
 	ServerID() string
@@ -94,4 +104,12 @@ type Exchange interface {
 	GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error)
 
 	GetOrder(ctx context.Context, productID string, serverID string) (OrderDetail, error)
+}
+
+type TaxLotResolver interface {
+	ResolveTaxLots(ctx context.Context, serverIDs []string) ([]gobs.TaxLotID, decimal.Decimal, error)
+}
+
+type TaxLotSeller interface {
+	LimitSellTaxLots(ctx context.Context, clientID uuid.UUID, size, price decimal.Decimal, lots []gobs.TaxLotID) (Order, error)
 }
