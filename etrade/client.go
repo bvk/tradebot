@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -23,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/etrade/autologin"
 	"github.com/bvk/tradebot/etrade/internal"
 	"github.com/bvk/tradebot/syncmap"
@@ -204,12 +207,12 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 	c.creds.Store(creds.Clone())
 	c.nonceCounter.Store(time.Now().UnixNano())
 
-	// if !c.opts.cmdlineToolMode {
-	// 	if err := c.relogin(ctx); err != nil {
-	// 		slog.Error("etrade: could not perform unattended relogin", "err", err)
-	// 		return nil, err
-	// 	}
-	// }
+	if !c.opts.cmdlineToolMode {
+		if err := c.relogin(ctx); err != nil {
+			slog.Error("etrade: could not perform unattended relogin", "err", err)
+			return nil, err
+		}
+	}
 
 	for _, a := range creds.Accounts {
 		c.balancesTopicMap[a.AccountID] = topic.New[*internal.Balance]()
@@ -238,10 +241,10 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 			// go c.goTrackPortfolio(c.lifeCtx, a.AccountID)
 		}
 
-		// if c.opts.DisplayRunner != nil {
-		// 	c.wg.Add(1)
-		// 	go c.goLogin(c.lifeCtx)
-		// }
+		if c.opts.DisplayRunner != nil {
+			c.wg.Add(1)
+			go c.goLogin(c.lifeCtx)
+		}
 	}
 
 	return c, nil
@@ -415,11 +418,11 @@ func (c *Client) handleHTTPError(ctx context.Context, resp *http.Response, apiPa
 		slog.Error("etrade: resource not found", "path", apiPath, "body", string(body))
 		return false, os.ErrNotExist
 	case internal.StatusUnauthorized:
-		// if err := c.relogin(ctx); err != nil {
-		// 	slog.Error("etrade: received unauthorized response and relogin has failed as well", "err", err)
-		// } else {
-		// 	return true, nil
-		// }
+		if err := c.relogin(ctx); err != nil {
+			slog.Error("etrade: received unauthorized response and relogin has failed as well", "err", err)
+		} else {
+			return true, nil
+		}
 		slog.Error("etrade: OAuth token expired or invalid; re-run 'setup etrade' to reauthorize", "path", apiPath)
 		return false, fmt.Errorf("etrade: unauthorized: %w", os.ErrPermission)
 	case internal.StatusTooManyRequests:
@@ -974,4 +977,66 @@ func (c *Client) goRefreshOrders(ctx context.Context, accountID string) {
 			trackingOrderMap = newOrderMap
 		}
 	}
+}
+func (c *Client) goLogin(ctx context.Context) {
+	defer c.wg.Done()
+
+	failed := false
+	for ctxutil.Sleep(ctx, time.Hour); ctx.Err() == nil; ctxutil.Sleep(ctx, time.Hour) {
+		if err := c.relogin(ctx); err != nil {
+			slog.Error("etrade: could not complete periodic login (will retry)", "err", err)
+			if c.opts.Messenger != nil {
+				failed = true
+				c.opts.Messenger.SendMessage(ctx, time.Now(), "E*TRADE client has failed to authenticate automatically: %v", err)
+			}
+			continue
+		}
+		if failed {
+			failed = false
+			c.opts.Messenger.SendMessage(ctx, time.Now(), "E*TRADE client has authenticated successfully")
+		}
+	}
+}
+
+func (c *Client) relogin(ctx context.Context) error {
+	c.reloginMutex.Lock()
+	defer c.reloginMutex.Unlock()
+
+	if c.opts.DisplayRunner == nil {
+		return fmt.Errorf("etrade: a X11 display server is required for automated logins")
+	}
+
+	var environ []string
+	environ = append(environ, "HOME="+os.Getenv("HOME"))
+	environ = append(environ, "PATH="+os.Getenv("PATH"))
+
+	credsPath := filepath.Join(c.opts.DataDir, "etrade", "creds.json")
+	binPath := filepath.Join(c.opts.DataDir, "tradebot")
+	cmdline := []string{
+		binPath, "setup", "etrade",
+		fmt.Sprintf("--data-dir=%s", c.opts.DataDir),
+		fmt.Sprintf("--extra-output-path=%s", credsPath),
+		"--unattended=true",
+	}
+
+	slog.Info("starting etrade autologin", "environ", environ)
+	cmd := exec.CommandContext(ctx, cmdline[0], cmdline[1:]...)
+	cmd.Env = environ
+	if err := c.opts.DisplayRunner.RunWithDisplay(cmd); err != nil {
+		slog.Error("etrade: could not perform unattended login", "err", err)
+		return err
+	}
+	data, err := os.ReadFile(credsPath)
+	if err != nil {
+		slog.Error("etrade: could not read updated credentials", "err", err)
+		return err
+	}
+	creds := new(Credentials)
+	if err := json.Unmarshal(data, creds); err != nil {
+		slog.Error("etrade: could not unmarshal updated credentials file", "file", credsPath, "err", err)
+		return err
+	}
+	c.creds.Store(creds)
+	slog.Info("unattended login to E*TRADE is successful")
+	return nil
 }
