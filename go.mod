@@ -5,6 +5,7 @@ go 1.24.0
 toolchain go1.24.11
 
 require (
+	github.com/KarpelesLab/vncpasswd v1.0.1
 	github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55
 	github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d
 	github.com/bvkgo/topic v1.0.1-0.20231225172130-d8945de4fa3c

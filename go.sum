@@ -1,5 +1,7 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
+github.com/KarpelesLab/vncpasswd v1.0.1 h1:w0dhjSXfo59bm9/LLKhO7hV+GUGEn4WjAZTLXTNSciU=
+github.com/KarpelesLab/vncpasswd v1.0.1/go.mod h1:gh6AFDSUqRZwcdjAm/p8V81P9ePtOI65ajs7KT7D+Fc=
 github.com/beevik/ntp v1.5.0 h1:y+uj/JjNwlY2JahivxYvtmv4ehfi3h74fAuABB9ZSM4=
 github.com/beevik/ntp v1.5.0/go.mod h1:mJEhBrwT76w9D+IfOEGvuzyuudiW9E52U2BaTrMOYow=
 github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55 h1:tLDJCRB7Bqf98/0vTiCt0L7o/StfsjfIxgzVPKp8OCg=
