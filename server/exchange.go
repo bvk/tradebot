@@ -72,14 +72,7 @@ func (s *Server) doExchangeUpdateProduct(ctx context.Context, req *api.ExchangeU
 		return nil, fmt.Errorf("quote must be one of %#v", usds)
 	}
 
-	// Exchanges that support multiple accounts (like E*TRADE) use
-	// <exchange>/<account> naming format.
-	exchangeName := req.ExchangeName
-	if strings.ContainsRune(req.ExchangeName, '/') {
-		exchangeName, _, _ = strings.Cut(exchangeName, "/")
-	}
-
-	exchangeName = strings.ToLower(exchangeName)
+	exchangeName := strings.ToLower(req.ExchangeName)
 	ex, ok := s.exchangeMap[exchangeName]
 	if !ok {
 		return nil, fmt.Errorf("no exchange with name %q: %w", req.ExchangeName, os.ErrNotExist)
