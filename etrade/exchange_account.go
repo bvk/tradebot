@@ -39,7 +39,7 @@ func (a *ExchangeAccount) CanDedupOnClientUUID() bool {
 }
 
 func (ea *ExchangeAccount) GetSpotProduct(ctx context.Context, base, quote string) (*gobs.Product, error) {
-	return ea.GetSpotProduct(ctx, base, quote)
+	return ea.exchange.getSpotProduct(ctx, base, quote)
 }
 
 func (a *ExchangeAccount) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
