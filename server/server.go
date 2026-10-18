@@ -101,7 +101,7 @@ type Server struct {
 
 	secretsFilePath string
 
-	exchangeMap map[string]exchange.Exchange
+	accountMap map[string]exchange.Account
 
 	handlerMap map[string]http.Handler
 
@@ -199,8 +199,8 @@ func (s *Server) Close() error {
 			p.Close()
 		}
 	}
-	for _, exch := range s.exchangeMap {
-		exch.Close()
+	for _, a := range s.accountMap {
+		a.Close()
 	}
 	return nil
 }
@@ -214,7 +214,7 @@ func (s *Server) HandlerMap() map[string]http.Handler {
 }
 
 func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
-	exchange := s.exchangeMap[product.ExchangeName()]
+	exchange := s.accountMap[product.ExchangeName()]
 	return &trader.Runtime{
 		Exchange:  exchange,
 		Database:  s.db,
@@ -267,11 +267,11 @@ func (s *Server) Start(ctx context.Context) (status error) {
 	}
 
 	// Create exchange objects.
-	if len(s.exchangeMap) == 0 {
-		exchangeMap := make(map[string]exchange.Exchange)
+	if len(s.accountMap) == 0 {
+		accountMap := make(map[string]exchange.Account)
 		defer func() {
 			if status != nil {
-				for _, exch := range exchangeMap {
+				for _, exch := range accountMap {
 					exch.Close()
 				}
 			}
@@ -288,7 +288,7 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if err != nil {
 				return fmt.Errorf("could not create coinbase client: %w", err)
 			}
-			exchangeMap["coinbase"] = client
+			accountMap["coinbase"] = client
 		}
 
 		if secrets.CoinEx != nil {
@@ -299,7 +299,7 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if err != nil {
 				return fmt.Errorf("could not create coinex exchange: %w", err)
 			}
-			exchangeMap["coinex"] = exchange
+			accountMap["coinex"] = exchange
 		}
 
 		if secrets.ETrade != nil {
@@ -314,30 +314,30 @@ func (s *Server) Start(ctx context.Context) (status error) {
 				return fmt.Errorf("could not create etrade exchange: %w", err)
 			}
 			for _, a := range exch.Accounts() {
-				exchangeMap[a.ExchangeName()] = a
+				accountMap[a.ExchangeName()] = a
 				log.Printf("added etrade account exchange %s", a.ExchangeName())
 			}
 		}
 
-		if len(exchangeMap) == 0 {
+		if len(accountMap) == 0 {
 			return fmt.Errorf("no credentials found for any supported exchange: %w", ErrUnconfigured)
 		}
 
 		// Fix any missing final-timestamp for filled orders.
-		for _, ex := range exchangeMap {
-			limiter.RunBackgroundTasks(&s.cg, s.db, ex)
+		for _, a := range accountMap {
+			limiter.RunBackgroundTasks(&s.cg, s.db, a)
 		}
 
 		// Configure background watchers for alerts.
-		for _, exchange := range exchangeMap {
-			exchange := exchange
+		for _, a := range accountMap {
+			a := a
 			s.cg.Go(func(ctx context.Context) {
-				if err := s.watchForLowBalance(ctx, exchange); err != nil {
-					slog.Error("could not alert on low asset balance (check stopped)", "exchange", exchange.ExchangeName(), "err", err)
+				if err := s.watchForLowBalance(ctx, a); err != nil {
+					slog.Error("could not alert on low asset balance (check stopped)", "exchange", a.ExchangeName(), "err", err)
 				}
 			})
 		}
-		s.exchangeMap = exchangeMap
+		s.accountMap = accountMap
 	}
 
 	if err := s.loadProducts(ctx); err != nil {
@@ -467,7 +467,7 @@ func (s *Server) getProduct(ctx context.Context, exchangeName, productID string)
 }
 
 func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
-	exch, ok := s.exchangeMap[exchangeName]
+	account, ok := s.accountMap[exchangeName]
 	if !ok {
 		return nil, fmt.Errorf("exchange with name %q not found: %w", exchangeName, os.ErrNotExist)
 	}
@@ -494,7 +494,7 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 		return nil, fmt.Errorf("product %q is not enabled on exchange %q", productID, exchangeName)
 	}
 
-	product, err := exch.OpenSpotProduct(s.cg.Context(), productID)
+	product, err := account.OpenSpotProduct(s.cg.Context(), productID)
 	if err != nil {
 		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
 	}

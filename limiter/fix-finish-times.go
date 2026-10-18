@@ -21,7 +21,7 @@ var activeLimiters syncmap.Map[*Limiter, bool]
 
 // fixFinishTimes is a background job that updates FinishTime field in order
 // metadata stored by active and completed limiters.
-func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Exchange) {
+func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Account) {
 	// Check if a table scan is required.
 	fixed := true
 	check := func(ctx context.Context, r kv.Reader, key string, value *gobs.LimiterState) error {
@@ -103,7 +103,7 @@ func asyncUpdateFinishTime(v *Limiter) {
 	activeLimiters.Store(v, true)
 }
 
-func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) error {
+func updateActiveLimiter(ctx context.Context, ex exchange.Account, v *Limiter) error {
 	var status error
 	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		if order.FilledSize.IsZero() {
@@ -128,7 +128,7 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Exchange, v *Limiter) 
 	return status
 }
 
-func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchange, key string, value *gobs.LimiterState) error {
+func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account, key string, value *gobs.LimiterState) error {
 	if value == nil {
 		v, err := kvutil.Get[gobs.LimiterState](ctx, rw, key)
 		if err != nil {
@@ -176,7 +176,7 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchang
 	return nil
 }
 
-func fixFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Exchange, begin, end string, max int) (string, error) {
+func fixFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account, begin, end string, max int) (string, error) {
 	var ErrSTOP = errors.New("STOP")
 
 	nkeys := 0

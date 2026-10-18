@@ -56,7 +56,7 @@ type Exchange struct {
 	pendingMap syncmap.Map[uuid.UUID, chan struct{}]
 }
 
-var _ exchange.Exchange = &Exchange{}
+var _ exchange.Account = &Exchange{}
 
 // New creates a client for coinbase exchange.
 func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_ *Exchange, status error) {

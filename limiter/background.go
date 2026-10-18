@@ -10,7 +10,7 @@ import (
 	"github.com/bvkgo/kv"
 )
 
-func RunBackgroundTasks(cg *ctxutil.CloseGroup, db kv.Database, ex exchange.Exchange) {
+func RunBackgroundTasks(cg *ctxutil.CloseGroup, db kv.Database, ex exchange.Account) {
 	cg.Go(func(ctx context.Context) {
 		fixFinishTimes(ctx, db, ex)
 	})

@@ -22,7 +22,7 @@ type ExchangeAccount struct {
 	productMap syncmap.Map[string, *AccountProduct]
 }
 
-var _ exchange.Exchange = &ExchangeAccount{}
+var _ exchange.Account = &ExchangeAccount{}
 
 func (ea *ExchangeAccount) Close() error {
 	return nil // Exchange is never closed.

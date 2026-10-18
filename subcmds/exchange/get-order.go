@@ -24,8 +24,8 @@ type GetOrder struct {
 func (c *GetOrder) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-order", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
-	fset.StringVar(&c.name, "exchange", "coinbase", "name of the exchange")
-	fset.StringVar(&c.product, "product", "", "name of the exchange product")
+	fset.StringVar(&c.name, "account", "coinbase", "name of the account")
+	fset.StringVar(&c.product, "product", "", "name of the product")
 	return "get-order", fset, cli.CmdFunc(c.run)
 }
 
@@ -39,9 +39,9 @@ func (c *GetOrder) run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.ExchangeGetOrderRequest{
-		ExchangeName: c.name,
-		ProductID:    c.product,
-		OrderID:      args[0],
+		AccountName: c.name,
+		ProductID:   c.product,
+		OrderID:     args[0],
 	}
 	if err := req.Check(); err != nil {
 		return err

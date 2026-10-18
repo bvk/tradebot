@@ -80,7 +80,7 @@ type Product interface {
 	Cancel(ctx context.Context, serverID string) error
 }
 
-type Exchange interface {
+type Account interface {
 	io.Closer
 
 	ExchangeName() string

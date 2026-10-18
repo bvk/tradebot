@@ -11,7 +11,7 @@ import (
 const ExchangeGetProductPath = "/exchange/get-product"
 
 type ExchangeGetProductRequest struct {
-	ExchangeName string
+	AccountName string
 
 	ProductType string // SPOT, MARGIN, etc. Only SPOT is supported.
 
@@ -26,8 +26,8 @@ type ExchangeGetProductResponse struct {
 }
 
 func (v *ExchangeGetProductRequest) Check() error {
-	if v.ExchangeName == "" {
-		return fmt.Errorf("exchange name cannot be empty")
+	if v.AccountName == "" {
+		return fmt.Errorf("account name cannot be empty")
 	}
 	if v.ProductType != "SPOT" {
 		return fmt.Errorf("only spot product types are supported")

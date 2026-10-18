@@ -18,7 +18,7 @@ import (
 	"github.com/visvasity/topic"
 )
 
-func (s *Server) watchForLowBalance(ctx context.Context, ex exchange.Exchange) error {
+func (s *Server) watchForLowBalance(ctx context.Context, ex exchange.Account) error {
 	updates, err := ex.GetBalanceUpdates()
 	if err != nil {
 		return err

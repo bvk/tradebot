@@ -11,7 +11,7 @@ import (
 const ExchangeGetOrderPath = "/exchange/get-order"
 
 type ExchangeGetOrderRequest struct {
-	ExchangeName string
+	AccountName string
 
 	ProductID string
 
@@ -25,8 +25,8 @@ type ExchangeGetOrderResponse struct {
 }
 
 func (v *ExchangeGetOrderRequest) Check() error {
-	if v.ExchangeName == "" {
-		return fmt.Errorf("exchange name cannot be empty")
+	if v.AccountName == "" {
+		return fmt.Errorf("account name cannot be empty")
 	}
 	if v.ProductID == "" {
 		return fmt.Errorf("product id cannot be empty")

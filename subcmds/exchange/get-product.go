@@ -16,15 +16,15 @@ import (
 type GetProduct struct {
 	cmdutil.ClientFlags
 
-	exchangeName string
-	productType  string
+	accountName string
+	productType string
 }
 
 func (c *GetProduct) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("get-product", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
-	fset.StringVar(&c.exchangeName, "exchange", "", "name of the exchange")
-	fset.StringVar(&c.productType, "product-type", "SPOT", "type of the exchange product")
+	fset.StringVar(&c.accountName, "account", "", "name of the account")
+	fset.StringVar(&c.productType, "product-type", "SPOT", "type of the product")
 	return "get-product", fset, cli.CmdFunc(c.run)
 }
 
@@ -34,10 +34,10 @@ func (c *GetProduct) run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.ExchangeGetProductRequest{
-		ExchangeName: c.exchangeName,
-		ProductType:  c.productType,
-		Base:         args[0],
-		Quote:        args[1],
+		AccountName: c.accountName,
+		ProductType: c.productType,
+		Base:        args[0],
+		Quote:       args[1],
 	}
 	if err := req.Check(); err != nil {
 		return err

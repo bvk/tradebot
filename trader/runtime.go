@@ -15,7 +15,7 @@ type Messenger interface {
 }
 
 type Runtime struct {
-	Exchange  exchange.Exchange
+	Exchange  exchange.Account
 	Database  kv.Database
 	Product   exchange.Product
 	Messenger Messenger

@@ -13,7 +13,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Exchange implements exchange.Exchange for E*TRADE equity markets.
+// Exchange implements exchange.Account for E*TRADE equity markets.
 type Exchange struct {
 	db     kv.Database
 	client *Client

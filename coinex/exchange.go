@@ -25,7 +25,7 @@ type Exchange struct {
 	productMap syncmap.Map[string, *Product]
 }
 
-var _ exchange.Exchange = &Exchange{}
+var _ exchange.Account = &Exchange{}
 
 func NewExchange(ctx context.Context, key, secret string, opts *Options) (_ *Exchange, status error) {
 	client, err := New(ctx, key, secret, opts)
