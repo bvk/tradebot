@@ -1335,6 +1335,7 @@ func (c *Client) ResolveOrderLots(ctx context.Context, accountID, symbol string,
 				for _, v := range details {
 					if v.OrderNo == oid {
 						lots = append(lots, v)
+						found = true
 					}
 				}
 				if !found {
@@ -1377,9 +1378,12 @@ func (c *Client) ResolveOrderLots(ctx context.Context, accountID, symbol string,
 				for _, v := range details {
 					if v.OrderNo == oid {
 						lots = append(lots, v)
+						found = true
 					}
 				}
 				if !found {
+					slog.Error("could not find matching tax lot detail for an order after a full refresh", "account-id", accountID, "symbol", symbol, "order", oid, "lots-details", lotDetailURL)
+					return nil, fmt.Errorf("could not find matching tax lot detail for order %d", oid)
 				}
 			}
 		}
