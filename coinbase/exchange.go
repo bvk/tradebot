@@ -57,6 +57,7 @@ type Exchange struct {
 }
 
 var _ exchange.Account = &Exchange{}
+var _ exchange.Exchange = &Exchange{}
 
 // New creates a client for coinbase exchange.
 func New(ctx context.Context, db kv.Database, kid, pem string, opts *Options) (_ *Exchange, status error) {
@@ -154,6 +155,11 @@ func (ex *Exchange) Close() error {
 
 func (ex *Exchange) ExchangeName() string {
 	return "coinbase"
+}
+
+// Accounts returns the exchange itself as its single trading account.
+func (ex *Exchange) Accounts(ctx context.Context) ([]exchange.Account, error) {
+	return []exchange.Account{ex}, nil
 }
 
 func (ex *Exchange) CanDedupOnClientUUID() bool {

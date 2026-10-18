@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/bvkgo/kv"
 	"github.com/shopspring/decimal"
 )
+
+var _ exchange.Exchange = &Exchange{}
 
 // Exchange implements exchange.Account for E*TRADE equity markets.
 type Exchange struct {
@@ -48,12 +51,12 @@ func (v *Exchange) Close() error {
 	return nil
 }
 
-func (v *Exchange) Accounts() []*ExchangeAccount {
-	var accounts []*ExchangeAccount
+func (v *Exchange) Accounts(ctx context.Context) ([]exchange.Account, error) {
+	var accounts []exchange.Account
 	for _, a := range v.client.creds.Load().Accounts {
 		accounts = append(accounts, &ExchangeAccount{exchange: v, account: a})
 	}
-	return accounts
+	return accounts, nil
 }
 
 // openSpotProduct opens (or returns a cached) Product for the given equity

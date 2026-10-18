@@ -80,6 +80,10 @@ type Product interface {
 	Cancel(ctx context.Context, serverID string) error
 }
 
+type Exchange interface {
+	Accounts(context.Context) ([]Account, error)
+}
+
 type Account interface {
 	io.Closer
 
