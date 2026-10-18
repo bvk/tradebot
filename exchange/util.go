@@ -4,11 +4,17 @@ package exchange
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/shopspring/decimal"
 )
+
+func FromAccountName(name string) string {
+	name, _, _ = strings.Cut(name, "/")
+	return name
+}
 
 func Equal(a, b *SimpleOrder) bool {
 	return a.ServerOrderID == b.ServerOrderID &&

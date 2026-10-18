@@ -12,6 +12,7 @@ type Summary struct {
 	BeginAt time.Time
 	EndAt   time.Time
 
+	Account   string
 	Exchange  string
 	ProductID string
 

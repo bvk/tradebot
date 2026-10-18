@@ -51,9 +51,13 @@ func (v *Exchange) Close() error {
 	return nil
 }
 
+func (v *Exchange) ExchangeName() string {
+	return "etrade"
+}
+
 func (v *Exchange) Accounts(ctx context.Context) ([]exchange.Account, error) {
 	var accounts []exchange.Account
-	for _, a := range v.client.creds.Load().Accounts {
+	for _, a := range v.client.creds.Load().ActiveAccounts() {
 		accounts = append(accounts, &ExchangeAccount{exchange: v, account: a})
 	}
 	return accounts, nil

@@ -11,6 +11,7 @@ type LooperStateV2 struct {
 
 	ProductID    string
 	ExchangeName string
+	AccountName  string
 	LimiterIDs   []string
 	TradePair    Pair
 
@@ -20,5 +21,8 @@ type LooperStateV2 struct {
 func (v *LooperState) Upgrade() {
 	if len(v.V2.ExchangeName) == 0 {
 		v.V2.ExchangeName = "coinbase"
+	}
+	if len(v.V2.AccountName) == 0 {
+		v.V2.AccountName = v.V2.ExchangeName
 	}
 }

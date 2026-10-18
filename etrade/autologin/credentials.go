@@ -4,8 +4,16 @@ package autologin
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 )
+
+// accountNameRE is the allowed syntax for an E*TRADE account name. The name is
+// used as an identifier ("etrade/<AccountName>") and as a map key on the
+// server, so it must be a non-empty run of letters, digits, '_' or '-' — no
+// spaces, '/', or other punctuation.
+var accountNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // LoginCredentials holds the raw E*TRADE website login (username/password),
 // as distinct from the OAuth consumer key/secret or access tokens stored in
@@ -63,6 +71,29 @@ func (c *Credentials) Check() error {
 	if c.AccessTokenSecret == "" {
 		return fmt.Errorf("etrade: access_token_secret is required")
 	}
+
+	// Validate account names. The account name is used as an identifier
+	// ("etrade/<AccountName>") and as a (lowercased) map key on the server, so
+	// every active account must have a unique, well-formed name. An empty name,
+	// a name containing '/', or two accounts whose names collide
+	// case-insensitively (e.g. after one is renamed) would make two distinct
+	// brokerage accounts resolve to the same identifier. Closed/inactive
+	// accounts are not validated.
+	seen := make(map[string]string) // lower(AccountName) -> AccountID
+	for i := range c.Accounts {
+		a := &c.Accounts[i]
+		if a.IsClosed() {
+			continue
+		}
+		if !accountNameRE.MatchString(a.AccountName) {
+			return fmt.Errorf("etrade: active account %s has an invalid account name %q (must match %s)", a.AccountID, a.AccountName, accountNameRE.String())
+		}
+		key := strings.ToLower(a.AccountName)
+		if other, ok := seen[key]; ok {
+			return fmt.Errorf("etrade: active accounts %s and %s have conflicting account name %q", other, a.AccountID, a.AccountName)
+		}
+		seen[key] = a.AccountID
+	}
 	return nil
 }
 
@@ -92,6 +123,19 @@ func (c *Credentials) Clone() *Credentials {
 		BrowserPath:       c.BrowserPath,
 	}
 	return n
+}
+
+// ActiveAccounts returns the subset of accounts that are active (not closed).
+// Closed/inactive accounts must not be registered, verified, polled or traded.
+func (c *Credentials) ActiveAccounts() []Account {
+	var active []Account
+	for _, a := range c.Accounts {
+		if a.IsClosed() {
+			continue
+		}
+		active = append(active, a)
+	}
+	return active
 }
 
 func (c *Credentials) GetAccountIDKey(accountID string) (string, error) {

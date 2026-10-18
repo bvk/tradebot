@@ -21,7 +21,7 @@ var activeLimiters syncmap.Map[*Limiter, bool]
 
 // fixFinishTimes is a background job that updates FinishTime field in order
 // metadata stored by active and completed limiters.
-func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Account) {
+func fixFinishTimes(ctx context.Context, db kv.Database, account exchange.Account) {
 	// Check if a table scan is required.
 	fixed := true
 	check := func(ctx context.Context, r kv.Reader, key string, value *gobs.LimiterState) error {
@@ -49,7 +49,7 @@ func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Account) {
 
 	next := begin
 	fix := func(ctx context.Context, rw kv.ReadWriter) error {
-		nextKey, err := fixFinishTime(ctx, rw, ex, next, end, 100)
+		nextKey, err := fixFinishTime(ctx, rw, account, next, end, 100)
 		if err != nil {
 			log.Printf("could not fix finish time in orders (will retry): %v", err)
 			return err
@@ -70,7 +70,7 @@ func fixFinishTimes(ctx context.Context, db kv.Database, ex exchange.Account) {
 			activeLimitersCh = time.After(5 * time.Second)
 
 			activeLimiters.Range(func(l *Limiter, _ bool) bool {
-				if err := updateActiveLimiter(ctx, ex, l); err != nil {
+				if err := updateActiveLimiter(ctx, account, l); err != nil {
 					log.Printf("%s: could not update finish time (will retry): %v", l.uid, err)
 				} else {
 					activeLimiters.Delete(l)
@@ -103,7 +103,7 @@ func asyncUpdateFinishTime(v *Limiter) {
 	activeLimiters.Store(v, true)
 }
 
-func updateActiveLimiter(ctx context.Context, ex exchange.Account, v *Limiter) error {
+func updateActiveLimiter(ctx context.Context, account exchange.Account, v *Limiter) error {
 	var status error
 	v.orderMap.Range(func(id string, order *exchange.SimpleOrder) bool {
 		if order.FilledSize.IsZero() {
@@ -115,7 +115,7 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Account, v *Limiter) e
 		if !order.FinishTime.Time.IsZero() {
 			return true
 		}
-		v, err := ex.GetOrder(ctx, v.productID, id)
+		v, err := account.GetOrder(ctx, v.productID, id)
 		if err != nil {
 			log.Printf("could not fetch order for finish-time (will retry): %v", err)
 			status = err
@@ -128,7 +128,7 @@ func updateActiveLimiter(ctx context.Context, ex exchange.Account, v *Limiter) e
 	return status
 }
 
-func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account, key string, value *gobs.LimiterState) error {
+func updateFinishTime(ctx context.Context, rw kv.ReadWriter, account exchange.Account, key string, value *gobs.LimiterState) error {
 	if value == nil {
 		v, err := kvutil.Get[gobs.LimiterState](ctx, rw, key)
 		if err != nil {
@@ -138,11 +138,18 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account
 	}
 
 	modified := false
-	if value.V2.ExchangeName == "" {
+	if len(value.V2.ExchangeName) == 0 {
 		value.V2.ExchangeName = "coinbase"
 		modified = true
 	}
-	if !strings.EqualFold(value.V2.ExchangeName, ex.ExchangeName()) {
+	if !strings.EqualFold(value.V2.ExchangeName, account.ExchangeName()) {
+		return nil
+	}
+	if len(value.V2.AccountName) == 0 {
+		value.V2.AccountName = value.V2.ExchangeName
+		modified = true
+	}
+	if !strings.EqualFold(value.V2.AccountName, account.AccountName()) {
 		return nil
 	}
 
@@ -156,7 +163,7 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account
 		if !order.FinishTime.Time.IsZero() {
 			continue
 		}
-		v, err := ex.GetOrder(ctx, value.V2.ProductID, id)
+		v, err := account.GetOrder(ctx, value.V2.ProductID, id)
 		if err != nil {
 			return err
 		}
@@ -176,7 +183,7 @@ func updateFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account
 	return nil
 }
 
-func fixFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account, begin, end string, max int) (string, error) {
+func fixFinishTime(ctx context.Context, rw kv.ReadWriter, account exchange.Account, begin, end string, max int) (string, error) {
 	var ErrSTOP = errors.New("STOP")
 
 	nkeys := 0
@@ -187,7 +194,7 @@ func fixFinishTime(ctx context.Context, rw kv.ReadWriter, ex exchange.Account, b
 			return ErrSTOP
 		}
 
-		if err := updateFinishTime(ctx, rw, ex, key, value); err != nil {
+		if err := updateFinishTime(ctx, rw, account, key, value); err != nil {
 			return err
 		}
 

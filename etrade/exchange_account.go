@@ -28,8 +28,12 @@ func (ea *ExchangeAccount) Close() error {
 	return nil // Exchange is never closed.
 }
 
+func (ea *ExchangeAccount) AccountName() string {
+	return fmt.Sprintf("etrade/%s", ea.account.AccountName)
+}
+
 func (ea *ExchangeAccount) ExchangeName() string {
-	return fmt.Sprintf("etrade/%s", ea.account.AccountID)
+	return "etrade"
 }
 
 // CanDedupOnClientUUID returns false because E*TRADE does not maintain a
@@ -43,10 +47,10 @@ func (ea *ExchangeAccount) GetSpotProduct(ctx context.Context, base, quote strin
 }
 
 func (a *ExchangeAccount) GetBalanceUpdates() (*topic.Receiver[exchange.BalanceUpdate], error) {
-	balancesTopic, ok := a.exchange.client.balancesTopicMap[a.account.AccountID]
+	balancesTopic, ok := a.exchange.client.balancesTopicMap.Load(a.account.AccountID)
 	if !ok {
 		slog.Error("etrade: could not find balance updates topic for account id", "account-id", a.account.AccountID)
-		return nil, fmt.Errorf("etrade: invalid account id %d", a.account.AccountID)
+		return nil, fmt.Errorf("etrade: invalid account id %s", a.account.AccountID)
 	}
 	fn := func(b *internal.Balance) exchange.BalanceUpdate {
 		if b.AccountID != a.account.AccountID {

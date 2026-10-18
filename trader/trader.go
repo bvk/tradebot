@@ -14,6 +14,8 @@ import (
 type Trader interface {
 	UID() string
 	ProductID() string
+
+	AccountName() string
 	ExchangeName() string
 
 	Save(context.Context, kv.ReadWriter) error

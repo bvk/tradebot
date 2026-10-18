@@ -29,21 +29,21 @@ func (s *Server) makeJobFunc(v trader.Trader) job.Func {
 	return func(ctx context.Context) error {
 		uid := v.UID()
 
-		ename, pid := v.ExchangeName(), v.ProductID()
+		aname, pid := v.AccountName(), v.ProductID()
 
 		var err error
 		var product exchange.Product
 		for i := range 10 /* retry 10 times */ {
-			product, err = s.getProduct(ctx, ename, pid)
+			product, err = s.getProduct(ctx, aname, pid)
 			if err != nil {
-				slog.Error("could not load product for the job (will retry)", "retry", i, "job", uid, "product", pid, "exchange", ename, "err", err)
+				slog.Error("could not load product for the job (will retry)", "retry", i, "job", uid, "product", pid, "account", aname, "err", err)
 				time.Sleep(time.Second)
 				continue
 			}
 			break
 		}
 		if product == nil {
-			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", uid, pid, ename, err)
+			return fmt.Errorf("%s: could not load product %q in account %q: %w", uid, pid, aname, err)
 		}
 
 		s.jobMap.Store(uid, v)

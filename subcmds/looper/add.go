@@ -18,8 +18,8 @@ import (
 type Add struct {
 	cmdutil.ClientFlags
 
-	product  string
-	exchange string
+	product string
+	account string
 
 	buySize         float64
 	buyPrice        float64
@@ -36,8 +36,8 @@ func (c *Add) check() error {
 	if len(c.product) == 0 {
 		return fmt.Errorf("product name cannot be empty")
 	}
-	if len(c.exchange) == 0 {
-		return fmt.Errorf("exchange name cannot be empty")
+	if len(c.account) == 0 {
+		return fmt.Errorf("account name cannot be empty")
 	}
 	if c.buySize <= 0 || c.sellSize <= 0 {
 		return fmt.Errorf("buy/sell size cannot be zero or negative")
@@ -69,8 +69,8 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.LoopRequest{
-		ProductID:    c.product,
-		ExchangeName: c.exchange,
+		ProductID:   c.product,
+		AccountName: c.account,
 		Buy: &point.Point{
 			Size:   decimal.NewFromFloat(c.buySize),
 			Price:  decimal.NewFromFloat(c.buyPrice),
@@ -96,7 +96,7 @@ func (c *Add) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset := flag.NewFlagSet("add", flag.ContinueOnError)
 	c.ClientFlags.SetFlags(fset)
 	fset.StringVar(&c.product, "product", "", "product id for the trade")
-	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
+	fset.StringVar(&c.account, "account", "coinbase", "account name for the product")
 	fset.Float64Var(&c.buySize, "buy-size", 0, "buy-size for the trade")
 	fset.Float64Var(&c.buyPrice, "buy-price", 0, "limit buy-price for the trade")
 	fset.Float64Var(&c.buyCancelOffset, "buy-cancel-offset", 0, "buy-cancel price offset for the trade")

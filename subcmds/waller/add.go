@@ -20,9 +20,9 @@ type Add struct {
 
 	dryRun bool
 
-	product  string
-	exchange string
-	name     string
+	product string
+	account string
+	name    string
 
 	spec Spec
 }
@@ -31,8 +31,8 @@ func (c *Add) check() error {
 	if len(c.product) == 0 {
 		return fmt.Errorf("product name cannot be empty")
 	}
-	if len(c.exchange) == 0 {
-		return fmt.Errorf("exchange name cannot be empty")
+	if len(c.account) == 0 {
+		return fmt.Errorf("account name cannot be empty")
 	}
 	if err := c.spec.Check(); err != nil {
 		return err
@@ -80,9 +80,9 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	}
 
 	req1 := &api.WallRequest{
-		ProductID:    c.product,
-		ExchangeName: c.exchange,
-		Pairs:        pairs,
+		ProductID:   c.product,
+		AccountName: c.account,
+		Pairs:       pairs,
 	}
 	resp1, err := cmdutil.Post[api.WallResponse](ctx, &c.ClientFlags, api.WallPath, req1)
 	if err != nil {
@@ -109,7 +109,7 @@ func (c *Add) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.BoolVar(&c.dryRun, "dry-run", false, "when true only prints the trade points")
 	fset.StringVar(&c.name, "name", "", "a name for the trader job")
 	fset.StringVar(&c.product, "product", "", "product id for the trader")
-	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
+	fset.StringVar(&c.account, "account", "coinbase", "account name for the product")
 	return "add", fset, cli.CmdFunc(c.Run)
 }
 

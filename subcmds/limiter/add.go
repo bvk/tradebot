@@ -18,8 +18,8 @@ import (
 type Add struct {
 	cmdutil.ClientFlags
 
-	product  string
-	exchange string
+	product string
+	account string
 
 	side         string
 	size         float64
@@ -31,8 +31,8 @@ func (c *Add) check() error {
 	if len(c.product) == 0 {
 		return fmt.Errorf("product name cannot be empty")
 	}
-	if len(c.exchange) == 0 {
-		return fmt.Errorf("exchange name cannot be empty")
+	if len(c.account) == 0 {
+		return fmt.Errorf("account name cannot be empty")
 	}
 
 	if c.size <= 0 {
@@ -76,8 +76,8 @@ func (c *Add) Run(ctx context.Context, args []string) error {
 	}
 
 	req := &api.LimitRequest{
-		ProductID:    c.product,
-		ExchangeName: c.exchange,
+		ProductID:   c.product,
+		AccountName: c.account,
 		Point: &point.Point{
 			Size:   decimal.NewFromFloat(c.size),
 			Price:  decimal.NewFromFloat(c.price),
@@ -101,7 +101,7 @@ func (c *Add) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.StringVar(&c.side, "side", "", "must be one of BUY or SELL")
 	fset.Float64Var(&c.cancelOffset, "cancel-offset", 0, "cancel-price offset for the trade")
 	fset.StringVar(&c.product, "product", "", "product id for the trade")
-	fset.StringVar(&c.exchange, "exchange", "coinbase", "exchange name for the product")
+	fset.StringVar(&c.account, "account", "coinbase", "account name for the product")
 	return "add", fset, cli.CmdFunc(c.Run)
 }
 
@@ -115,7 +115,7 @@ func (c *Add) Description() string {
 Command "add" creates a new limit-buy or limit-sell job with an automatic
 cancellation price point. Exchange orders are canceled when the ticker crosses
 the cancel price and recreated when the ticker comes close to the limit
-price. This automatic cancellation unlocks funds from the exchange so that they
+price. This automatic cancellation unlocks funds from the account so that they
 are available for other jobs.
 
 Note that, cancellation price for buy and sell orders will be above and below

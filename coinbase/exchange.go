@@ -153,6 +153,10 @@ func (ex *Exchange) Close() error {
 	return nil
 }
 
+func (ex *Exchange) AccountName() string {
+	return "coinbase"
+}
+
 func (ex *Exchange) ExchangeName() string {
 	return "coinbase"
 }

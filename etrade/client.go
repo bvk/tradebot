@@ -231,15 +231,26 @@ type Client struct {
 
 	// balancesTopicMap holds balancesTopic that publishes account balance
 	// updates polled from the API. Each account has separate balance, so this is
-	// a mapping from AccountID to it's balance.
-	balancesTopicMap map[string]*topic.Topic[*internal.Balance]
+	// a mapping from AccountID to it's balance. Written at startup and whenever a
+	// credential reload adds a new account, so it is a thread-safe map.
+	balancesTopicMap syncmap.Map[string, *topic.Topic[*internal.Balance]]
 
 	// refreshOrderTopicMap holds orderTopic that accepts order IDs that need to
 	// be tracked until completion. goRefreshOrders reads from this topic, polls
 	// GetOrder until the order is done, and publishes each update to the symbol
 	// order topic. Each account bash separate order-id namespace, so this is a
 	// mapping from AccountID to it's order updates topic.
-	refreshOrderTopicMap map[string]*topic.Topic[int64]
+	refreshOrderTopicMap syncmap.Map[string, *topic.Topic[int64]]
+
+	// accountMu guards accountSet and serializes per-account initialization.
+	accountMu sync.Mutex
+	// accountSet holds the AccountIDs that have been initialized (topics created
+	// and, in daemon mode, polling goroutines spawned). Used to make
+	// ensureNewAccounts idempotent across credential reloads.
+	accountSet map[string]bool
+	// initialized becomes true once New has finished its initial setup, so that
+	// relogin only rebuilds the delta (newly-added accounts) afterwards.
+	initialized atomic.Bool
 
 	// portfolioMap holds tax lots for current asset holdings. Each account has
 	// separate portfolio, so this is a mapping from (AccountID, symbol, orderID)
@@ -270,8 +281,7 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 		lifeCancel:           lifeCancel,
 		opts:                 *opts,
 		httpClient:           http.Client{Timeout: opts.HttpClientTimeout},
-		balancesTopicMap:     make(map[string]*topic.Topic[*internal.Balance]),
-		refreshOrderTopicMap: make(map[string]*topic.Topic[int64]),
+		accountSet:           make(map[string]bool),
 	}
 	c.creds.Store(creds.Clone())
 	c.nonceCounter.Store(time.Now().UnixNano())
@@ -283,16 +293,17 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 		}
 	}
 
-	for _, a := range creds.Accounts {
-		c.balancesTopicMap[a.AccountID] = topic.New[*internal.Balance]()
-		c.refreshOrderTopicMap[a.AccountID] = topic.New[int64]()
+	for _, a := range creds.ActiveAccounts() {
+		c.balancesTopicMap.Store(a.AccountID, topic.New[*internal.Balance]())
+		c.refreshOrderTopicMap.Store(a.AccountID, topic.New[int64]())
+		c.accountSet[a.AccountID] = true
 	}
 
 	if !opts.cmdlineToolMode {
 		// Verify credentials are valid before starting goroutines. Use GetBalance
 		// rather than RenewAccessToken because E*TRADE rate-limits the renew
 		// endpoint — calling it on every CLI invocation causes intermittent 401s.
-		for _, a := range creds.Accounts {
+		for _, a := range creds.ActiveAccounts() {
 			if _, err := c.GetBalance(ctx, a.AccountID); err != nil {
 				lifeCancel(err)
 				return nil, fmt.Errorf("etrade: credential verification failed: %w", err)
@@ -303,7 +314,7 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 		go c.goRenewToken(c.lifeCtx)
 		go c.goPollPrices(c.lifeCtx)
 
-		for _, a := range creds.Accounts {
+		for _, a := range creds.ActiveAccounts() {
 			c.wg.Add(3)
 			go c.goPollBalances(c.lifeCtx, a.AccountID)
 			go c.goRefreshOrders(c.lifeCtx, a.AccountID)
@@ -316,6 +327,7 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 		}
 	}
 
+	c.initialized.Store(true)
 	return c, nil
 }
 
@@ -1098,7 +1110,7 @@ func (c *Client) goPollBalances(ctx context.Context, accountID string) {
 		}
 	}()
 
-	balancesTopic, ok := c.balancesTopicMap[accountID]
+	balancesTopic, ok := c.balancesTopicMap.Load(accountID)
 	if !ok {
 		slog.Error("etrade: account id key has no poll balances topic", "account-id", accountID)
 		return
@@ -1120,7 +1132,7 @@ func (c *Client) goPollBalances(ctx context.Context, accountID string) {
 // calls this immediately after placing an order so that fills and cancellations
 // are detected even after the order disappears from the open-orders poll.
 func (c *Client) TrackOrder(accountID string, orderID int64) {
-	if v, ok := c.refreshOrderTopicMap[accountID]; ok {
+	if v, ok := c.refreshOrderTopicMap.Load(accountID); ok {
 		v.Send(orderID)
 	} else {
 		slog.Error("etrade: account id key has no refresh order topic", "account-id", accountID, "order-id", orderID)
@@ -1138,7 +1150,7 @@ func (c *Client) goRefreshOrders(ctx context.Context, accountID string) {
 		}
 	}()
 
-	refreshOrderTopic, ok := c.refreshOrderTopicMap[accountID]
+	refreshOrderTopic, ok := c.refreshOrderTopicMap.Load(accountID)
 	if !ok {
 		slog.Error("etrade: account id key has no refresh order topic", "account-id", accountID)
 		return
@@ -1435,7 +1447,46 @@ func (c *Client) relogin(ctx context.Context) error {
 		slog.Error("etrade: could not unmarshal updated credentials file", "file", credsPath, "err", err)
 		return err
 	}
-	c.creds.Store(creds)
+	// Validate before swapping so a malformed/partial creds file from the login
+	// subprocess leaves the last-good credentials in place rather than being
+	// accepted wholesale. Store a clone so the swapped-in value is isolated.
+	if err := creds.Check(); err != nil {
+		slog.Error("etrade: reloaded credentials failed validation", "file", credsPath, "err", err)
+		return err
+	}
+	c.creds.Store(creds.Clone())
 	slog.Info("unattended login to E*TRADE is successful")
+
+	// Pick up any account added since startup (topics + polling goroutines) so
+	// it becomes usable without a daemon restart. Only after New's initial setup
+	// has completed; New handles the initial account set itself.
+	if c.initialized.Load() {
+		c.ensureNewAccounts()
+	}
 	return nil
+}
+
+// ensureNewAccounts creates the per-account topics and (in daemon mode) spawns
+// the per-account polling goroutines for any account in the current credentials
+// that has not been initialized yet. Called after a credential reload so that
+// accounts added since startup become usable without a restart. Idempotent and
+// safe to call concurrently.
+func (c *Client) ensureNewAccounts() {
+	c.accountMu.Lock()
+	defer c.accountMu.Unlock()
+	for _, a := range c.creds.Load().ActiveAccounts() {
+		if c.accountSet[a.AccountID] {
+			continue
+		}
+		c.accountSet[a.AccountID] = true
+		c.balancesTopicMap.Store(a.AccountID, topic.New[*internal.Balance]())
+		c.refreshOrderTopicMap.Store(a.AccountID, topic.New[int64]())
+		slog.Info("etrade: initializing account added since startup", "account-id", a.AccountID)
+		if !c.opts.cmdlineToolMode {
+			c.wg.Add(3)
+			go c.goPollBalances(c.lifeCtx, a.AccountID)
+			go c.goRefreshOrders(c.lifeCtx, a.AccountID)
+			go c.goTrackPortfolio(c.lifeCtx, a.AccountID)
+		}
+	}
 }

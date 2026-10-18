@@ -282,7 +282,7 @@ func (v *Limiter) create(ctx context.Context, rt *trader.Runtime) (string, error
 		latency = time.Now().Sub(s)
 	}
 	if err != nil {
-		if rt.Exchange.CanDedupOnClientUUID() {
+		if rt.Account.CanDedupOnClientUUID() {
 			v.idgen.RevertID()
 			slog.Error("create limit order has failed; client order id is reverted", "limiter", v, "point", v.point, "client-order-id", clientOrderID, "offset", offset, "latency", latency, "err", err)
 			return "", err

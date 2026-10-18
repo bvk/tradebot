@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/looper"
@@ -29,6 +30,7 @@ type Waller struct {
 
 	productID    string
 	exchangeName string
+	accountName  string
 
 	pairs []*point.Pair
 
@@ -40,11 +42,12 @@ type Waller struct {
 
 var _ trader.Trader = &Waller{}
 
-func New(uid, exchangeName, productID string, pairs []*point.Pair) (*Waller, error) {
+func New(uid, accountName, productID string, pairs []*point.Pair) (*Waller, error) {
 	w := &Waller{
 		uid:          uid,
 		productID:    productID,
-		exchangeName: exchangeName,
+		exchangeName: exchange.FromAccountName(accountName),
+		accountName:  accountName,
 		pairs:        pairs,
 	}
 	if err := w.check(); err != nil {
@@ -53,7 +56,7 @@ func New(uid, exchangeName, productID string, pairs []*point.Pair) (*Waller, err
 	var loopers []*looper.Looper
 	for i, p := range pairs {
 		uid := path.Join(uid, fmt.Sprintf("loop-%06d", i))
-		l, err := looper.New(uid, exchangeName, productID, &p.Buy, &p.Sell)
+		l, err := looper.New(uid, accountName, productID, &p.Buy, &p.Sell)
 		if err != nil {
 			return nil, err
 		}
@@ -91,6 +94,10 @@ func (w *Waller) ExchangeName() string {
 	return w.exchangeName
 }
 
+func (w *Waller) AccountName() string {
+	return w.accountName
+}
+
 func (w *Waller) GetSummary(r *timerange.Range) *gobs.Summary {
 	if r == nil {
 		if s := w.summary.Load(); s != nil {
@@ -100,6 +107,7 @@ func (w *Waller) GetSummary(r *timerange.Range) *gobs.Summary {
 
 	s := &gobs.Summary{
 		Exchange:  w.exchangeName,
+		Account:   w.accountName,
 		ProductID: w.productID,
 	}
 	for _, loop := range w.loopers {
@@ -194,6 +202,7 @@ func (w *Waller) Save(ctx context.Context, rw kv.ReadWriter) error {
 		V2: &gobs.WallerStateV2{
 			ProductID:       w.productID,
 			ExchangeName:    w.exchangeName,
+			AccountName:     w.accountName,
 			LooperIDs:       loopers,
 			TradePairs:      make([]*gobs.Pair, len(w.pairs)),
 			LifetimeSummary: w.GetSummary(nil),
@@ -257,6 +266,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Waller, error) {
 		uid:          uid,
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
+		accountName:  gv.V2.AccountName,
 		loopers:      loopers,
 		pairs:        make([]*point.Pair, len(gv.V2.TradePairs)),
 	}

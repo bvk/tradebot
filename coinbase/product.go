@@ -68,6 +68,10 @@ func (p *Product) ProductID() string {
 	return p.productData.ProductID
 }
 
+func (p *Product) AccountName() string {
+	return "coinbase"
+}
+
 func (p *Product) ExchangeName() string {
 	return "coinbase"
 }

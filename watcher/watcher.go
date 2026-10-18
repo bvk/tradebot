@@ -40,7 +40,7 @@ type Watcher struct {
 
 var _ trader.Trader = &Watcher{}
 
-func New(uid, exchange, product string, feePct decimal.Decimal, pairs []*point.Pair) (*Watcher, error) {
+func New(uid, account, product string, feePct decimal.Decimal, pairs []*point.Pair) (*Watcher, error) {
 	var loops []*gobs.WatcherLoop
 	for _, p := range pairs {
 		loop := &gobs.WatcherLoop{
@@ -55,7 +55,8 @@ func New(uid, exchange, product string, feePct decimal.Decimal, pairs []*point.P
 	w := &Watcher{
 		uid: uid,
 		state: &gobs.WatcherState{
-			ExchangeName: exchange,
+			ExchangeName: exchange.FromAccountName(account),
+			AccountName:  account,
 			ProductID:    product,
 			FeePct:       feePct,
 			TradeLoops:   loops,
@@ -80,6 +81,9 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Watcher, error) {
 	state, err := kvutil.Get[gobs.WatcherState](ctx, r, key)
 	if err != nil {
 		return nil, err
+	}
+	if len(state.AccountName) == 0 {
+		state.AccountName = state.ExchangeName
 	}
 	w := &Watcher{
 		uid:   uid,
@@ -146,6 +150,10 @@ func (w *Watcher) ExchangeName() string {
 	return w.state.ExchangeName
 }
 
+func (w *Watcher) AccountName() string {
+	return w.state.AccountName
+}
+
 func (w *Watcher) SetOption(key, value string) (string, error) {
 	return "", fmt.Errorf("watcher job doesn't support option %q", key)
 }
@@ -168,6 +176,7 @@ var d100 = decimal.NewFromInt(100)
 func (w *Watcher) GetSummary(r *timerange.Range) *gobs.Summary {
 	s := &gobs.Summary{
 		Exchange:  w.state.ExchangeName,
+		Account:   w.state.AccountName,
 		ProductID: w.state.ProductID,
 		Budget:    w.BudgetAt(decimal.Zero),
 	}
@@ -225,6 +234,7 @@ func (w *Watcher) GetSummary(r *timerange.Range) *gobs.Summary {
 	if r != nil && !r.InRange(s.EndAt) {
 		return &gobs.Summary{
 			Exchange:  s.Exchange,
+			Account:   s.Account,
 			ProductID: s.ProductID,
 			Budget:    s.Budget,
 		}

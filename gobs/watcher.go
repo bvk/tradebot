@@ -11,6 +11,7 @@ import (
 type WatcherState struct {
 	ProductID    string
 	ExchangeName string
+	AccountName  string
 
 	FeePct decimal.Decimal
 

@@ -29,8 +29,12 @@ func (ap *AccountProduct) ProductID() string {
 	return ap.product.symbol
 }
 
+func (ap *AccountProduct) AccountName() string {
+	return fmt.Sprintf("etrade/%s", ap.account.AccountName)
+}
+
 func (ap *AccountProduct) ExchangeName() string {
-	return fmt.Sprintf("etrade/%s", ap.account.AccountID)
+	return "etrade"
 }
 
 func (ap *AccountProduct) BaseMinSize() decimal.Decimal {

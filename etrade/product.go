@@ -60,10 +60,13 @@ type Product struct {
 	// for deduplication and status queries within a session.
 	clientIDStatusMap syncmap.Map[uuid.UUID, *clientIDStatus]
 
-	// account2serverIDMap maps E*TRADE server order ID → client order UUID for
-	// every account. Used by Get() to restore ClientUUID without relying on the
+	// account2serverIDMap maps E*TRADE server order ID → client order UUID, per
+	// account. Used by Get() to restore ClientUUID without relying on the
 	// clientOrderId field, which E*TRADE omits from single-order GET responses.
-	account2serverIDMap map[string]*syncmap.Map[int64, uuid.UUID]
+	// It is written both at startup (reconcile loop, concurrently with the order
+	// goroutines) and at runtime, so the outer map is a thread-safe syncmap; use
+	// accountOrders() to get (lazily creating) an account's inner map.
+	account2serverIDMap syncmap.Map[string, *syncmap.Map[int64, uuid.UUID]]
 
 	// failedCreatesCh receives UUIDs of orders whose PlaceOrder call returned
 	// an error. goCancelFailedCreates scans open orders to find and cancel any
@@ -85,6 +88,13 @@ func (p *Product) clientOrderKeyPrefix() string {
 // clientOrderKey returns the DB key for a client order UUID.
 func (p *Product) clientOrderKey(clientOrderUUID uuid.UUID) string {
 	return p.clientOrderKeyPrefix() + "/" + clientOrderUUID.String()
+}
+
+// accountOrders returns the per-account server-order-ID → client-UUID map,
+// creating it on first use. Safe for concurrent use.
+func (p *Product) accountOrders(accountID string) *syncmap.Map[int64, uuid.UUID] {
+	m, _ := p.account2serverIDMap.LoadOrStore(accountID, new(syncmap.Map[int64, uuid.UUID]))
+	return m
 }
 
 // clientOrderUUIDFromKey parses the client order UUID from a DB key produced by clientOrderKey.
@@ -151,15 +161,14 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		client:              client,
 		symbol:              symbol,
 		failedCreatesCh:     make(chan uuid.UUID, 100),
-		account2serverIDMap: make(map[string]*syncmap.Map[int64, uuid.UUID]),
 		productInfo:         oldInfo,
 		productAckReason:    checkProductNeedsAck(oldInfo, newInfo),
 	}
 	p.etradeOrderID.Store(time.Now().UnixNano())
 
 	creds := client.creds.Load()
-	for _, a := range creds.Accounts {
-		p.account2serverIDMap[a.AccountID] = new(syncmap.Map[int64, uuid.UUID])
+	for _, a := range creds.ActiveAccounts() {
+		p.account2serverIDMap.Store(a.AccountID, new(syncmap.Map[int64, uuid.UUID]))
 	}
 
 	// Load persisted order entries from the previous session and collect them
@@ -177,12 +186,11 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		if e.AccountID == "" {
 			return fmt.Errorf("etrade: database has an order status entry without account id")
 		}
-		if _, ok := p.account2serverIDMap[e.AccountID]; !ok {
+		if _, ok := p.account2serverIDMap.Load(e.AccountID); !ok {
 			slog.Warn("etrade: database has an order status with unrecognized account id", "account-id", e.AccountID)
-			p.account2serverIDMap[e.AccountID] = new(syncmap.Map[int64, uuid.UUID])
 		}
 		if e.ServerOrderID != 0 && e.AccountID != "" {
-			p.account2serverIDMap[e.AccountID].Store(e.ServerOrderID, uid)
+			p.accountOrders(e.AccountID).Store(e.ServerOrderID, uid)
 		}
 		pending = append(pending, &pendingEntry{uid, e})
 		return nil
@@ -196,7 +204,7 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 	// Currently open orders are fetched once and cached across iterations.
 	var openOrders []*internal.Order
 	if len(pending) != 0 {
-		for _, a := range creds.Accounts {
+		for _, a := range creds.ActiveAccounts() {
 			orders, err := p.client.ListOpenOrders(ctx, a.AccountID)
 			if err != nil {
 				slog.Error("etrade: could not list open orders during startup", "symbol", symbol, "account-id", a.AccountID, "err", err)
@@ -228,9 +236,8 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		entry := pe.entry
 
 		unknownAccountID := false
-		if _, ok := p.account2serverIDMap[entry.AccountID]; !ok {
+		if _, ok := p.account2serverIDMap.Load(entry.AccountID); !ok {
 			slog.Warn("etrade: account id from one of the pending orders is not found in credentials", "account-id", entry.AccountID, "symbol", symbol)
-			p.account2serverIDMap[entry.AccountID] = new(syncmap.Map[int64, uuid.UUID])
 			unknownAccountID = true
 		}
 
@@ -261,7 +268,7 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 				return nil, err
 			}
 
-			p.account2serverIDMap[entry.AccountID].Store(found.OrderID, uid)
+			p.accountOrders(entry.AccountID).Store(found.OrderID, uid)
 			found.ClientUUID = uid
 			p.clientIDStatusMap.Store(uid, &clientIDStatus{accountID: entry.AccountID, order: found})
 			if !unknownAccountID {
@@ -279,7 +286,7 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 			p.client.TrackOrder(entry.AccountID, entry.ServerOrderID)
 			continue
 		}
-		p.account2serverIDMap[entry.AccountID].Store(entry.ServerOrderID, uid)
+		p.accountOrders(entry.AccountID).Store(entry.ServerOrderID, uid)
 		order.ClientUUID = uid
 		p.clientIDStatusMap.Store(uid, &clientIDStatus{accountID: entry.AccountID, order: order})
 		if order.IsDone() {
@@ -309,7 +316,7 @@ func (p *Product) GetOrderUpdates(accountID string) (*topic.Receiver[exchange.Or
 		if o.ClientUUID != uuid.Nil {
 			return o
 		}
-		uid, ok := p.account2serverIDMap[accountID].Load(o.OrderID)
+		uid, ok := p.accountOrders(accountID).Load(o.OrderID)
 		if !ok {
 			return o
 		}
@@ -378,7 +385,7 @@ func roundLimitPrice(side string, price decimal.Decimal) decimal.Decimal {
 func checkProductNeedsAck(oldInfo, newInfo *internal.Quote) string {
 	if newInfo.SharesOutstanding != oldInfo.SharesOutstanding {
 		change := float64(newInfo.SharesOutstanding-oldInfo.SharesOutstanding) / float64(oldInfo.SharesOutstanding) * 100.0
-		return fmt.Sprintf("Number of outstanding stock for %s changed from %s to %s (by %f%%)", newInfo.Symbol, oldInfo.SharesOutstanding, newInfo.SharesOutstanding, change)
+		return fmt.Sprintf("Number of outstanding stock for %s changed from %d to %d (by %f%%)", newInfo.Symbol, oldInfo.SharesOutstanding, newInfo.SharesOutstanding, change)
 	}
 	return ""
 }
@@ -488,7 +495,7 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 		case <-time.After(time.Second):
 		}
 	}
-	p.account2serverIDMap[accountID].Store(orderID, clientOrderUUID)
+	p.accountOrders(accountID).Store(orderID, clientOrderUUID)
 
 	// Build a partial order with what we know immediately. It will be updated
 	// when goWatchOrderUpdates receives a full response from the polling loop.
@@ -527,7 +534,7 @@ func (p *Product) Get(ctx context.Context, accountID, serverID string) (exchange
 	// Restore ClientUUID from the serverIDMap. E*TRADE's single-order GET
 	// response omits clientOrderId, so we cannot rely on the counterIDMap
 	// (which is keyed by counterID parsed from that field).
-	if uid, ok := p.account2serverIDMap[accountID].Load(orderID); ok {
+	if uid, ok := p.accountOrders(accountID).Load(orderID); ok {
 		order.ClientUUID = uid
 	}
 	return order, nil
@@ -583,7 +590,7 @@ func (p *Product) goWatchOrderUpdates(ctx context.Context) {
 				slog.Error("etrade: invalid/unrecognized etrade account id", "account-id", order.AccountID, "err", err)
 				continue
 			}
-			uid, ok := p.account2serverIDMap[order.AccountID].Load(order.OrderID)
+			uid, ok := p.accountOrders(order.AccountID).Load(order.OrderID)
 			if !ok {
 				continue // placed outside this session
 			}
@@ -708,7 +715,7 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 				retryBackoff = min(retryBackoff+1, 6)
 				continue
 			}
-			p.account2serverIDMap[cstatus.accountID].Store(found.OrderID, uid)
+			p.accountOrders(cstatus.accountID).Store(found.OrderID, uid)
 
 			// Cancel the order and start tracking it so goRefreshOrders polls for
 			// the final CANCELLED state; goWatchOrderUpdates removes the DB entry

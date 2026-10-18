@@ -239,7 +239,7 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 				fees := sell.Fees().Add(buy.Fees())
 				profit := sell.SoldValue().Sub(buy.BoughtValue()).Sub(fees)
 				slog.Info("SendMessage", "looper", v, "profit", profit, "nsells", len(v.sells), "nbuys", len(v.buys), "last.sell.fees", sell.Fees(), "last.buy.fees", buy.Fees(), "last.buy.value", buy.BoughtValue())
-				rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.exchangeName, profit.StringFixed(3))
+				rt.Messenger.SendMessage(ctx, time.Now(), "A sell is completed successfully at price %s in product %s (%s) with %s of profit.", v.sellPoint.Price.StringFixed(3), v.productID, v.accountName, profit.StringFixed(3))
 			}
 		}
 	}
@@ -250,7 +250,7 @@ func (v *Looper) addNewBuy(ctx context.Context, rt *trader.Runtime) error {
 	slog.Info("adding new buy limiter", "looper", v, "buyer", fmt.Sprintf("buy-%06d", len(v.buys)), "buy-price", v.buyPoint.Price.StringFixed(3))
 
 	uid := path.Join(v.uid, fmt.Sprintf("buy-%06d", len(v.buys)))
-	b, err := limiter.New(uid, v.exchangeName, v.productID, &v.buyPoint)
+	b, err := limiter.New(uid, v.accountName, v.productID, &v.buyPoint)
 	if err != nil {
 		return err
 	}
@@ -268,7 +268,7 @@ func (v *Looper) addNewSell(ctx context.Context, rt *trader.Runtime, taxLotIds [
 	slog.Info("adding new sell limiter", "looper", v, "seller", fmt.Sprintf("sell-%06d", len(v.sells)))
 
 	uid := path.Join(v.uid, fmt.Sprintf("sell-%06d", len(v.sells)))
-	s, err := limiter.New(uid, v.exchangeName, v.productID, &v.sellPoint)
+	s, err := limiter.New(uid, v.accountName, v.productID, &v.sellPoint)
 	if err != nil {
 		return err
 	}

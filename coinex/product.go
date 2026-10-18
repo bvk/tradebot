@@ -150,6 +150,10 @@ func (p *Product) ProductID() string {
 	return p.market
 }
 
+func (p *Product) AccountName() string {
+	return "coinex"
+}
+
 func (p *Product) ExchangeName() string {
 	return "coinex"
 }

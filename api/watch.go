@@ -12,7 +12,7 @@ import (
 const WatchPath = "/trader/watch"
 
 type WatchRequest struct {
-	ExchangeName string
+	AccountName string
 
 	ProductID string
 
@@ -26,8 +26,8 @@ type WatchResponse struct {
 }
 
 func (r *WatchRequest) Check() error {
-	if len(r.ExchangeName) == 0 {
-		return fmt.Errorf("exchange name cannot be empty")
+	if len(r.AccountName) == 0 {
+		return fmt.Errorf("account name cannot be empty")
 	}
 	if len(r.ProductID) == 0 {
 		return fmt.Errorf("product id cannot be empty")

@@ -66,8 +66,10 @@ type BalanceUpdate interface {
 type Product interface {
 	io.Closer
 
-	ProductID() string
+	AccountName() string
 	ExchangeName() string
+
+	ProductID() string
 	BaseMinSize() decimal.Decimal
 
 	GetPriceUpdates() (*topic.Receiver[PriceUpdate], error)
@@ -81,12 +83,15 @@ type Product interface {
 }
 
 type Exchange interface {
+	ExchangeName() string
+
 	Accounts(context.Context) ([]Account, error)
 }
 
 type Account interface {
 	io.Closer
 
+	AccountName() string
 	ExchangeName() string
 
 	// GetBalanceUpdates is a channel that sends update notifications

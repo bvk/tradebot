@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"maps"
@@ -101,7 +102,8 @@ type Server struct {
 
 	secretsFilePath string
 
-	accountMap map[string]exchange.Account
+	exchangeMap map[string]exchange.Exchange
+	accountMap  map[string]exchange.Account
 
 	handlerMap map[string]http.Handler
 
@@ -113,7 +115,7 @@ type Server struct {
 
 	state *gobs.ServerState
 
-	exProductsMap map[string]map[string]exchange.Product
+	accountProductsMap map[string]map[string]exchange.Product
 
 	pushoverClient *pushover.Client
 
@@ -151,6 +153,7 @@ func New(newctx context.Context, secretsFilePath string, db kv.Database, opts *O
 		secretsFilePath:        secretsFilePath,
 		state:                  state,
 		handlerMap:             make(map[string]http.Handler),
+		accountProductsMap:     make(map[string]map[string]exchange.Product),
 		runner:                 job.NewRunner(db),
 		alertFreezeDeadlineMap: make(map[string]time.Time),
 	}
@@ -194,13 +197,22 @@ func (s *Server) loadSecrets(ctx context.Context) (*Secrets, error) {
 func (s *Server) Close() error {
 	s.cg.Close()
 
-	for _, pmap := range s.exProductsMap {
+	for _, pmap := range s.accountProductsMap {
 		for _, p := range pmap {
-			p.Close()
+			if v, ok := p.(io.Closer); ok {
+				v.Close()
+			}
 		}
 	}
 	for _, a := range s.accountMap {
-		a.Close()
+		if v, ok := a.(io.Closer); ok {
+			v.Close()
+		}
+	}
+	for _, e := range s.exchangeMap {
+		if v, ok := e.(io.Closer); ok {
+			v.Close()
+		}
 	}
 	return nil
 }
@@ -214,9 +226,9 @@ func (s *Server) HandlerMap() map[string]http.Handler {
 }
 
 func (s *Server) Runtime(product exchange.Product) *trader.Runtime {
-	exchange := s.accountMap[product.ExchangeName()]
+	account := s.accountMap[strings.ToLower(product.AccountName())]
 	return &trader.Runtime{
-		Exchange:  exchange,
+		Account:   account,
 		Database:  s.db,
 		Product:   product,
 		Messenger: s,
@@ -266,13 +278,21 @@ func (s *Server) Start(ctx context.Context) (status error) {
 		return fmt.Errorf("could not load secrets: %w", err)
 	}
 
-	// Create exchange objects.
+	// Create exchange and account objects.
 	if len(s.accountMap) == 0 {
 		accountMap := make(map[string]exchange.Account)
+		exchangeMap := make(map[string]exchange.Exchange)
 		defer func() {
 			if status != nil {
-				for _, exch := range accountMap {
-					exch.Close()
+				for _, a := range accountMap {
+					if v, ok := a.(io.Closer); ok {
+						v.Close()
+					}
+				}
+				for _, e := range exchangeMap {
+					if v, ok := e.(io.Closer); ok {
+						v.Close()
+					}
 				}
 			}
 		}()
@@ -284,11 +304,11 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if s.opts.NoFetchCandles {
 				cbopts.FetchCandlesInterval = -1
 			}
-			client, err := coinbase.New(ctx, s.db, secrets.Coinbase.KID, secrets.Coinbase.PEM, cbopts)
+			exchange, err := coinbase.New(ctx, s.db, secrets.Coinbase.KID, secrets.Coinbase.PEM, cbopts)
 			if err != nil {
 				return fmt.Errorf("could not create coinbase client: %w", err)
 			}
-			accountMap["coinbase"] = client
+			exchangeMap[exchange.ExchangeName()] = exchange
 		}
 
 		if secrets.CoinEx != nil {
@@ -299,7 +319,7 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			if err != nil {
 				return fmt.Errorf("could not create coinex exchange: %w", err)
 			}
-			accountMap["coinex"] = exchange
+			exchangeMap[exchange.ExchangeName()] = exchange
 		}
 
 		if secrets.ETrade != nil {
@@ -309,20 +329,25 @@ func (s *Server) Start(ctx context.Context) (status error) {
 				Sandbox:           secrets.ETrade.Sandbox,
 				DisplayRunner:     s.displayRunner,
 			}
-			exch, err := etrade.NewExchange(ctx, s.db, secrets.ETrade, opts)
+			exchange, err := etrade.NewExchange(ctx, s.db, secrets.ETrade, opts)
 			if err != nil {
 				return fmt.Errorf("could not create etrade exchange: %w", err)
 			}
+			exchangeMap[exchange.ExchangeName()] = exchange
+		}
+
+		for ename, exch := range exchangeMap {
 			accounts, err := exch.Accounts(ctx)
 			if err != nil {
-				return fmt.Errorf("could not list etrade accounts: %w", err)
+				return fmt.Errorf("could not list exchange (%s) accounts: %w", ename, err)
 			}
 			if len(accounts) == 0 {
-				return fmt.Errorf("etrade has no usable accounts")
+				slog.Warn("exchange has no usable accounts", "exchange", ename)
+				continue
 			}
 			for _, a := range accounts {
-				accountMap[a.ExchangeName()] = a
-				log.Printf("added etrade account exchange %s", a.ExchangeName())
+				accountMap[strings.ToLower(a.AccountName())] = a
+				log.Printf("added account %s", a.AccountName())
 			}
 		}
 
@@ -340,11 +365,12 @@ func (s *Server) Start(ctx context.Context) (status error) {
 			a := a
 			s.cg.Go(func(ctx context.Context) {
 				if err := s.watchForLowBalance(ctx, a); err != nil {
-					slog.Error("could not alert on low asset balance (check stopped)", "exchange", a.ExchangeName(), "err", err)
+					slog.Error("could not alert on low asset balance (check stopped)", "exchange", a.AccountName(), "err", err)
 				}
 			})
 		}
 		s.accountMap = accountMap
+		s.exchangeMap = exchangeMap
 	}
 
 	if err := s.loadProducts(ctx); err != nil {
@@ -452,10 +478,10 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 			return nil
 		}
 
-		ename, pid := trader.ExchangeName(), trader.ProductID()
-		product, err := s.getProduct(ctx, ename, pid)
+		aname, pid := trader.AccountName(), trader.ProductID()
+		product, err := s.getProduct(ctx, aname, pid)
 		if err != nil {
-			return fmt.Errorf("%s: could not load product %q in exchange %q: %w", jd.ID, pid, ename, err)
+			return fmt.Errorf("%s: could not load product %q in account %q: %w", jd.ID, pid, aname, err)
 		}
 
 		if err := fixer.Fix(ctx, s.Runtime(product)); err != nil {
@@ -466,34 +492,29 @@ func (s *Server) runFixes(ctx context.Context) (status error) {
 	return s.runner.Scan(ctx, nil /* kv.Reader */, fix)
 }
 
-func (s *Server) getProduct(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
+func (s *Server) getProduct(ctx context.Context, accountName, productID string) (exchange.Product, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.getProductLocked(ctx, exchangeName, productID)
+	return s.getProductLocked(ctx, accountName, productID)
 }
 
-func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID string) (exchange.Product, error) {
-	account, ok := s.accountMap[exchangeName]
+func (s *Server) getProductLocked(ctx context.Context, accountName, productID string) (exchange.Product, error) {
+	accountName = strings.ToLower(accountName)
+	account, ok := s.accountMap[accountName]
 	if !ok {
-		return nil, fmt.Errorf("exchange with name %q not found: %w", exchangeName, os.ErrNotExist)
+		return nil, fmt.Errorf("account with name %q not found: %w", accountName, os.ErrNotExist)
 	}
 
-	if pmap, ok := s.exProductsMap[exchangeName]; ok {
+	if pmap, ok := s.accountProductsMap[accountName]; ok {
 		if p, ok := pmap[productID]; ok {
 			return p, nil
 		}
 	}
 
-	// Exchanges that support multiple accounts (like E*TRADE) use
-	// <exchange>/<account> naming format.
-	stateMapKey := exchangeName
-	if strings.ContainsRune(exchangeName, '/') {
-		stateMapKey, _, _ = strings.Cut(exchangeName, "/")
-	}
-
 	// check if product is enabled.
-	estate, ok := s.state.ExchangeMap[stateMapKey]
+	exchangeName := account.ExchangeName()
+	estate, ok := s.state.ExchangeMap[exchangeName]
 	if !ok {
 		return nil, fmt.Errorf("exchange %q is not supported/enabled", exchangeName)
 	}
@@ -506,10 +527,10 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 		return nil, fmt.Errorf("could not open product %q on exchange %q: %w", productID, exchangeName, err)
 	}
 
-	pmap, ok := s.exProductsMap[exchangeName]
+	pmap, ok := s.accountProductsMap[accountName]
 	if !ok {
 		pmap = make(map[string]exchange.Product)
-		s.exProductsMap[exchangeName] = pmap
+		s.accountProductsMap[accountName] = pmap
 	}
 
 	pmap[productID] = product
@@ -517,27 +538,33 @@ func (s *Server) getProductLocked(ctx context.Context, exchangeName, productID s
 }
 
 func (s *Server) loadProducts(ctx context.Context) (status error) {
-	exProductsMap := make(map[string]map[string]exchange.Product)
+	// getProductLocked caches each opened product into s.accountProductsMap
+	// (creating the per-account inner map as needed). On failure, close whatever
+	// was opened and reset the cache.
 	defer func() {
 		if status != nil {
-			for _, pmap := range exProductsMap {
+			for _, pmap := range s.accountProductsMap {
 				for _, product := range pmap {
 					product.Close()
 				}
 			}
+			clear(s.accountProductsMap)
 		}
 	}()
 
-	for ename, estate := range s.state.ExchangeMap {
+	for aname, account := range s.accountMap {
+		ename := account.ExchangeName()
+		estate, ok := s.state.ExchangeMap[ename]
+		if !ok {
+			continue
+		}
 		for _, pname := range estate.WatchedProductIDs {
-			product, err := s.getProductLocked(ctx, ename, pname)
-			if err != nil {
-				return fmt.Errorf("could not load exchange %q product %q: %w", ename, pname, err)
+			if _, err := s.getProductLocked(ctx, aname, pname); err != nil {
+				return fmt.Errorf("could not load account %q product %q: %w", aname, pname, err)
 			}
-			exProductsMap[ename][pname] = product
 		}
 	}
-	s.exProductsMap = exProductsMap
+
 	return nil
 }
 
@@ -585,12 +612,12 @@ func (s *Server) doLimit(ctx context.Context, req *api.LimitRequest) (_ *api.Lim
 		return nil, fmt.Errorf("invalid limit request: %w", err)
 	}
 
-	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
+	if _, err := s.getProduct(ctx, req.AccountName, req.ProductID); err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	limit, err := limiter.New(uid, req.ExchangeName, req.ProductID, req.Point)
+	limit, err := limiter.New(uid, req.AccountName, req.ProductID, req.Point)
 	if err != nil {
 		return nil, err
 	}
@@ -629,12 +656,12 @@ func (s *Server) doLoop(ctx context.Context, req *api.LoopRequest) (_ *api.LoopR
 		return nil, fmt.Errorf("invalid loop request: %w", err)
 	}
 
-	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
+	if _, err := s.getProduct(ctx, req.AccountName, req.ProductID); err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	loop, err := looper.New(uid, req.ExchangeName, req.ProductID, req.Buy, req.Sell)
+	loop, err := looper.New(uid, req.AccountName, req.ProductID, req.Buy, req.Sell)
 	if err != nil {
 		return nil, err
 	}
@@ -681,12 +708,12 @@ func (s *Server) doWall(ctx context.Context, req *api.WallRequest) (_ *api.WallR
 		return nil, fmt.Errorf("invalid wall request: %w", err)
 	}
 
-	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
+	if _, err := s.getProduct(ctx, req.AccountName, req.ProductID); err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	wall, err := waller.New(uid, req.ExchangeName, req.ProductID, req.Pairs)
+	wall, err := waller.New(uid, req.AccountName, req.ProductID, req.Pairs)
 	if err != nil {
 		return nil, err
 	}
@@ -725,12 +752,12 @@ func (s *Server) doWatch(ctx context.Context, req *api.WatchRequest) (_ *api.Wat
 		return nil, fmt.Errorf("invalid watch job request: %w", err)
 	}
 
-	if _, err := s.getProduct(ctx, req.ExchangeName, req.ProductID); err != nil {
+	if _, err := s.getProduct(ctx, req.AccountName, req.ProductID); err != nil {
 		return nil, err
 	}
 
 	uid := uuid.New().String()
-	watch, err := watcher.New(uid, req.ExchangeName, req.ProductID, req.FeePct, req.Pairs)
+	watch, err := watcher.New(uid, req.AccountName, req.ProductID, req.FeePct, req.Pairs)
 	if err != nil {
 		return nil, err
 	}

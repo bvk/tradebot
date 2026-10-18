@@ -36,6 +36,7 @@ type Limiter struct {
 	runtimeLock sync.Mutex
 
 	productID    string
+	accountName  string
 	exchangeName string
 
 	uid string
@@ -74,10 +75,11 @@ var _ trader.Trader = &Limiter{}
 // orders at the exchange are canceled and recreated automatically as the
 // ticker price crosses the cancel threshold and comes closer to the
 // limit-price.
-func New(uid, exchangeName, productID string, point *point.Point) (*Limiter, error) {
+func New(uid, accountName, productID string, point *point.Point) (*Limiter, error) {
 	v := &Limiter{
 		productID:    productID,
-		exchangeName: exchangeName,
+		accountName:  accountName,
+		exchangeName: exchange.FromAccountName(accountName),
 		uid:          uid,
 		point:        *point,
 		idgen:        idgen.New(uid, 0),
@@ -116,6 +118,10 @@ func (v *Limiter) ProductID() string {
 
 func (v *Limiter) ExchangeName() string {
 	return v.exchangeName
+}
+
+func (v *Limiter) AccountName() string {
+	return v.accountName
 }
 
 func (v *Limiter) BudgetAt(feePct decimal.Decimal) decimal.Decimal {
@@ -207,6 +213,7 @@ func (v *Limiter) GetSummary(r *timerange.Range) *gobs.Summary {
 
 	s := &gobs.Summary{
 		Exchange:  v.exchangeName,
+		Account:   v.accountName,
 		ProductID: v.productID,
 		Budget:    decimal.Zero,
 	}
@@ -334,6 +341,7 @@ func (v *Limiter) Save(ctx context.Context, rw kv.ReadWriter) error {
 	gv := &gobs.LimiterState{
 		V2: &gobs.LimiterStateV2{
 			ProductID:      v.productID,
+			AccountName:    v.accountName,
 			ExchangeName:   v.exchangeName,
 			ClientIDSeed:   v.idgen.Seed(),
 			ClientIDOffset: v.idgen.Offset(),
@@ -409,6 +417,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Limiter, error) {
 		uid:          uid,
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
+		accountName:  gv.V2.AccountName,
 		idgen:        idgen.New(seed, gv.V2.ClientIDOffset+SaveClientIDOffsetSize),
 
 		point: point.Point{

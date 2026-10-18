@@ -9,8 +9,10 @@ type WallerState struct {
 type WallerStateV2 struct {
 	ProductID    string
 	ExchangeName string
-	LooperIDs    []string
-	TradePairs   []*Pair
+	AccountName  string
+
+	LooperIDs  []string
+	TradePairs []*Pair
 
 	LifetimeSummary *Summary
 }
@@ -18,5 +20,8 @@ type WallerStateV2 struct {
 func (v *WallerState) Upgrade() {
 	if len(v.V2.ExchangeName) == 0 {
 		v.V2.ExchangeName = "coinbase"
+	}
+	if len(v.V2.AccountName) == 0 {
+		v.V2.AccountName = v.V2.ExchangeName
 	}
 }

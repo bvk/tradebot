@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/kvutil"
 	"github.com/bvk/tradebot/limiter"
@@ -35,6 +36,7 @@ type Looper struct {
 
 	productID    string
 	exchangeName string
+	accountName  string
 
 	uid string
 
@@ -56,10 +58,11 @@ type Looper struct {
 
 var _ trader.Trader = &Looper{}
 
-func New(uid, exchangeName, productID string, buy, sell *point.Point) (*Looper, error) {
+func New(uid, accountName, productID string, buy, sell *point.Point) (*Looper, error) {
 	v := &Looper{
 		productID:    productID,
-		exchangeName: exchangeName,
+		accountName:  accountName,
+		exchangeName: exchange.FromAccountName(accountName),
 		uid:          uid,
 		buyPoint:     *buy,
 		sellPoint:    *sell,
@@ -110,6 +113,10 @@ func (v *Looper) ProductID() string {
 
 func (v *Looper) ExchangeName() string {
 	return v.exchangeName
+}
+
+func (v *Looper) AccountName() string {
+	return v.accountName
 }
 
 func (v *Looper) BudgetAt(feePct decimal.Decimal) decimal.Decimal {
@@ -188,6 +195,7 @@ func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
 
 	s := &gobs.Summary{
 		Exchange:  v.exchangeName,
+		Account:   v.accountName,
 		ProductID: v.productID,
 		Budget:    v.buyPoint.Value(),
 	}
@@ -281,6 +289,7 @@ func (v *Looper) GetSummary(r *timerange.Range) *gobs.Summary {
 	if !r.InRange(s.EndAt) {
 		return &gobs.Summary{
 			Exchange:  s.Exchange,
+			Account:   s.Account,
 			ProductID: s.ProductID,
 			Budget:    s.Budget,
 		}
@@ -312,6 +321,7 @@ func (v *Looper) Save(ctx context.Context, rw kv.ReadWriter) error {
 
 			ProductID:    v.productID,
 			ExchangeName: v.exchangeName,
+			AccountName:  v.accountName,
 			LimiterIDs:   limiters,
 			TradePair: gobs.Pair{
 				Buy: gobs.Point{
@@ -394,6 +404,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Looper, error) {
 		uid:          uid,
 		productID:    gv.V2.ProductID,
 		exchangeName: gv.V2.ExchangeName,
+		accountName:  gv.V2.AccountName,
 		buys:         buys,
 		sells:        sells,
 		buyPoint: point.Point{

@@ -9,8 +9,10 @@ type LimiterState struct {
 type LimiterStateV2 struct {
 	Options map[string]string
 
-	ProductID        string
-	ExchangeName     string
+	ProductID    string
+	AccountName  string
+	ExchangeName string
+
 	ClientIDSeed     string
 	ClientIDOffset   uint64
 	TradePoint       Point
@@ -22,5 +24,8 @@ type LimiterStateV2 struct {
 func (v *LimiterState) Upgrade() {
 	if len(v.V2.ExchangeName) == 0 {
 		v.V2.ExchangeName = "coinbase"
+	}
+	if len(v.V2.AccountName) == 0 {
+		v.V2.AccountName = v.V2.ExchangeName
 	}
 }

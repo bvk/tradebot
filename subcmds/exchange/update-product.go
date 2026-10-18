@@ -32,6 +32,9 @@ func (c *UpdateProduct) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 }
 
 func (c *UpdateProduct) run(ctx context.Context, args []string) error {
+	if len(args) == 1 {
+		args = append(args, "USD")
+	}
 	if len(args) != 2 {
 		return fmt.Errorf("this command needs base and quote currency name arguments")
 	}
@@ -48,7 +51,7 @@ func (c *UpdateProduct) run(ctx context.Context, args []string) error {
 	}
 	resp, err := cmdutil.Post[api.ExchangeUpdateProductResponse](ctx, &c.ClientFlags, api.ExchangeUpdateProductPath, req)
 	if err != nil {
-		return fmt.Errorf("POST request to get-product failed: %w", err)
+		return fmt.Errorf("POST request to update-product failed: %w", err)
 	}
 
 	jsdata, _ := json.MarshalIndent(resp, "", "  ")
