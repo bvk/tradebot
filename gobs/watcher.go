@@ -20,6 +20,15 @@ type WatcherState struct {
 	LifetimeSummary *Summary
 }
 
+func (v *WatcherState) Upgrade() {
+	if len(v.ExchangeName) == 0 {
+		v.ExchangeName = "coinbase"
+	}
+	if len(v.AccountName) == 0 {
+		v.AccountName = v.ExchangeName
+	}
+}
+
 type WatcherLoop struct {
 	Pair Pair
 

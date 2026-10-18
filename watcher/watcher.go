@@ -82,9 +82,7 @@ func Load(ctx context.Context, uid string, r kv.Reader) (*Watcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(state.AccountName) == 0 {
-		state.AccountName = state.ExchangeName
-	}
+	state.Upgrade()
 	w := &Watcher{
 		uid:   uid,
 		state: state,
