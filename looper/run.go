@@ -207,8 +207,12 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 			if action == "SELL" {
 				slog.Debug("starting/resuming a limiter sell", "looper", v, "bought", bought, "sold", sold, "holdings", holdings)
 
+				// Backfill tax lots for any completed buy missing them, before
+				// both creating a new sell and resuming an existing one.
+				v.fixBuyTaxLots(ctx, rt, taxLotResolver)
+
 				if len(v.sells) == 0 || v.sells[len(v.sells)-1].PendingSize().IsZero() {
-					if err := v.addNewSell(ctx, rt, v.unusedTaxLots(ctx, rt, taxLotResolver)); err != nil {
+					if err := v.addNewSell(ctx, rt, v.unusedTaxLots()); err != nil {
 						if ctx.Err() == nil {
 							slog.Error("could not add new sell limiter (will retry)", "looper", v, "nsells", nsells, "err", err)
 							ctxutil.Sleep(ctx, time.Second)
@@ -219,6 +223,20 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 				}
 
 				seller := v.sells[len(v.sells)-1]
+
+				// A sell created without tax lots (e.g. before tax-lot
+				// resolution was reliable) gets them assigned now from the
+				// unsold buys' freshly-backfilled lots, so its order
+				// (re)placements sell the intended lots.
+				if len(seller.TaxLotIDs()) == 0 {
+					if ids := v.unusedTaxLots(); len(ids) != 0 {
+						seller.SetTaxLotIDs(ids)
+						if err := kv.WithReadWriter(ctx, rt.Database, seller.Save); err != nil {
+							slog.Error("could not assign tax lots to resumed sell (ignored)", "looper", v, "seller", seller, "err", err)
+						}
+					}
+				}
+
 				v.dirtyLimiters.Store(seller, struct{}{})
 				if err := seller.Run(ctx, rt); err != nil {
 					if ctx.Err() == nil {
@@ -283,29 +301,39 @@ func (v *Looper) addNewSell(ctx context.Context, rt *trader.Runtime, taxLotIds [
 	return nil
 }
 
-func (v *Looper) unusedTaxLots(ctx context.Context, rt *trader.Runtime, resolver exchange.TaxLotResolver) []gobs.TaxLotID {
-	// if resolver != nil {
-	// 	for _, b := range v.buys {
-	// 		if len(b.TaxLotIDs()) == 0 {
-	// 			serverIDs := b.ServerOrderIDs()
-	// 			lots, size, err := resolver.ResolveTaxLots(ctx, serverIDs)
-	// 			if err != nil {
-	// 				slog.Error("could not resolve tax lot info", "limiter", b, "err", err)
-	// 				continue
-	// 			}
-	// 			if wanted := b.FilledSize(); !size.Equal(wanted) {
-	// 				slog.Error("tax lots resolved to unexpected buy size", "limiter", b, "wanted", wanted, "got", size)
-	// 				continue
-	// 			}
-	// 			b.SetTaxLotIDs(lots)
-	// 			if err := kv.WithReadWriter(ctx, rt.Database, b.Save); err != nil {
-	// 				slog.Error("could not fix tax lot info (ignored)", "limiter", b, "err", err)
-	// 				continue
-	// 			}
-	// 		}
-	// 	}
-	// }
+// fixBuyTaxLots backfills tax-lot ids for any completed buy that is missing
+// them (e.g. buys that completed before tax-lot resolution was reliable). Such
+// buys are unsold, so their positions are still held and their lots are
+// resolvable from the exchange. It runs on both the new-sell and the sell
+// resume paths, so a resumed sell's backing buys are repaired even when no new
+// sell limiter is created. Failures are logged and left for the next pass.
+func (v *Looper) fixBuyTaxLots(ctx context.Context, rt *trader.Runtime, resolver exchange.TaxLotResolver) {
+	if resolver == nil {
+		return
+	}
+	for _, b := range v.buys {
+		if len(b.TaxLotIDs()) != 0 {
+			continue
+		}
+		serverIDs := b.ServerOrderIDs()
+		lots, size, err := resolver.ResolveTaxLots(ctx, serverIDs)
+		if err != nil {
+			slog.Error("could not resolve tax lot info", "limiter", b, "err", err)
+			continue
+		}
+		if wanted := b.FilledSize(); !size.Equal(wanted) {
+			slog.Error("tax lots resolved to unexpected buy size", "limiter", b, "wanted", wanted, "got", size)
+			continue
+		}
+		b.SetTaxLotIDs(lots)
+		if err := kv.WithReadWriter(ctx, rt.Database, b.Save); err != nil {
+			slog.Error("could not fix tax lot info (ignored)", "limiter", b, "err", err)
+			continue
+		}
+	}
+}
 
+func (v *Looper) unusedTaxLots() []gobs.TaxLotID {
 	buyMap := make(map[gobs.TaxLotID]*limiter.Limiter)
 	for _, b := range v.buys {
 		for _, id := range b.TaxLotIDs() {

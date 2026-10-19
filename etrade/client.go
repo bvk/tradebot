@@ -18,7 +18,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -259,6 +258,11 @@ type Client struct {
 
 	// lotDetailMap is a mapping from position URL to it's last known lots metadata.
 	lotDetailMap syncmap.Map[string, []*positionLot]
+
+	// portfolioMu serializes the read-modify-write updates to portfolioMap and
+	// lotDetailMap in updatePortfolio, which can run from both goTrackPortfolio
+	// and ResolveOrderLots for the same account.
+	portfolioMu sync.Mutex
 }
 
 // New creates a new E*TRADE client, verifies credentials, and starts background
@@ -277,11 +281,11 @@ func New(ctx context.Context, creds *Credentials, opts *Options) (*Client, error
 
 	lifeCtx, lifeCancel := context.WithCancelCause(context.Background())
 	c := &Client{
-		lifeCtx:              lifeCtx,
-		lifeCancel:           lifeCancel,
-		opts:                 *opts,
-		httpClient:           http.Client{Timeout: opts.HttpClientTimeout},
-		accountSet:           make(map[string]bool),
+		lifeCtx:    lifeCtx,
+		lifeCancel: lifeCancel,
+		opts:       *opts,
+		httpClient: http.Client{Timeout: opts.HttpClientTimeout},
+		accountSet: make(map[string]bool),
 	}
 	c.creds.Store(creds.Clone())
 	c.nonceCounter.Store(time.Now().UnixNano())
@@ -1246,6 +1250,16 @@ func (c *Client) goTrackPortfolio(ctx context.Context, accountID string) {
 }
 
 func (c *Client) updatePortfolio(lots []*positionLot) {
+	c.portfolioMu.Lock()
+	defer c.portfolioMu.Unlock()
+
+	// Group the incoming lots by their position's lot-detail URL. All lots of a
+	// position share one URL (set in GetPortfolio), and lotDetailMap holds the
+	// whole set per URL, so we must store them together rather than one-at-a-time
+	// (which would wipe siblings). GetPortfolio returns the account's complete
+	// portfolio, so replacing each URL's set wholesale also drops lots no longer
+	// held.
+	byURL := make(map[string][]*positionLot)
 	for _, v := range lots {
 		if v.OrderNo == 0 {
 			continue
@@ -1258,17 +1272,17 @@ func (c *Client) updatePortfolio(lots []*positionLot) {
 		if !ok {
 			orderDetailURLMap, _ = symbolMap.LoadOrStore(v.Symbol, new(syncmap.Map[int64, string]))
 		}
-		lotDetailURL, ok := orderDetailURLMap.Load(v.OrderNo)
-		if ok && lotDetailURL != v.LotsDetails {
+		if lotDetailURL, ok := orderDetailURLMap.Load(v.OrderNo); ok && lotDetailURL != v.LotsDetails {
 			slog.Error("etrade: position lot id for old order in portfolio has changed", "account-id", v.AccountID, "symbol", v.Symbol, "order-id", v.OrderNo, "old-lot-details", lotDetailURL, "new-lot-details", v.LotsDetails)
 			// FIXME: Should we return ErrNeedsAck ???
 		}
 		orderDetailURLMap.Store(v.OrderNo, v.LotsDetails)
-		vs, ok := c.lotDetailMap.Load(v.LotsDetails)
-		if ok {
-			vs = slices.DeleteFunc(vs, func(a *positionLot) bool { return a.LotsDetails == v.LotsDetails })
-		}
-		c.lotDetailMap.Store(v.LotsDetails, append(vs, v)) // FIXME: Is this thread-safe?
+		byURL[v.LotsDetails] = append(byURL[v.LotsDetails], v)
+	}
+
+	// Replace each URL's cached lot set with the freshly-fetched one.
+	for lotDetailURL, group := range byURL {
+		c.lotDetailMap.Store(lotDetailURL, group)
 	}
 }
 
@@ -1311,85 +1325,93 @@ func (c *Client) ResolveTaxLotIDs(ctx context.Context, taxLotIDs []gobs.TaxLotID
 	return lots, nil
 }
 
+const (
+	// resolveLotsMaxAttempts and resolveLotsRetryInterval bound the portfolio
+	// refresh retries in ResolveOrderLots. A just-executed order's tax lots may
+	// not be posted by E*TRADE immediately, so we refresh and retry for a while
+	// before giving up.
+	resolveLotsMaxAttempts   = 12
+	resolveLotsRetryInterval = 5 * time.Second
+)
+
 func (c *Client) ResolveOrderLots(ctx context.Context, accountID, symbol string, serverOrderIDs []int64) ([]*positionLot, error) {
 	slog.Info("resolving tax lots for account symbol orders", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs)
-	// Check for the position lot ids in the cache.
-	missing := false
-	lots := make([]*positionLot, 0, len(serverOrderIDs))
-	if symbolMap, ok := c.portfolioMap.Load(accountID); ok {
-		if orderDetailURLMap, ok := symbolMap.Load(symbol); ok {
-			for _, oid := range serverOrderIDs {
-				lotDetailURL, ok := orderDetailURLMap.Load(oid)
-				if !ok {
-					slog.Info("portfolio has no tax lot id for an order (must refresh the entire portfolio)", "account-id", accountID, "symbol", symbol, "order", oid)
-					missing = true
-					break
-				}
-				details, ok := c.lotDetailMap.Load(lotDetailURL)
-				if !ok {
-					slog.Info("portfolio has no tax lot detail for a lot (must refresh the entire portfolio)", "account-id", accountID, "symbol", symbol, "order", oid, "lots-details", lotDetailURL)
-					missing = true
-					break
-				}
-				found := false
-				for _, v := range details {
-					if v.OrderNo == oid {
-						lots = append(lots, v)
-						found = true
-					}
-				}
-				if !found {
-					slog.Info("tax lot detail has no entry with matching order (will try refresh the entire portfolio)", "account-id", accountID, "symbol", symbol, "order", oid, "lots-details", lotDetailURL)
-					missing = true
-					break
-				}
-			}
-		}
+	if len(serverOrderIDs) == 0 {
+		return nil, nil
 	}
 
-	if !missing {
+	// Try the in-memory portfolio cache first.
+	if lots, err := c.resolveLotsFromCache(accountID, symbol, serverOrderIDs); err == nil {
 		slog.Info("etrade: all orders are resolved to tax lots from the cache", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "num-lots", len(lots))
 		return lots, nil
 	}
 
-	// Fetch missing lot ids with an explicit request.
-	lots, err := c.GetPortfolio(ctx, accountID)
-	if err != nil {
-		return nil, err
-	}
-	slog.Info("fetched full portfolio for account to resolve orders", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs)
-	c.updatePortfolio(lots)
+	// The tax lots for a just-executed order may not be posted by E*TRADE
+	// immediately, so refresh the full portfolio and retry a bounded number of
+	// times until *every* requested order resolves to at least one lot.
+	var lastErr error
+	for attempt := 1; attempt <= resolveLotsMaxAttempts; attempt++ {
+		full, err := c.GetPortfolio(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		slog.Info("fetched full portfolio for account to resolve orders", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "attempt", attempt)
+		c.updatePortfolio(full)
 
-	lots = make([]*positionLot, 0, len(serverOrderIDs))
-	if symbolMap, ok := c.portfolioMap.Load(accountID); ok {
-		if orderDetailURLMap, ok := symbolMap.Load(symbol); ok {
-			for _, oid := range serverOrderIDs {
-				lotDetailURL, ok := orderDetailURLMap.Load(oid)
-				if !ok {
-					slog.Error("could not find tax lot id for an order after a full refresh", "account-id", accountID, "symbol", symbol, "order", oid)
-					return nil, fmt.Errorf("could not find tax lot id for an order")
-				}
-				details, ok := c.lotDetailMap.Load(lotDetailURL)
-				if !ok {
-					slog.Error("could not find tax lot detail for a tax lot after a full refresh", "account-id", accountID, "symbol", symbol, "lots-details", lotDetailURL)
-					return nil, fmt.Errorf("could not find tax lot detail for tax lot")
-				}
-				found := false
-				for _, v := range details {
-					if v.OrderNo == oid {
-						lots = append(lots, v)
-						found = true
-					}
-				}
-				if !found {
-					slog.Error("could not find matching tax lot detail for an order after a full refresh", "account-id", accountID, "symbol", symbol, "order", oid, "lots-details", lotDetailURL)
-					return nil, fmt.Errorf("could not find matching tax lot detail for order %d", oid)
-				}
+		lots, err := c.resolveLotsFromCache(accountID, symbol, serverOrderIDs)
+		if err == nil {
+			slog.Info("etrade: all orders are resolved to tax lots after a full portfolio refresh", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "num-lots", len(lots), "attempt", attempt)
+			return lots, nil
+		}
+		lastErr = err
+
+		if attempt < resolveLotsMaxAttempts {
+			slog.Warn("orders not yet resolved to tax lots; will refresh and retry", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "attempt", attempt, "retry-after", resolveLotsRetryInterval, "err", lastErr)
+			if err := sleep(ctx, resolveLotsRetryInterval); err != nil {
+				return nil, err
 			}
 		}
 	}
 
-	slog.Info("etrade: all orders are resolved to tax lots after a full portfolio refresh", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "num-lots", len(lots))
+	slog.Error("could not resolve tax lots for orders after portfolio refreshes", "account-id", accountID, "symbol", symbol, "orders", serverOrderIDs, "attempts", resolveLotsMaxAttempts, "err", lastErr)
+	return nil, fmt.Errorf("could not resolve tax lots for orders %v after %d portfolio refreshes: %w", serverOrderIDs, resolveLotsMaxAttempts, lastErr)
+}
+
+// resolveLotsFromCache returns the tax lots for every requested order id from
+// the in-memory portfolio cache. It returns an error (naming the offending
+// order) if any requested order has no lot id, no lot detail, or no matching
+// lot entry — so a nil error guarantees that *all* serverOrderIDs resolved to
+// at least one lot.
+func (c *Client) resolveLotsFromCache(accountID, symbol string, serverOrderIDs []int64) ([]*positionLot, error) {
+	symbolMap, ok := c.portfolioMap.Load(accountID)
+	if !ok {
+		return nil, fmt.Errorf("portfolio has no holdings for account %s", accountID)
+	}
+	orderDetailURLMap, ok := symbolMap.Load(symbol)
+	if !ok {
+		return nil, fmt.Errorf("portfolio has no lots for symbol %s", symbol)
+	}
+	lots := make([]*positionLot, 0, len(serverOrderIDs))
+	for _, oid := range serverOrderIDs {
+		lotDetailURL, ok := orderDetailURLMap.Load(oid)
+		if !ok {
+			return nil, fmt.Errorf("portfolio has no tax lot id for order %d", oid)
+		}
+		details, ok := c.lotDetailMap.Load(lotDetailURL)
+		if !ok {
+			return nil, fmt.Errorf("portfolio has no tax lot detail for order %d", oid)
+		}
+		found := false
+		for _, v := range details {
+			if v.OrderNo == oid {
+				lots = append(lots, v)
+				found = true
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("tax lot detail has no entry for order %d", oid)
+		}
+	}
 	return lots, nil
 }
 
