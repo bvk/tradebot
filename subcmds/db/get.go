@@ -12,6 +12,7 @@ import (
 
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
+	"github.com/bvkgo/kv/kvhttp"
 	"github.com/visvasity/cli"
 )
 
@@ -31,6 +32,15 @@ func (c *Get) Run(ctx context.Context, args []string) error {
 		return err
 	}
 	defer closer()
+
+	// Without a local value-type, ask a remote server to convert the value to
+	// JSON (the server picks the concrete type from the key). Non-http databases
+	// don't support this and fall through to printing the raw bytes.
+	if c.valueType == "" {
+		if hdb, ok := db.(*kvhttp.DB); ok {
+			hdb.SetAccept("application/json")
+		}
+	}
 
 	snap, err := db.NewSnapshot(ctx)
 	if err != nil {

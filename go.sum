@@ -4,8 +4,8 @@ github.com/KarpelesLab/vncpasswd v1.0.1 h1:w0dhjSXfo59bm9/LLKhO7hV+GUGEn4WjAZTLX
 github.com/KarpelesLab/vncpasswd v1.0.1/go.mod h1:gh6AFDSUqRZwcdjAm/p8V81P9ePtOI65ajs7KT7D+Fc=
 github.com/beevik/ntp v1.5.0 h1:y+uj/JjNwlY2JahivxYvtmv4ehfi3h74fAuABB9ZSM4=
 github.com/beevik/ntp v1.5.0/go.mod h1:mJEhBrwT76w9D+IfOEGvuzyuudiW9E52U2BaTrMOYow=
-github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55 h1:tLDJCRB7Bqf98/0vTiCt0L7o/StfsjfIxgzVPKp8OCg=
-github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55/go.mod h1:qXpgt48a2BJTZuWXrCqiHqVT2UFBof1fF3qfTxCWSyo=
+github.com/bvkgo/kv v0.0.0-20261019220201-62ab605212a8 h1:ptMYrjBPQUSKWZ+yd9POAH/20woKc8/52AW6NeFEdWs=
+github.com/bvkgo/kv v0.0.0-20261019220201-62ab605212a8/go.mod h1:qXpgt48a2BJTZuWXrCqiHqVT2UFBof1fF3qfTxCWSyo=
 github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d h1:CGE+0LsMh2bI3wo86Oyo9Joq2bbfKY1tKYusO0II76k=
 github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d/go.mod h1:iia+mSsb/epB9FACYngxxyTy+hL8r8Nufc320DhYDSg=
 github.com/bvkgo/topic v1.0.1-0.20231225172130-d8945de4fa3c h1:rjg3+cJdUxmSa04r2Vb32jm18ssGjdEF+pNjcMppDPM=
@@ -81,8 +81,8 @@ github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeN
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 github.com/google/uuid v1.1.2/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/google/uuid v1.4.0 h1:MtMxsa51/r9yyhkyLsVeVt0B+BGQZzpQiTQ4eHZ8bc4=
-github.com/google/uuid v1.4.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/gorilla/websocket v1.4.0 h1:WDFjx/TMzVgy9VdMMQi2K2Emtwi2QcUQsztZ/zLaH/Q=
 github.com/gorilla/websocket v1.4.0/go.mod h1:E7qHFY5m1UJ88s3WnNqhKjPHQ0heANvMoAMk2YaljkQ=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=

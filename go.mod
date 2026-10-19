@@ -6,12 +6,12 @@ toolchain go1.24.11
 
 require (
 	github.com/KarpelesLab/vncpasswd v1.0.1
-	github.com/bvkgo/kv v0.0.0-20240323055300-c2b9891dec55
+	github.com/bvkgo/kv v0.0.0-20261019220201-62ab605212a8
 	github.com/bvkgo/kvbadger v0.0.0-20231109001103-13dc1607ba8d
 	github.com/bvkgo/topic v1.0.1-0.20231225172130-d8945de4fa3c
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/go-telegram/bot v1.15.0
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.4.0
 	github.com/mxschmitt/playwright-go v0.6100.0
 	github.com/nightlyone/lockfile v1.0.0

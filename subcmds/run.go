@@ -3,13 +3,17 @@
 package subcmds
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -17,6 +21,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -24,6 +29,7 @@ import (
 
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/daemonize"
+	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/httputil"
 	"github.com/bvk/tradebot/server"
 	"github.com/bvk/tradebot/subcmds/cmdutil"
@@ -349,7 +355,11 @@ func (c *Run) run(ctx context.Context, args []string) error {
 	defer bdb.Close()
 	db := kvbadger.New(bdb, isGoodKey)
 
-	s.AddHandler("/db/", http.StripPrefix("/db", kvhttp.Handler(db)))
+	dbHandler := kvhttp.Handler(db)
+	if err := kvhttp.SetContentTypeHandler(dbHandler, dbJSONContentHandler); err != nil {
+		return fmt.Errorf("could not set db content-type handler: %w", err)
+	}
+	s.AddHandler("/db/", http.StripPrefix("/db", dbHandler))
 
 	// Start other services.
 	topts := &server.Options{
@@ -417,6 +427,71 @@ func (c *Run) run(ctx context.Context, args []string) error {
 
 func isGoodKey(k string) bool {
 	return path.IsAbs(k) && k == path.Clean(k)
+}
+
+// dbValueTypes maps a database key (by regexp, most specific first) to the name
+// of the gobs type stored at that key. It is used by dbJSONContentHandler to
+// decode gob-encoded values server-side when a client asks for JSON.
+var dbValueTypes = []struct {
+	re       *regexp.Regexp
+	typename string
+}{
+	{regexp.MustCompile(`^/jobs/`), "JobData"},
+	{regexp.MustCompile(`^/wallers/`), "WallerState"},
+	{regexp.MustCompile(`^/limiters/`), "LimiterState"},
+	{regexp.MustCompile(`^/loopers/`), "LooperState"},
+	{regexp.MustCompile(`^/watchers/`), "WatcherState"},
+	{regexp.MustCompile(`^/names/`), "NameData"},
+	{regexp.MustCompile(`^/server/state$`), "ServerState"},
+	{regexp.MustCompile(`^/telegram/.+/state$`), "TelegramState"},
+	{regexp.MustCompile(`^/coinbase/candles/`), "CoinbaseCandles"},
+	{regexp.MustCompile(`^/coinbase/orders/`), "CoinbaseOrder"},
+	{regexp.MustCompile(`^/coinbase/filled/`), "CoinbaseOrderIDs"},
+	{regexp.MustCompile(`^/coinbase/products$`), "CoinbaseProducts"},
+	{regexp.MustCompile(`^/coinbase/accounts$`), "CoinbaseAccounts"},
+}
+
+// errReader is an io.Reader that always fails with its error. It lets the
+// content-type handler surface a conversion failure through the reader, which
+// the kvhttp server turns into an error response.
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// dbJSONContentHandler is a kvhttp content-type handler that converts a
+// gob-encoded value at key into JSON text when the client requests
+// application/json. The concrete gobs type is determined from the key via
+// dbValueTypes. It returns nil (meaning "no conversion", so the raw value is
+// served) for any other content type or for keys without a known type.
+func dbJSONContentHandler(ctype, key string, value io.Reader) io.Reader {
+	mediatype, _, err := mime.ParseMediaType(ctype)
+	if err != nil || mediatype != "application/json" {
+		return nil
+	}
+
+	var typename string
+	for _, m := range dbValueTypes {
+		if m.re.MatchString(key) {
+			typename = m.typename
+			break
+		}
+	}
+	if typename == "" {
+		return nil
+	}
+
+	v, err := gobs.NewByTypename(typename)
+	if err != nil {
+		return errReader{err}
+	}
+	if err := gob.NewDecoder(value).Decode(v); err != nil {
+		return errReader{fmt.Errorf("could not gob-decode %s value at key %q: %w", typename, key, err)}
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return errReader{err}
+	}
+	return bytes.NewReader(data)
 }
 
 func (c *Run) binaryBackupPath() string {
