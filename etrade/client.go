@@ -38,6 +38,11 @@ type Credentials = autologin.Credentials
 
 var ErrExtendedHoursClosed = errors.New("etrade: extended hours trading service is unavailable (7am-8pm ET)")
 
+// ErrCancelRejected indicates E*TRADE rejected an order cancel request (e.g. a
+// freshly-placed extended-hours order that is not yet cancelable). The cancel
+// did not take effect; the order is still working.
+var ErrCancelRejected = errors.New("etrade: order cancel was rejected")
+
 // Response envelope types — unexported, used only in this file for JSON unmarshaling.
 
 type ordersResponseWrapper struct {
@@ -877,8 +882,12 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 			return err
 		}
 		if httpResp.StatusCode == http.StatusOK {
-			io.Copy(io.Discard, httpResp.Body)
+			body, _ := io.ReadAll(httpResp.Body)
 			httpResp.Body.Close()
+			if err := cancelRejectionError(orderID, body); err != nil {
+				slog.Warn("etrade: order cancel was rejected", "orderID", orderID, "err", err)
+				return err
+			}
 			return nil
 		}
 		retry, err := c.handleHTTPError(ctx, httpResp, apiPath)
@@ -890,6 +899,44 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 			continue
 		}
 	}
+}
+
+// cancelRejectionError inspects a 200 cancel response body for a rejection.
+// E*TRADE may reject a cancel while still returning HTTP 200, carrying the
+// reason as an ERROR message in the JSON response, or (occasionally) as an XML
+// <code>…</code> error body. Returns ErrCancelRejected (with the reason) when
+// the cancel did not take effect, or nil when it was accepted.
+func cancelRejectionError(orderID int64, body []byte) error {
+	// E*TRADE's PUT .../orders/cancel envelope. A rejected cancel can still come
+	// back as HTTP 200 with the reason as an ERROR message (type is "ERROR",
+	// "WARNING" or "INFO").
+	type cancelResponse struct {
+		CancelOrderResponse struct {
+			OrderID  int64 `json:"orderId"`
+			Messages *struct {
+				Message []struct {
+					Code        int    `json:"code"`
+					Description string `json:"description"`
+					Type        string `json:"type"`
+				} `json:"Message"`
+			} `json:"Messages"`
+		} `json:"CancelOrderResponse"`
+	}
+
+	var resp cancelResponse
+	if err := json.Unmarshal(body, &resp); err == nil && resp.CancelOrderResponse.Messages != nil {
+		for _, m := range resp.CancelOrderResponse.Messages.Message {
+			if strings.EqualFold(m.Type, "ERROR") {
+				return fmt.Errorf("%w: order %d: [%d] %s", ErrCancelRejected, orderID, m.Code, m.Description)
+			}
+		}
+	}
+	// E*TRADE sometimes returns error details as an XML <code>…</code> body even
+	// with a 200 status.
+	if strings.Contains(string(body), "<code>") {
+		return fmt.Errorf("%w: order %d: %s", ErrCancelRejected, orderID, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (c *Client) makeTaxLotID(accountID, symbol, lotDetailURL string, orderNo int64) (gobs.TaxLotID, error) {
