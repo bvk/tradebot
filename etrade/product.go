@@ -38,6 +38,19 @@ type orderEntry struct {
 	ServerOrderID int64
 	AccountID     string
 	Placement     orderPlacementInfo
+
+	// Failed-create reconciliation outcome, set when a timed-out/failed place is
+	// resolved (by goCancelFailedCreates or the startup reconciler). When either
+	// is set the entry is a RETAINED audit record and is not auto-deleted; a
+	// future subcommand can list/clean/compact these. At most one is set.
+	AssumedNotCreated bool  // no matching open order was found for this create
+	MatchedOrderID    int64 // this create matched (and was cancelled as) this open server order id
+}
+
+// resolved reports whether the entry is a retained failed-create audit record
+// (as opposed to a live order still being tracked).
+func (e *orderEntry) resolved() bool {
+	return e.AssumedNotCreated || e.MatchedOrderID != 0
 }
 
 // Product implements exchange.Product for a single E*TRADE equity symbol.
@@ -155,14 +168,14 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 
 	lifeCtx, lifeCancel := context.WithCancelCause(context.Background())
 	p := &Product{
-		lifeCtx:             lifeCtx,
-		lifeCancel:          lifeCancel,
-		db:                  db,
-		client:              client,
-		symbol:              symbol,
-		failedCreatesCh:     make(chan uuid.UUID, 100),
-		productInfo:         oldInfo,
-		productAckReason:    checkProductNeedsAck(oldInfo, newInfo),
+		lifeCtx:          lifeCtx,
+		lifeCancel:       lifeCancel,
+		db:               db,
+		client:           client,
+		symbol:           symbol,
+		failedCreatesCh:  make(chan uuid.UUID, 100),
+		productInfo:      oldInfo,
+		productAckReason: checkProductNeedsAck(oldInfo, newInfo),
 	}
 	p.etradeOrderID.Store(time.Now().UnixNano())
 
@@ -185,6 +198,10 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		}
 		if e.AccountID == "" {
 			return fmt.Errorf("etrade: database has an order status entry without account id")
+		}
+		if e.resolved() {
+			// Retained failed-create audit record; do not reconcile or track it.
+			return nil
 		}
 		if _, ok := p.account2serverIDMap.Load(e.AccountID); !ok {
 			slog.Warn("etrade: database has an order status with unrecognized account id", "account-id", e.AccountID)
@@ -254,8 +271,9 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 			if found == nil {
 				// Not in open orders: either never created, or filled/cancelled
 				// before we could check. Remove the entry.
-				slog.Warn("etrade: startup: order with unknown server ID not found in open orders; removing", "symbol", symbol, "account-id", entry.AccountID, "uid", uid)
-				if err := p.dbDeleteEntry(ctx, uid); err != nil {
+				slog.Warn("etrade: startup: order with unknown server ID not found in open orders; assuming not created", "symbol", symbol, "account-id", entry.AccountID, "uid", uid)
+				entry.AssumedNotCreated = true
+				if err := p.dbSetEntry(ctx, uid, entry); err != nil {
 					lifeCancel(err)
 					return nil, err
 				}
@@ -606,9 +624,10 @@ func (p *Product) goWatchOrderUpdates(ctx context.Context) {
 			cstatus.mu.Lock()
 			cstatus.order = &owned
 			done := order.IsDone()
+			keep := cstatus.keepDBEntry
 			cstatus.mu.Unlock()
 
-			if done {
+			if done && !keep {
 				if err := p.dbDeleteEntry(ctx, uid); err != nil {
 					slog.Warn("etrade: could not delete completed order entry", "symbol", p.symbol, "account-id", order.AccountID, "uid", uid, "err", err)
 				}
@@ -686,18 +705,19 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 				retryBackoff = min(retryBackoff+1, 6)
 				continue
 			}
+			slog.Info("etrade: fetched open orders to reconcile failed creates", "open-count", len(openOrders))
 
 			found := matchOpenOrder(openOrders, cstatus.accountID, p.symbol, placement)
-
 			if found == nil {
-				// Order was not created (or already filled before we checked).
-				// Leave cstatus.err set from the original PlaceOrder failure and
-				// remove the persisted entry since there is no order to track.
+				// No matching open order. Leave cstatus.err set from the original
+				// PlaceOrder failure and RETAIN the entry (flagged) as an audit
+				// record rather than deleting it.
 				retryBackoff = 0
 				slog.Warn("etrade: failed-create order not found in open orders; assuming not created",
 					"clientOrderUUID", uid, "side", placement.Side, "price", placement.Price, "qty", placement.Qty)
-				if err := p.dbDeleteEntry(ctx, uid); err != nil {
-					slog.Error("etrade: could not delete unrecovered order entry (will retry)",
+				entry := &orderEntry{AccountID: cstatus.accountID, Placement: placement, AssumedNotCreated: true}
+				if err := p.dbSetEntry(ctx, uid, entry); err != nil {
+					slog.Error("etrade: could not flag assumed-not-created order entry (will retry)",
 						"clientOrderUUID", uid, "err", err, "retryAfter", time.Second<<retryBackoff)
 					retryMap[uid] = time.Now().Add(time.Second << retryBackoff)
 					retryBackoff = min(retryBackoff+1, 6)
@@ -708,7 +728,7 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 
 			// Order was created. Update the DB entry with the server order ID so
 			// that a crash during cancellation can be recovered on next startup.
-			if err := p.dbSetEntry(ctx, uid, &orderEntry{AccountID: cstatus.accountID, ServerOrderID: found.OrderID, Placement: placement}); err != nil {
+			if err := p.dbSetEntry(ctx, uid, &orderEntry{AccountID: cstatus.accountID, ServerOrderID: found.OrderID, Placement: placement, MatchedOrderID: found.OrderID}); err != nil {
 				slog.Error("etrade: could not persist server order ID for failed-create (will retry)",
 					"clientOrderUUID", uid, "orderID", found.OrderID, "err", err, "retryAfter", time.Second<<retryBackoff)
 				retryMap[uid] = time.Now().Add(time.Second << retryBackoff)
@@ -717,9 +737,14 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 			}
 			p.accountOrders(cstatus.accountID).Store(found.OrderID, uid)
 
+			// Retain the entry as a matched audit record: mark it so
+			// goWatchOrderUpdates does not delete it when the cancel completes.
+			cstatus.mu.Lock()
+			cstatus.keepDBEntry = true
+			cstatus.mu.Unlock()
+
 			// Cancel the order and start tracking it so goRefreshOrders polls for
-			// the final CANCELLED state; goWatchOrderUpdates removes the DB entry
-			// when that update arrives.
+			// the final CANCELLED state.
 			p.client.TrackOrder(cstatus.accountID, found.OrderID)
 			if err := p.client.CancelOrder(ctx, cstatus.accountID, found.OrderID); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
@@ -731,10 +756,9 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 					continue
 				}
 				// os.ErrNotExist means the order disappeared (filled or already
-				// cancelled). Remove the entry since the order is conclusively done.
-				if err := p.dbDeleteEntry(ctx, uid); err != nil {
-					slog.Warn("etrade: could not delete disappeared order entry", "clientOrderUUID", uid, "err", err)
-				}
+				// cancelled). The entry is retained as a matched failed-create
+				// audit record (MatchedOrderID was persisted above).
+				slog.Warn("etrade: failed-create matched order already gone (filled/cancelled); entry retained", "clientOrderUUID", uid, "orderID", found.OrderID)
 			}
 
 			retryBackoff = 0

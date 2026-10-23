@@ -44,6 +44,11 @@ type clientIDStatus struct {
 	// placement holds the original request parameters, set before PlaceOrder is
 	// called and used for recovery matching if the call times out or crashes.
 	placement orderPlacementInfo
+
+	// keepDBEntry, when true, tells goWatchOrderUpdates not to delete the DB
+	// entry when the order reaches a terminal state. Set for a failed-create that
+	// was matched to an open order and is retained as an audit record.
+	keepDBEntry bool
 }
 
 func absInt64(v int64) int64 {
