@@ -215,6 +215,13 @@ type Client struct {
 	wg sync.WaitGroup
 
 	reloginMutex sync.Mutex
+	// reloginLastAttempt and reloginLastErr record the outcome of the most
+	// recent relogin attempt. While reloginCooldown hasn't elapsed since
+	// reloginLastAttempt, relogin returns reloginLastErr without spawning a
+	// new login subprocess, so a login stuck behind a manual challenge isn't
+	// re-attempted on every single 401 from every background poller.
+	reloginLastAttempt time.Time
+	reloginLastErr     error
 
 	opts  Options
 	creds atomic.Pointer[Credentials]
@@ -1482,9 +1489,23 @@ func (c *Client) goLogin(ctx context.Context) {
 	}
 }
 
-func (c *Client) relogin(ctx context.Context) error {
+// reloginCooldown bounds how often relogin will actually spawn the login
+// subprocess. Callers that hit relogin in quick succession (e.g. every
+// background poller getting a 401 at once) get the last attempt's result
+// instead of each triggering their own subprocess.
+const reloginCooldown = 5 * time.Minute
+
+func (c *Client) relogin(ctx context.Context) (err error) {
 	c.reloginMutex.Lock()
 	defer c.reloginMutex.Unlock()
+
+	if !c.reloginLastAttempt.IsZero() && time.Since(c.reloginLastAttempt) < reloginCooldown {
+		return c.reloginLastErr
+	}
+	defer func() {
+		c.reloginLastAttempt = time.Now()
+		c.reloginLastErr = err
+	}()
 
 	if c.opts.DisplayRunner == nil {
 		return fmt.Errorf("etrade: a X11 display server is required for automated logins")
