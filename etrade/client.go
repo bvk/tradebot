@@ -43,6 +43,11 @@ var ErrExtendedHoursClosed = errors.New("etrade: extended hours trading service 
 // did not take effect; the order is still working.
 var ErrCancelRejected = errors.New("etrade: order cancel was rejected")
 
+// reloginCooldown bounds how often relogin will re-run the unattended login
+// subprocess after a failure, so a login stuck behind a manual challenge
+// isn't retried on every single 401 from every background poller.
+const reloginCooldown = time.Minute
+
 // Response envelope types — unexported, used only in this file for JSON unmarshaling.
 
 type ordersResponseWrapper struct {
@@ -215,6 +220,12 @@ type Client struct {
 	wg sync.WaitGroup
 
 	reloginMutex sync.Mutex
+	// lastReloginFailure and lastReloginErr record the most recent failed
+	// relogin attempt, guarded by reloginMutex. They let relogin skip
+	// re-running the login subprocess for every 401 from every poller while a
+	// failure (e.g. a login stuck behind a manual challenge) persists.
+	lastReloginFailure time.Time
+	lastReloginErr     error
 
 	opts  Options
 	creds atomic.Pointer[Credentials]
@@ -1482,9 +1493,22 @@ func (c *Client) goLogin(ctx context.Context) {
 	}
 }
 
-func (c *Client) relogin(ctx context.Context) error {
+func (c *Client) relogin(ctx context.Context) (err error) {
 	c.reloginMutex.Lock()
 	defer c.reloginMutex.Unlock()
+
+	if !c.lastReloginFailure.IsZero() && time.Since(c.lastReloginFailure) < reloginCooldown {
+		return fmt.Errorf("etrade: relogin failed %v ago and is in cooldown, not retrying yet: %w", time.Since(c.lastReloginFailure).Round(time.Second), c.lastReloginErr)
+	}
+	defer func() {
+		if err != nil {
+			c.lastReloginFailure = time.Now()
+			c.lastReloginErr = err
+		} else {
+			c.lastReloginFailure = time.Time{}
+			c.lastReloginErr = nil
+		}
+	}()
 
 	if c.opts.DisplayRunner == nil {
 		return fmt.Errorf("etrade: a X11 display server is required for automated logins")
