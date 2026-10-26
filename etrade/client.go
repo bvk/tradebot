@@ -215,6 +215,14 @@ type Client struct {
 	wg sync.WaitGroup
 
 	reloginMutex sync.Mutex
+	// lastReloginAt and lastReloginErr record the outcome of the most recent
+	// relogin attempt. Every 401 response from every background poller calls
+	// relogin, so without this a login that's stuck on a manual challenge (see
+	// autologin.ErrChallengeRequiresManualCompletion) gets re-attempted -- each
+	// attempt spawning a browser -- on every single failing API call instead of
+	// waiting for the human intervention the error demands.
+	lastReloginAt  time.Time
+	lastReloginErr error
 
 	opts  Options
 	creds atomic.Pointer[Credentials]
@@ -1482,9 +1490,22 @@ func (c *Client) goLogin(ctx context.Context) {
 	}
 }
 
-func (c *Client) relogin(ctx context.Context) error {
+// reloginCooldown is the minimum time between unattended login subprocess
+// attempts once one has failed, so a login stuck behind a manual challenge
+// doesn't get re-attempted on every single 401 from every background poller.
+const reloginCooldown = time.Minute
+
+func (c *Client) relogin(ctx context.Context) (err error) {
 	c.reloginMutex.Lock()
 	defer c.reloginMutex.Unlock()
+
+	if c.lastReloginErr != nil && time.Since(c.lastReloginAt) < reloginCooldown {
+		return c.lastReloginErr
+	}
+	defer func() {
+		c.lastReloginAt = time.Now()
+		c.lastReloginErr = err
+	}()
 
 	if c.opts.DisplayRunner == nil {
 		return fmt.Errorf("etrade: a X11 display server is required for automated logins")
