@@ -5,6 +5,7 @@ package exchange
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"time"
@@ -19,6 +20,31 @@ var (
 	ErrNoFund   = errors.New("insufficient fund")
 	ErrNeedsAck = errors.New("needs user acknowledgment")
 )
+
+// RetryAfter wraps an error that should not be retried before At — e.g. an
+// exchange whose trading session is temporarily closed. Callers should wait
+// until At (interruptibly) and retry with fresh market data rather than
+// immediately re-attempting and hammering the exchange.
+type RetryAfter struct {
+	At  time.Time
+	Err error
+}
+
+func (e *RetryAfter) Error() string {
+	return fmt.Sprintf("retry after %s: %v", e.At.Format(time.RFC3339), e.Err)
+}
+
+func (e *RetryAfter) Unwrap() error { return e.Err }
+
+// RetryAfterTime returns the retry-after time when err (or an error it wraps)
+// is a *RetryAfter.
+func RetryAfterTime(err error) (time.Time, bool) {
+	var ra *RetryAfter
+	if errors.As(err, &ra) {
+		return ra.At, true
+	}
+	return time.Time{}, false
+}
 
 type Messenger interface {
 	SendMessage(ctx context.Context, at time.Time, fmtstr string, args ...any)

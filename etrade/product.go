@@ -350,12 +350,14 @@ func (p *Product) GetPriceUpdates() (*topic.Receiver[exchange.PriceUpdate], erro
 	return topic.SubscribeFunc(p.client.getSymbolPriceTopic(p.symbol), fn, 1, true)
 }
 
-// sleepUntilExtendedHoursOpen waits until 7am ET (when E*TRADE extended hours
-// trading opens). Called when extended hours are closed and we need to retry.
-func (p *Product) sleepUntilExtendedHoursOpen(ctx context.Context) error {
+// nextExtendedHoursOpen returns the next time E*TRADE extended-hours trading
+// opens (7am ET), skipping weekends. Used to tell the caller when to retry an
+// order rejected because the extended-hours session is closed.
+func nextExtendedHoursOpen() time.Time {
 	loc, err := time.LoadLocation("America/New_York")
 	if err != nil {
-		return fmt.Errorf("could not load NY timezone: %w", err)
+		// Timezone database unavailable; retry in an hour as a safe fallback.
+		return time.Now().Add(time.Hour)
 	}
 	now := time.Now().In(loc)
 	year, month, day := now.Date()
@@ -370,16 +372,7 @@ func (p *Product) sleepUntilExtendedHoursOpen(ctx context.Context) error {
 	case time.Sunday:
 		nextOpen = nextOpen.Add(24 * time.Hour)
 	}
-	waitDur := nextOpen.Sub(now)
-	slog.Warn("etrade: extended hours closed, sleeping until 7am ET", "wake-at", nextOpen, "wait", waitDur)
-	select {
-	case <-time.After(waitDur):
-		return nil
-	case <-ctx.Done():
-		return context.Cause(ctx)
-	case <-p.lifeCtx.Done():
-		return context.Cause(p.lifeCtx)
-	}
+	return nextOpen
 }
 
 // roundLimitPrice rounds a limit price to the precision E*TRADE requires:
@@ -481,14 +474,12 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 			break
 		}
 		if errors.Is(err, ErrExtendedHoursClosed) {
-			// Extended hours window is closed. Sleep until 7am ET and retry.
-			if sleepErr := p.sleepUntilExtendedHoursOpen(ctx); sleepErr != nil {
-				// No order was created (E*TRADE rejected at preview). Delete
-				// the DB entry directly rather than going through failedCreatesCh.
-				p.dbDeleteEntry(p.lifeCtx, clientOrderUUID)
-				return nil, sleepErr
-			}
-			continue
+			// Extended-hours session is closed. Do not block here — the order was
+			// rejected at preview (not created), so delete the entry and return a
+			// RetryAfter so the caller waits interruptibly and re-evaluates with
+			// fresh market data when the session reopens.
+			p.dbDeleteEntry(p.lifeCtx, clientOrderUUID)
+			return nil, &exchange.RetryAfter{At: nextExtendedHoursOpen(), Err: err}
 		}
 		// Other error: order may or may not have been created on E*TRADE.
 		// goCancelFailedCreates will resolve this and clean up the DB entry.

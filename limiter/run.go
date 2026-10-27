@@ -164,7 +164,10 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 					if activeOrderID == "" {
 						id, err := v.create(localCtx, rt)
 						if err != nil {
-							return err
+							if werr := v.awaitRetry(ctx, err); werr != nil {
+								return werr
+							}
+							continue
 						}
 						dirty++
 						activeOrderID = id
@@ -192,7 +195,10 @@ func (v *Limiter) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 					if activeOrderID == "" {
 						id, err := v.create(localCtx, rt)
 						if err != nil {
-							return err
+							if werr := v.awaitRetry(ctx, err); werr != nil {
+								return werr
+							}
+							continue
 						}
 						dirty++
 						activeOrderID = id
@@ -251,6 +257,29 @@ func (v *Limiter) Refresh(ctx context.Context, rt *trader.Runtime) error {
 	}
 	// FIXME: We may also need to check for presence of unsaved orders with future client-ids.
 	return nil
+}
+
+// awaitRetry handles a create error that requests a delayed retry (e.g. a
+// closed trading session). If err carries an exchange.RetryAfter time, it waits
+// until then — interruptibly — and returns nil so the caller re-evaluates on the
+// next tick with fresh data; otherwise it returns err unchanged. Returns the
+// context cause if the wait is interrupted (job paused/canceled).
+func (v *Limiter) awaitRetry(ctx context.Context, err error) error {
+	at, ok := exchange.RetryAfterTime(err)
+	if !ok {
+		return err
+	}
+	d := time.Until(at)
+	slog.Warn("limiter waiting for exchange session to reopen before retrying", "limiter", v, "point", v.point, "retry-at", at, "wait", d, "reason", err)
+	if d <= 0 {
+		return nil
+	}
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
 }
 
 func (v *Limiter) create(ctx context.Context, rt *trader.Runtime) (string, error) {
