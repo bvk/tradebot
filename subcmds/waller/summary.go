@@ -373,7 +373,7 @@ func (c *Summary) printTable(w io.Writer, items []*WallerSummaryItem) error {
 	titleBuf.WriteRune('\n')
 	formatBuf.WriteRune('\n')
 
-	fmt.Fprintf(tw, titleBuf.String())
+	fmt.Fprint(tw, titleBuf.String())
 	for _, item := range items {
 		var values []any
 		for i := range len(fields) {
