@@ -444,6 +444,7 @@ var dbValueTypes = []struct {
 	{regexp.MustCompile(`^/names/`), "NameData"},
 	{regexp.MustCompile(`^/server/state$`), "ServerState"},
 	{regexp.MustCompile(`^/telegram/.+/state$`), "TelegramState"},
+	{regexp.MustCompile(`^/etrade/symbol/.+/clientorder/`), "ETradeOrderEntry"},
 	{regexp.MustCompile(`^/coinbase/candles/`), "CoinbaseCandles"},
 	{regexp.MustCompile(`^/coinbase/orders/`), "CoinbaseOrder"},
 	{regexp.MustCompile(`^/coinbase/filled/`), "CoinbaseOrderIDs"},

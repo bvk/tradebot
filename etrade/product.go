@@ -30,28 +30,9 @@ import (
 )
 
 // orderEntry is the value persisted in the database for each order we place,
-// keyed by the client order UUID. ServerOrderID is 0 until PlaceOrder returns
-// successfully. Placement is written before PlaceOrder is called so that if
-// the process crashes before the server order ID is known, startup
-// reconciliation can match the order in the open-orders list by parameters.
-type orderEntry struct {
-	ServerOrderID int64
-	AccountID     string
-	Placement     orderPlacementInfo
-
-	// Failed-create reconciliation outcome, set when a timed-out/failed place is
-	// resolved (by goCancelFailedCreates or the startup reconciler). When either
-	// is set the entry is a RETAINED audit record and is not auto-deleted; a
-	// future subcommand can list/clean/compact these. At most one is set.
-	AssumedNotCreated bool  // no matching open order was found for this create
-	MatchedOrderID    int64 // this create matched (and was cancelled as) this open server order id
-}
-
-// resolved reports whether the entry is a retained failed-create audit record
-// (as opposed to a live order still being tracked).
-func (e *orderEntry) resolved() bool {
-	return e.AssumedNotCreated || e.MatchedOrderID != 0
-}
+// keyed by the client order UUID. The durable type lives in the gobs package
+// (the on-disk schema); this alias keeps the in-package call sites terse.
+type orderEntry = gobs.ETradeOrderEntry
 
 // Product implements exchange.Product for a single E*TRADE equity symbol.
 type Product struct {
@@ -199,7 +180,7 @@ func NewProduct(ctx context.Context, db kv.Database, client *Client, symbol stri
 		if e.AccountID == "" {
 			return fmt.Errorf("etrade: database has an order status entry without account id")
 		}
-		if e.resolved() {
+		if e.Resolved() {
 			// Retained failed-create audit record; do not reconcile or track it.
 			return nil
 		}
