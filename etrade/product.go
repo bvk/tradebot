@@ -458,8 +458,12 @@ func (p *Product) PlaceLimitOrder(ctx context.Context, accountID string, clientO
 			// Extended-hours session is closed. Do not block here — the order was
 			// rejected at preview (not created), so delete the entry and return a
 			// RetryAfter so the caller waits interruptibly and re-evaluates with
-			// fresh market data when the session reopens.
+			// fresh market data when the session reopens. The client already wraps
+			// the error with the reopen time; wrap only if some path did not.
 			p.dbDeleteEntry(p.lifeCtx, clientOrderUUID)
+			if _, ok := exchange.RetryAfterTime(err); ok {
+				return nil, err
+			}
 			return nil, &exchange.RetryAfter{At: nextExtendedHoursOpen(), Err: err}
 		}
 		// Other error: order may or may not have been created on E*TRADE.
@@ -608,6 +612,18 @@ func (p *Product) goWatchOrderUpdates(ctx context.Context) {
 	}
 }
 
+// nextRetry decides when to retry a failed reconciliation step. When err (or an
+// error it wraps) carries a RetryAfter deadline — e.g. the extended-hours
+// session is closed — it returns that time and resets the backoff, so the
+// reconciler waits until the session reopens instead of hammering the exchange.
+// Otherwise it falls back to a capped exponential backoff.
+func nextRetry(err error, backoff int) (at time.Time, nextBackoff int) {
+	if t, ok := exchange.RetryAfterTime(err); ok {
+		return t, 0
+	}
+	return time.Now().Add(time.Second << backoff), min(backoff+1, 6)
+}
+
 // goCancelFailedCreates handles orders whose PlaceOrder call returned an error.
 // It scans open orders by (symbol, side, price, qty, time) to determine if the
 // order was actually created despite the error, and cancels it if so.
@@ -629,23 +645,48 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 	retryMap := make(map[uuid.UUID]time.Time)
 	retryBackoff := 0
 
+	var wakeTimer *time.Timer
+	defer func() {
+		if wakeTimer != nil {
+			wakeTimer.Stop()
+		}
+	}()
+
 	for {
-		// If any retries are due, re-inject one into the channel.
+		// If any retries are due, re-inject one into the channel. Otherwise, if
+		// there are retries scheduled in the future, arm a timer for the earliest
+		// so the loop wakes and re-evaluates (a RetryAfter deadline can be hours
+		// out, e.g. waiting for extended hours to reopen).
 		var retryCh chan uuid.UUID
 		var retryUID uuid.UUID
+		var wakeCh <-chan time.Time
 		if len(retryMap) > 0 {
 			now := time.Now()
+			var earliest time.Time
 			for uid, at := range retryMap {
 				if !at.After(now) {
 					retryUID, retryCh = uid, p.failedCreatesCh
 					break
 				}
+				if earliest.IsZero() || at.Before(earliest) {
+					earliest = at
+				}
+			}
+			if retryCh == nil && !earliest.IsZero() {
+				if wakeTimer != nil {
+					wakeTimer.Stop()
+				}
+				wakeTimer = time.NewTimer(time.Until(earliest))
+				wakeCh = wakeTimer.C
 			}
 		}
 
 		select {
 		case <-ctx.Done():
 			return
+
+		case <-wakeCh:
+			// A scheduled retry is (about to be) due; loop to re-evaluate.
 
 		case retryCh <- retryUID:
 			delete(retryMap, retryUID)
@@ -669,12 +710,13 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 			}
 			openOrders, err := p.client.ListOpenOrders(ctx, cstatus.accountID)
 			if err != nil {
+				at, nb := nextRetry(err, retryBackoff)
 				if !os.IsTimeout(err) {
 					slog.Error("etrade: could not list open orders in goCancelFailedCreates (will retry)",
-						"clientOrderUUID", uid, "err", err, "retryAfter", time.Second<<retryBackoff)
+						"clientOrderUUID", uid, "err", err, "retryAt", at)
 				}
-				retryMap[uid] = time.Now().Add(time.Second << retryBackoff)
-				retryBackoff = min(retryBackoff+1, 6)
+				retryMap[uid] = at
+				retryBackoff = nb
 				continue
 			}
 			slog.Info("etrade: fetched open orders to reconcile failed creates", "open-count", len(openOrders))
@@ -689,10 +731,11 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 					"clientOrderUUID", uid, "side", placement.Side, "price", placement.Price, "qty", placement.Qty)
 				entry := &orderEntry{AccountID: cstatus.accountID, Placement: placement, AssumedNotCreated: true}
 				if err := p.dbSetEntry(ctx, uid, entry); err != nil {
+					at, nb := nextRetry(err, retryBackoff)
 					slog.Error("etrade: could not flag assumed-not-created order entry (will retry)",
-						"clientOrderUUID", uid, "err", err, "retryAfter", time.Second<<retryBackoff)
-					retryMap[uid] = time.Now().Add(time.Second << retryBackoff)
-					retryBackoff = min(retryBackoff+1, 6)
+						"clientOrderUUID", uid, "err", err, "retryAt", at)
+					retryMap[uid] = at
+					retryBackoff = nb
 					continue
 				}
 				continue
@@ -701,10 +744,11 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 			// Order was created. Update the DB entry with the server order ID so
 			// that a crash during cancellation can be recovered on next startup.
 			if err := p.dbSetEntry(ctx, uid, &orderEntry{AccountID: cstatus.accountID, ServerOrderID: found.OrderID, Placement: placement, MatchedOrderID: found.OrderID}); err != nil {
+				at, nb := nextRetry(err, retryBackoff)
 				slog.Error("etrade: could not persist server order ID for failed-create (will retry)",
-					"clientOrderUUID", uid, "orderID", found.OrderID, "err", err, "retryAfter", time.Second<<retryBackoff)
-				retryMap[uid] = time.Now().Add(time.Second << retryBackoff)
-				retryBackoff = min(retryBackoff+1, 6)
+					"clientOrderUUID", uid, "orderID", found.OrderID, "err", err, "retryAt", at)
+				retryMap[uid] = at
+				retryBackoff = nb
 				continue
 			}
 			p.accountOrders(cstatus.accountID).Store(found.OrderID, uid)
@@ -720,11 +764,12 @@ func (p *Product) goCancelFailedCreates(ctx context.Context) {
 			p.client.TrackOrder(cstatus.accountID, found.OrderID)
 			if err := p.client.CancelOrder(ctx, cstatus.accountID, found.OrderID); err != nil {
 				if !errors.Is(err, os.ErrNotExist) {
+					at, nb := nextRetry(err, retryBackoff)
 					slog.Error("etrade: could not cancel failed-create order (will retry)",
 						"clientOrderUUID", uid, "orderID", found.OrderID, "err", err,
-						"retryAfter", time.Second<<retryBackoff)
-					retryMap[uid] = time.Now().Add(time.Second << retryBackoff)
-					retryBackoff = min(retryBackoff+1, 6)
+						"retryAt", at)
+					retryMap[uid] = at
+					retryBackoff = nb
 					continue
 				}
 				// os.ErrNotExist means the order disappeared (filled or already

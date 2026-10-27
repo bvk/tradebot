@@ -28,6 +28,7 @@ import (
 	"github.com/bvk/tradebot/ctxutil"
 	"github.com/bvk/tradebot/etrade/autologin"
 	"github.com/bvk/tradebot/etrade/internal"
+	"github.com/bvk/tradebot/exchange"
 	"github.com/bvk/tradebot/gobs"
 	"github.com/bvk/tradebot/syncmap"
 	"github.com/shopspring/decimal"
@@ -532,7 +533,10 @@ func (c *Client) handleHTTPError(ctx context.Context, resp *http.Response, apiPa
 		// Check for E*TRADE error codes in any responses (delivered in XML body).
 		if strings.Contains(string(body), "<code>1513</code>") {
 			slog.Warn("etrade: extended hours service unavailable", "path", apiPath)
-			return false, ErrExtendedHoursClosed
+			// Carry the next extended-hours open time so callers (the limiter's
+			// create path and the background reconciler) can wait interruptibly
+			// until the session reopens instead of hammering the exchange.
+			return false, &exchange.RetryAfter{At: nextExtendedHoursOpen(), Err: ErrExtendedHoursClosed}
 		}
 		slog.Error("etrade: unexpected HTTP status", "path", apiPath, "status", resp.StatusCode, "body", string(body))
 		return false, fmt.Errorf("etrade: %s returned HTTP %d", apiPath, resp.StatusCode)
