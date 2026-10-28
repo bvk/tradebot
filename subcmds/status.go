@@ -52,7 +52,7 @@ func (c *Status) Command() (string, *flag.FlagSet, cli.CmdFunc) {
 	fset.Float64Var(&c.budget, "budget", 0, "Includes this budget in the return rate table")
 	fset.StringVar(&c.beginTime, "begin-time", "", "Begin time for status time period")
 	fset.StringVar(&c.endTime, "end-time", "", "End time for status time period")
-	fset.StringVar(&c.pricesFrom, "prices-from", "coinex", "Exchange name to fetch current prices.")
+	fset.StringVar(&c.pricesFrom, "prices-from", "coinbase", "Exchange name to fetch current prices.")
 	return "status", fset, cli.CmdFunc(c.run)
 }
 
