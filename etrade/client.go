@@ -538,7 +538,11 @@ func (c *Client) handleHTTPError(ctx context.Context, resp *http.Response, apiPa
 			// until the session reopens instead of hammering the exchange.
 			return false, &exchange.RetryAfter{At: nextExtendedHoursOpen(), Err: ErrExtendedHoursClosed}
 		}
-		slog.Error("etrade: unexpected HTTP status", "path", apiPath, "status", resp.StatusCode, "body", string(body))
+		// Log Retry-After/Date so we can learn whether E*TRADE advertises a
+		// backoff interval on 503/400 responses (it does on 429). If it does, we
+		// can honor it via exchange.RetryAfter the same way we do for rate limits.
+		slog.Error("etrade: unexpected HTTP status", "path", apiPath, "status", resp.StatusCode,
+			"retry-after", resp.Header.Get("Retry-After"), "date", resp.Header.Get("Date"), "body", string(body))
 		return false, fmt.Errorf("etrade: %s returned HTTP %d", apiPath, resp.StatusCode)
 	}
 }
