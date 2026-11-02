@@ -317,7 +317,13 @@ func (p *Product) GetOrderUpdates(accountID string) (*topic.Receiver[exchange.Or
 		}
 		uid, ok := p.accountOrders(accountID).Load(o.OrderID)
 		if !ok {
-			return o
+			// We cannot resolve this order's ClientUUID yet (e.g. an in-flight
+			// poll published a just-placed order before PlaceLimitOrder stored
+			// the serverID->UUID mapping). Drop the update rather than emit it
+			// with a nil UUID: a nil UUID fails SimpleOrder.AddUpdate's identity
+			// check (os.ErrInvalid) in the limiter. The order stays tracked, so
+			// the next poll cycle re-delivers it once the mapping is known.
+			return nil
 		}
 		clone := *o
 		clone.ClientUUID = uid
