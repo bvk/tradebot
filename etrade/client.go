@@ -3,6 +3,7 @@
 package etrade
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -889,9 +890,15 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 			}
 			return err
 		}
+		// TEMPORARY (remove after cancel investigation, ~Nov 2026): log the full
+		// cancel response body regardless of HTTP status, to understand why some
+		// cancels sit in "Cancel Requested" until the order expires. We read the
+		// body here and restore it so the status handling below is unaffected.
+		body, _ := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+		httpResp.Body = io.NopCloser(bytes.NewReader(body))
+		slog.Info("etrade: cancel response body", "orderID", orderID, "status", httpResp.StatusCode, "body", string(body))
 		if httpResp.StatusCode == http.StatusOK {
-			body, _ := io.ReadAll(httpResp.Body)
-			httpResp.Body.Close()
 			if err := cancelRejectionError(orderID, body); err != nil {
 				slog.Warn("etrade: order cancel was rejected", "orderID", orderID, "err", err)
 				return err
