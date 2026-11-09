@@ -886,10 +886,10 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 			}
 			return err
 		}
-		// TEMPORARY (remove after cancel investigation, ~Nov 2026): log the full
-		// cancel response body regardless of HTTP status, to understand why some
-		// cancels sit in "Cancel Requested" until the order expires. We read the
-		// body here and restore it so the status handling below is unaffected.
+		// TEMPORARY (remove after cancel investigation, ~Nov 11 2026): log the
+		// full cancel response body regardless of HTTP status, to understand why
+		// some cancels sit in "Cancel Requested" until the order expires. We read
+		// the body here and restore it so the status handling below is unaffected.
 		body, _ := io.ReadAll(httpResp.Body)
 		httpResp.Body.Close()
 		httpResp.Body = io.NopCloser(bytes.NewReader(body))
@@ -901,6 +901,10 @@ func (c *Client) CancelOrder(ctx context.Context, accountID string, orderID int6
 			}
 			return nil
 		}
+		// A non-200 cancel (e.g. 400 code 5001 "currently being executed or
+		// rejected") is already surfaced as an error by handleHTTPError; unlike a
+		// 200 body it never masquerades as success, so it needs no separate
+		// rejection detection here.
 		retry, err := c.handleHTTPError(ctx, httpResp, apiPath)
 		httpResp.Body.Close()
 		if err != nil {

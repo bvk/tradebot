@@ -137,6 +137,13 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 			action = "BUY"
 		}
 
+		// If the next action is a *new* SELL and the exchange supports TaxLots, then we *must* resolve tax lots for all buys.
+		if taxLotResolver != nil && action == "SELL" && psell.IsZero() {
+			if m := v.unsoldBuysMissingTaxLots(holdings); len(m) != 0 {
+				action = "FIX-TAX-LOTS"
+			}
+		}
+
 		// Handle job specific options.
 		if v.retireOpt && action == "BUY" && pbuy.IsZero() {
 			slog.Info("looper job is retired without starting a new buy", "looper", v, "bought", bought, "sold", sold, "numBuys", numBuys, "pbuy", pbuy, "numSells", numSells, "psell", psell, "nbuys", nbuys, "nsells", nsells, "holdings", holdings)
@@ -202,14 +209,19 @@ func (v *Looper) Run(ctx context.Context, rt *trader.Runtime) (status error) {
 				jobUpdatesCh <- v.UID()
 			}
 
+		case "FIX-TAX-LOTS":
+			// Backfill tax lots for any completed buy missing them, before
+			// both creating a new sell and resuming an existing one.
+			v.fixBuyTaxLots(ctx, rt, taxLotResolver)
+			if m := v.unsoldBuysMissingTaxLots(holdings); len(m) != 0 {
+				ctxutil.Sleep(ctx, time.Second)
+				continue
+			}
+
 		case "SELL":
 			// Start a sell if holding amount is greater than sell size.
 			if action == "SELL" {
 				slog.Debug("starting/resuming a limiter sell", "looper", v, "bought", bought, "sold", sold, "holdings", holdings)
-
-				// Backfill tax lots for any completed buy missing them, before
-				// both creating a new sell and resuming an existing one.
-				v.fixBuyTaxLots(ctx, rt, taxLotResolver)
 
 				if len(v.sells) == 0 || v.sells[len(v.sells)-1].PendingSize().IsZero() {
 					if err := v.addNewSell(ctx, rt, v.unusedTaxLots()); err != nil {
@@ -331,6 +343,29 @@ func (v *Looper) fixBuyTaxLots(ctx context.Context, rt *trader.Runtime, resolver
 			continue
 		}
 	}
+}
+
+// unsoldBuysMissingTaxLots returns the still-unsold buys (the trailing buys
+// that make up the current holdings) that lack resolved tax-lot ids. On a
+// tax-lot exchange a sell must not start until this is empty, so it sells the
+// intended lots rather than an untargeted default lot. Already-sold buys are
+// not inspected: their lots are gone and no longer resolvable, so they must
+// never wedge the gate.
+func (v *Looper) unsoldBuysMissingTaxLots(holdings decimal.Decimal) []*limiter.Limiter {
+	var acc decimal.Decimal
+	var missing []*limiter.Limiter
+	for i := len(v.buys) - 1; i >= 0 && acc.LessThan(holdings); i-- {
+		b := v.buys[i]
+		size := b.FilledSize()
+		if size.IsZero() {
+			continue
+		}
+		acc = acc.Add(size)
+		if len(b.TaxLotIDs()) == 0 {
+			missing = append(missing, b)
+		}
+	}
+	return missing
 }
 
 func (v *Looper) unusedTaxLots() []gobs.TaxLotID {
