@@ -217,6 +217,15 @@ type Client struct {
 	wg sync.WaitGroup
 
 	reloginMutex sync.Mutex
+	// relogin backoff state, guarded by reloginMutex. lastReloginAt and
+	// lastReloginErr record the previous login attempt so the burst of relogin
+	// calls a single expired token triggers across all polling goroutines is
+	// coalesced into one attempt per backoff window. reloginFailures counts
+	// consecutive failures and grows the window exponentially (see
+	// reloginBackoff).
+	lastReloginAt   time.Time
+	lastReloginErr  error
+	reloginFailures int
 
 	opts  Options
 	creds atomic.Pointer[Credentials]
@@ -1497,10 +1506,85 @@ func (c *Client) goLogin(ctx context.Context) {
 	}
 }
 
+const (
+	// reloginSuccessCooldown is how long a successful login suppresses further
+	// login attempts, so the burst of 401 callers that triggered it reuse the
+	// freshly stored credentials instead of each launching another login.
+	reloginSuccessCooldown = time.Minute
+	// reloginBackoffBase and reloginBackoffMax bound the exponential backoff
+	// applied after consecutive failed logins (e.g. a midnight session rollover
+	// whose login is blocked on manual MFA), so attempts drop from every few
+	// seconds to a few an hour.
+	reloginBackoffBase = time.Minute
+	reloginBackoffMax  = 30 * time.Minute
+)
+
+// relogin refreshes the E*TRADE credentials by running the login flow. It is
+// rate limited: concurrent callers are serialized by reloginMutex, and a caller
+// that arrives within the backoff window of the previous attempt returns that
+// attempt's result instead of launching another browser login. This coalesces
+// the burst of 401s a single expired token produces across every polling
+// goroutine, which otherwise relogins back-to-back and, when the login needs
+// manual MFA, becomes a continuous retry storm.
 func (c *Client) relogin(ctx context.Context) error {
 	c.reloginMutex.Lock()
 	defer c.reloginMutex.Unlock()
 
+	if !c.lastReloginAt.IsZero() && time.Since(c.lastReloginAt) < c.reloginBackoff() {
+		return c.lastReloginErr
+	}
+
+	err := c.performLogin(ctx)
+	c.lastReloginAt = time.Now()
+	c.lastReloginErr = err
+	if err != nil {
+		c.reloginFailures++
+	} else {
+		c.reloginFailures = 0
+	}
+	return err
+}
+
+// reloginBackoff returns the minimum interval that must elapse after the last
+// login attempt before another is launched: a short cooldown after a success,
+// or an exponentially growing delay (capped at reloginBackoffMax) after
+// consecutive failures.
+func (c *Client) reloginBackoff() time.Duration {
+	if c.reloginFailures == 0 {
+		return reloginSuccessCooldown
+	}
+	d := reloginBackoffBase
+	for i := 1; i < c.reloginFailures && d < reloginBackoffMax; i++ {
+		d *= 2
+	}
+	if d > reloginBackoffMax {
+		return reloginBackoffMax
+	}
+	return d
+}
+
+// logLoginOutput emits the login subprocess's captured stdout+stderr into the
+// normal slog stream, one record per non-empty line, so the real reason for a
+// failure (e.g. an MFA challenge the unattended flow cannot answer) is visible
+// in the daemon logs instead of being hidden behind a bare "exit status 1".
+// Lines are logged at Error level when the login failed, so they land in the
+// ERROR log alongside the failure, and at Info otherwise.
+func logLoginOutput(ctx context.Context, output string, failed bool) {
+	level := slog.LevelInfo
+	if failed {
+		level = slog.LevelError
+	}
+	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		slog.Log(ctx, level, "etrade login subprocess output", "line", line)
+	}
+}
+
+// performLogin runs the login subprocess and swaps in the refreshed
+// credentials. It must be called with reloginMutex held (via relogin).
+func (c *Client) performLogin(ctx context.Context) error {
 	if c.opts.DisplayRunner == nil {
 		return fmt.Errorf("etrade: a X11 display server is required for automated logins")
 	}
@@ -1521,7 +1605,18 @@ func (c *Client) relogin(ctx context.Context) error {
 	slog.Info("starting etrade autologin", "environ", environ)
 	cmd := exec.CommandContext(ctx, cmdline[0], cmdline[1:]...)
 	cmd.Env = environ
-	if err := c.opts.DisplayRunner.RunWithDisplay(cmd); err != nil {
+	// Capture the subprocess's combined stdout+stderr and surface it through
+	// slog; otherwise its output -- including the real failure reason, such as
+	// an MFA challenge the unattended flow cannot answer -- is written to the
+	// daemon's inherited fds and lost behind a bare "exit status 1". Pointing
+	// both streams at one buffer is safe: os/exec serializes the writes when
+	// Stdout == Stderr.
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	err := c.opts.DisplayRunner.RunWithDisplay(cmd)
+	logLoginOutput(ctx, output.String(), err != nil)
+	if err != nil {
 		slog.Error("etrade: could not perform unattended login", "err", err)
 		return err
 	}
