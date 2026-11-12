@@ -8,12 +8,15 @@
 package autologin
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/mxschmitt/playwright-go"
 )
@@ -85,7 +88,35 @@ func Run(ctx context.Context, opts Options) (accessToken, accessTokenSecret stri
 		return "", "", fmt.Errorf("autologin: could not fetch request token: %w", err)
 	}
 
-	pw, err := playwright.Run()
+	// Capture the Playwright driver's output and, via the pw:browser debug
+	// channel, the Chromium process's own stdout/stderr. We cannot attach to
+	// Chromium's file descriptors directly -- Playwright's driver owns that
+	// process -- but pw:browser makes the driver forward its stdio onto the
+	// driver's stderr, which RunOptions.Stderr routes here. Without this, a
+	// browser-side failure (a crash, a GPU/swiftshader error, "profile already
+	// in use") is hidden behind the driver's generic error. The streams are
+	// buffered and flushed to slog only when the login fails: a successful
+	// login emits nothing but Chromium's startup chatter, which is noise.
+	// Passing Logger keeps playwright-go from redirecting the process-wide std
+	// logger onto our buffer; only enable the debug channel if the caller has
+	// not set their own DEBUG filter.
+	if os.Getenv("DEBUG") == "" {
+		os.Setenv("DEBUG", "pw:browser")
+	}
+	browserOutput := new(browserLog)
+	defer func() {
+		if err != nil {
+			browserOutput.flushTo(func(line string) {
+				slog.Error("etrade browser output", "line", line)
+			})
+		}
+	}()
+
+	pw, err := playwright.Run(&playwright.RunOptions{
+		Stdout: browserOutput,
+		Stderr: browserOutput,
+		Logger: slog.Default(),
+	})
 	if err != nil {
 		return "", "", fmt.Errorf("autologin: could not start playwright: %w", err)
 	}
@@ -216,6 +247,49 @@ func Run(ctx context.Context, opts Options) (accessToken, accessTokenSecret stri
 		return "", "", fmt.Errorf("autologin: could not exchange verifier %q for access token: %w", verifier, err)
 	}
 	return accessToken, accessTokenSecret, nil
+}
+
+// browserLog is an io.Writer that accumulates the Playwright driver's and
+// Chromium's combined stdout/stderr, split into lines. The output is buffered
+// rather than logged live: a successful login produces only Chromium's startup
+// chatter, which is noise, so flushTo emits the buffered lines only when the
+// login fails -- where they carry the real browser-side failure reason.
+type browserLog struct {
+	mu      sync.Mutex
+	partial []byte
+	lines   []string
+}
+
+func (b *browserLog) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.partial = append(b.partial, p...)
+	for {
+		i := bytes.IndexByte(b.partial, '\n')
+		if i < 0 {
+			break
+		}
+		if line := strings.TrimRight(string(b.partial[:i]), "\r"); line != "" {
+			b.lines = append(b.lines, line)
+		}
+		b.partial = b.partial[i+1:]
+	}
+	return len(p), nil
+}
+
+// flushTo passes each buffered line (including any unterminated trailing line)
+// to logFn and clears the buffer.
+func (b *browserLog) flushTo(logFn func(string)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if line := strings.TrimRight(string(b.partial), "\r"); line != "" {
+		b.lines = append(b.lines, line)
+	}
+	b.partial = nil
+	for _, line := range b.lines {
+		logFn(line)
+	}
+	b.lines = nil
 }
 
 func currentPage(browserCtx playwright.BrowserContext) (playwright.Page, error) {
