@@ -1135,9 +1135,17 @@ func (c *Client) goRenewToken(ctx context.Context) {
 			if errors.Is(err, context.Cause(ctx)) {
 				return
 			}
-			slog.Error("etrade: token renewal failed; re-run 'setup etrade' to reauthorize", "err", err)
-			c.lifeCancel(err)
-			return
+			// A renewal failure is recoverable and must not tear down the
+			// client. Cancelling lifeCtx here kills every E*TRADE goroutine at
+			// once -- price/balance/order polling, portfolio tracking, and the
+			// relogin loop itself -- leaving the client permanently dormant
+			// until a daemon restart (a single transient network timeout did
+			// exactly this on 2026-11-15). Instead log and retry on the next
+			// tick: a transient error clears by itself, and a genuinely
+			// expired/invalid token is restored by the 401-triggered relogin or
+			// the hourly goLogin, both of which stay alive now.
+			slog.Warn("etrade: token renewal failed (will retry)", "err", err)
+			continue
 		}
 		slog.Info("etrade: access token renewed")
 	}
